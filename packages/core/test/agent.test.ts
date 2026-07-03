@@ -1,15 +1,47 @@
 import { describe, expect, test } from "bun:test"
-import type { Model } from "@swain/llms"
-import { ModelId, ProviderId } from "@swain/llms"
-import { Stream } from "effect"
+import type { Model, ToolCall } from "@swain/llms"
+import { ModelId, ProviderId, ToolCallId } from "@swain/llms"
+import { Effect, Layer, Schema, Stream } from "effect"
+import type { Permissions } from "../src/permission"
 import { assembleSystemPrompt } from "../src/prompt"
-import { createSessionState } from "../src/state"
+import { createSessionState, type SessionState } from "../src/state"
+import { callTool, defineTool, registryLayer, ToolContext, toLLMTool } from "../src/tools"
 
 const model: Model = {
   id: ModelId.make("test-model"),
   provider: ProviderId.make("test"),
   streamTurn: () => Stream.empty,
 }
+
+const allowPermissions: Permissions = { check: () => Effect.succeed({ type: "allow" }) }
+
+const session = (): SessionState =>
+  createSessionState({ workingDirectory: "/work", model, currentDate: "2026-07-04" })
+
+const toolContextLayer = (state: SessionState) =>
+  Layer.succeed(ToolContext, {
+    session: state,
+    abortSignal: new AbortController().signal,
+    permission: allowPermissions,
+  })
+
+const toolCall = (name: string, input: unknown): ToolCall => ({
+  type: "tool-call",
+  toolCallId: ToolCallId.make("call-1"),
+  name,
+  input,
+})
+
+const runCall = (
+  call: ToolCall,
+  tools: ReadonlyArray<Parameters<typeof registryLayer>[0][number]>,
+) =>
+  Effect.runPromise(
+    callTool(call).pipe(
+      Effect.provide(toolContextLayer(session())),
+      Effect.provide(registryLayer(tools)),
+    ),
+  )
 
 const baseInput = {
   workingDirectory: "/work",
@@ -66,7 +98,7 @@ describe("createSessionState", () => {
   })
 
   test("seeds messages and honors an explicit session id and mode", () => {
-    const session = createSessionState({
+    const state = createSessionState({
       sessionId: "s-1",
       workingDirectory: "/work",
       model,
@@ -74,8 +106,70 @@ describe("createSessionState", () => {
       currentDate: "2026-07-04",
       messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
     })
-    expect(session.sessionId).toBe("s-1")
-    expect(session.systemContext.permissionMode).toBe("plan")
-    expect(session.messages).toHaveLength(1)
+    expect(state.sessionId).toBe("s-1")
+    expect(state.systemContext.permissionMode).toBe("plan")
+    expect(state.messages).toHaveLength(1)
+  })
+})
+
+describe("tool registry and caller", () => {
+  const doubler = defineTool({
+    name: "Doubler",
+    description: "doubles a number",
+    inputSchema: Schema.Struct({ value: Schema.Number }),
+    outputSchema: Schema.Struct({ doubled: Schema.Number }),
+    readOnly: true,
+    call: (input) => Effect.succeed({ doubled: input.value * 2 }),
+  })
+
+  test("toLLMTool derives a model-facing definition with JSON schemas", () => {
+    const llmTool = toLLMTool(doubler)
+    expect(llmTool.name).toBe("Doubler")
+    expect(llmTool.inputSchema.type).toBe("object")
+    expect(llmTool.outputSchema?.type).toBe("object")
+  })
+
+  test("valid call returns output as a ToolResultContent", async () => {
+    const result = await runCall(toolCall("Doubler", { value: 21 }), [doubler])
+    expect(result.type).toBe("tool-result")
+    expect(result.isError).toBeUndefined()
+    expect(result.result).toEqual({ type: "json", value: { doubled: 42 } })
+  })
+
+  test("unknown tool returns an error result", async () => {
+    const result = await runCall(toolCall("Missing", {}), [doubler])
+    expect(result.isError).toBe(true)
+    expect(result.result.type).toBe("text")
+  })
+
+  test("invalid input never reaches call", async () => {
+    let called = false
+    const guarded = defineTool({
+      name: "Guarded",
+      description: "records invocation",
+      inputSchema: Schema.Struct({ value: Schema.Number }),
+      outputSchema: Schema.Struct({ ok: Schema.Boolean }),
+      readOnly: true,
+      call: () => {
+        called = true
+        return Effect.succeed({ ok: true })
+      },
+    })
+    const result = await runCall(toolCall("Guarded", { value: "not-a-number" }), [guarded])
+    expect(called).toBe(false)
+    expect(result.isError).toBe(true)
+  })
+
+  test("invalid output fails before returning to the model", async () => {
+    const badOutput = defineTool({
+      name: "BadOutput",
+      description: "returns the wrong shape",
+      inputSchema: Schema.Struct({ value: Schema.Number }),
+      outputSchema: Schema.Struct({ doubled: Schema.Number }),
+      readOnly: true,
+      call: () => Effect.succeed({ wrong: true } as unknown as { doubled: number }),
+    })
+    const result = await runCall(toolCall("BadOutput", { value: 1 }), [badOutput])
+    expect(result.isError).toBe(true)
   })
 })
