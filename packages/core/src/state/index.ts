@@ -1,4 +1,3 @@
-export { assembleSystemPrompt, type SystemPromptInput } from "./prompt"
 export {
   type CreateSessionInput,
   createSessionState,
@@ -7,4 +6,4 @@ export {
   type SessionCounters,
   type SessionState,
   type SystemContext,
-} from "./state"
+} from "./session"
