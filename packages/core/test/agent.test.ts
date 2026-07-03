@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Model, ToolCall } from "@swain/llms"
-import { ModelId, ProviderId, ToolCallId } from "@swain/llms"
+import { LLMClient, LLMTurnSummary, ModelId, ProviderId, ToolCallId } from "@swain/llms"
 import { Effect, Layer, Schema, Stream } from "effect"
 import type { Permissions } from "../src/permission"
 import { assembleSystemPrompt } from "../src/prompt"
@@ -14,6 +14,8 @@ import {
   ToolContext,
   toLLMTool,
 } from "../src/tools"
+import { textTurn, toolCallTurn } from "./utils/fixtures"
+import { scriptedLLMClient } from "./utils/harness"
 
 const model: Model = {
   id: ModelId.make("test-model"),
@@ -179,6 +181,46 @@ describe("tool registry and caller", () => {
     })
     const result = await runCall(toolCall("BadOutput", { value: 1 }), [badOutput])
     expect(result.isError).toBe(true)
+  })
+})
+
+describe("harness", () => {
+  const echo = defineTool({
+    name: "Echo",
+    description: "echoes a message",
+    inputSchema: Schema.Struct({ msg: Schema.String }),
+    outputSchema: Schema.Struct({ echoed: Schema.String }),
+    readOnly: true,
+    call: (input) => Effect.succeed({ echoed: input.msg }),
+  })
+
+  test("drives a prompt through LLM -> tool -> LLM without network", async () => {
+    const llm = scriptedLLMClient([toolCallTurn("Echo", { msg: "hi" }), textTurn("done")])
+    const collect = (request: Parameters<typeof LLMClient.streamTurn>[0]) =>
+      LLMClient.streamTurn(request).pipe(
+        Stream.runCollect,
+        Effect.map((chunk) => Array.from(chunk)),
+      )
+
+    const program = Effect.gen(function* () {
+      const request = LLMClient.request({ model, prompt: "hi" })
+      const first = yield* LLMTurnSummary.fromEvents(yield* collect(request))
+      const toolResult = yield* callTool(first.toolCalls[0]!)
+      const second = yield* LLMTurnSummary.fromEvents(yield* collect(request))
+      return { first, toolResult, second }
+    })
+
+    const { first, toolResult, second } = await Effect.runPromise(
+      program.pipe(
+        Effect.provide(llm),
+        Effect.provide(toolContextLayer(session())),
+        Effect.provide(registryLayer([echo])),
+      ),
+    )
+
+    expect(first.finish.reason).toBe("tool-call")
+    expect(toolResult.result).toEqual({ type: "json", value: { echoed: "hi" } })
+    expect(second.text).toBe("done")
   })
 })
 
