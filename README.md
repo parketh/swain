@@ -19,6 +19,7 @@ Swain is an agent harness for coding. The first package, `@swain/llms`, is a pro
 ```
 packages/
   llms/    # provider-neutral LLM schema, protocols, provider facades, transport
+  core/    # Effect-native agent loop: session state, tools, permissions, files
 specs/     # numbered build journals and design records
 ```
 
@@ -39,5 +40,5 @@ bun run typecheck
 bun run format
 bun run format:check
 # run tests
-bun test packages/llms/test
+bun test packages/llms/test packages/core/test
 ```
