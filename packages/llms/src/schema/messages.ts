@@ -88,6 +88,7 @@ const ToolSchema = Schema.Struct({
   name: Schema.String,
   description: Schema.String,
   inputSchema: JsonSchemaObject,
+  outputSchema: Schema.optional(JsonSchemaObject),
 })
 
 export const Tool = Object.assign(ToolSchema, {
@@ -95,7 +96,14 @@ export const Tool = Object.assign(ToolSchema, {
     readonly name: string
     readonly description: string
     readonly inputSchema: JsonSchemaObject
-  }): Tool => ToolSchema.make(input),
+    readonly outputSchema?: JsonSchemaObject
+  }): Tool =>
+    ToolSchema.make({
+      name: input.name,
+      description: input.description,
+      inputSchema: input.inputSchema,
+      ...(input.outputSchema !== undefined && { outputSchema: input.outputSchema }),
+    }),
 })
 export type Tool = typeof ToolSchema.Type
 
