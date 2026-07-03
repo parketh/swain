@@ -15,3 +15,8 @@ export class ToolError extends Data.TaggedError("ToolError")<{
   readonly reason: ToolErrorReason
   readonly message: string
 }> {}
+
+export class AgentError extends Data.TaggedError("AgentError")<{
+  readonly reason: "max-iterations"
+  readonly message: string
+}> {}

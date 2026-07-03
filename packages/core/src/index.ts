@@ -1,4 +1,5 @@
-export { ToolError, type ToolErrorReason } from "./errors"
+export { type RunTurnOptions, runTurn, submitPrompt } from "./agent"
+export { AgentError, ToolError, type ToolErrorReason } from "./errors"
 export {
   type Approval,
   ApprovalService,

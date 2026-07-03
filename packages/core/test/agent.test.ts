@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test"
 import type { Model, ToolCall } from "@swain/llms"
 import { LLMClient, LLMTurnSummary, ModelId, ProviderId, ToolCallId } from "@swain/llms"
 import { Effect, Layer, Schema, Stream } from "effect"
+import { runTurn, submitPrompt } from "../src/agent"
+import { AgentError } from "../src/errors"
 import type { Permissions } from "../src/permission"
 import { assembleSystemPrompt } from "../src/prompt"
 import { createSessionState, type SessionState } from "../src/state"
@@ -221,6 +223,80 @@ describe("harness", () => {
     expect(first.finish.reason).toBe("tool-call")
     expect(toolResult.result).toEqual({ type: "json", value: { echoed: "hi" } })
     expect(second.text).toBe("done")
+  })
+})
+
+describe("runTurn", () => {
+  const echo = defineTool({
+    name: "Echo",
+    description: "echoes a message",
+    inputSchema: Schema.Struct({ msg: Schema.String }),
+    outputSchema: Schema.Struct({ echoed: Schema.String }),
+    readOnly: true,
+    call: (input) => Effect.succeed({ echoed: input.msg }),
+  })
+
+  const drive = (
+    turns: Parameters<typeof scriptedLLMClient>[0],
+    tools: ReadonlyArray<Parameters<typeof registryLayer>[0][number]>,
+    options?: { maxIterations?: number },
+  ) => {
+    const state = session()
+    submitPrompt(state, "hi")
+    return {
+      state,
+      run: Effect.runPromise(
+        runTurn(state, options).pipe(
+          Effect.provide(scriptedLLMClient(turns)),
+          Effect.provide(toolContextLayer(state)),
+          Effect.provide(registryLayer(tools)),
+        ),
+      ),
+    }
+  }
+
+  test("a text-only turn appends the assistant message", async () => {
+    const { state, run } = drive([textTurn("hello there")], [])
+    await run
+    expect(state.messages).toHaveLength(2)
+    expect(state.messages[1]).toEqual({
+      role: "assistant",
+      content: [{ type: "text", text: "hello there" }],
+    })
+    expect(state.counters.turns).toBe(1)
+    expect(state.counters.outputTokens).toBe(1)
+  })
+
+  test("executes a tool call and submits the result to the next turn", async () => {
+    const { state, run } = drive([toolCallTurn("Echo", { msg: "hi" }), textTurn("done")], [echo])
+    await run
+    // user, assistant(tool-call), user(tool-result), assistant("done")
+    expect(state.messages).toHaveLength(4)
+    const toolResult = state.messages[2]
+    expect(toolResult?.role).toBe("user")
+    expect(toolResult?.content[0]).toMatchObject({
+      type: "tool-result",
+      result: { type: "json", value: { echoed: "hi" } },
+    })
+    expect(state.messages[3]).toEqual({
+      role: "assistant",
+      content: [{ type: "text", text: "done" }],
+    })
+  })
+
+  test("fails with a typed error when the tool loop never terminates", async () => {
+    const state = session()
+    submitPrompt(state, "hi")
+    const error = await Effect.runPromise(
+      runTurn(state, { maxIterations: 3 }).pipe(
+        Effect.flip,
+        Effect.provide(scriptedLLMClient([toolCallTurn("Echo", { msg: "hi" })])),
+        Effect.provide(toolContextLayer(state)),
+        Effect.provide(registryLayer([echo])),
+      ),
+    )
+    expect(error).toBeInstanceOf(AgentError)
+    expect((error as AgentError).reason).toBe("max-iterations")
   })
 })
 
