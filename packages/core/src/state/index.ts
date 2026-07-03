@@ -11,3 +11,4 @@ export {
   type SystemContext,
   withFileLock,
 } from "./session"
+export { type LoadSessionInput, loadSession, saveSession } from "./store"

@@ -1,4 +1,8 @@
-import { describe, expect, test } from "bun:test"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { BunContext } from "@effect/platform-bun"
 import type { Model, ToolCall } from "@swain/llms"
 import { LLMClient, LLMTurnSummary, ModelId, ProviderId, ToolCallId } from "@swain/llms"
 import { Effect, Layer, Schema, Stream } from "effect"
@@ -6,7 +10,7 @@ import { runTurn, submitPrompt } from "../src/agent"
 import { AgentError } from "../src/errors"
 import type { Permissions } from "../src/permission"
 import { assembleSystemPrompt } from "../src/prompt"
-import { createSessionState, type SessionState } from "../src/state"
+import { createSessionState, loadSession, type SessionState, saveSession } from "../src/state"
 import {
   Ask,
   AskService,
@@ -328,5 +332,49 @@ describe("Ask tool", () => {
       type: "json",
       value: { answers: [{ question: "Framework?", selected: ["Bun"] }] },
     })
+  })
+})
+
+describe("session persistence", () => {
+  let dir: string
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "swain-store-"))
+  })
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  test("saved transcript reloads with restored counters and an empty file cache", async () => {
+    const original = createSessionState({
+      sessionId: "s-persist",
+      workingDirectory: dir,
+      model,
+      permissionMode: "auto",
+      currentDate: "2026-07-04",
+    })
+    submitPrompt(original, "remember this")
+    original.messages.push({ role: "assistant", content: [{ type: "text", text: "noted" }] })
+    original.counters.turns = 2
+    original.counters.inputTokens = 11
+    original.counters.outputTokens = 7
+    original.fileState.set("/tmp/whatever", {
+      path: "/tmp/whatever",
+      kind: "text",
+      lastModifiedMs: 1,
+      digest: "d",
+      content: "c",
+    })
+
+    const reloaded = await Effect.runPromise(
+      saveSession(original)
+        .pipe(Effect.andThen(loadSession({ sessionId: "s-persist", model, rootDir: dir })))
+        .pipe(Effect.provide(BunContext.layer)),
+    )
+
+    expect(reloaded.sessionId).toBe("s-persist")
+    expect(reloaded.systemContext.permissionMode).toBe("auto")
+    expect(reloaded.messages).toEqual(original.messages)
+    expect(reloaded.counters).toEqual({ turns: 2, inputTokens: 11, outputTokens: 7 })
+    expect(reloaded.fileState.size).toBe(0)
   })
 })

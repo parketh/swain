@@ -18,7 +18,10 @@ export {
   createSessionState,
   type FileStateCache,
   type FileStateEntry,
+  type LoadSessionInput,
+  loadSession,
   type SessionCounters,
   type SessionState,
   type SystemContext,
+  saveSession,
 } from "./state"
