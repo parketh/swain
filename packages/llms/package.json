@@ -1,0 +1,28 @@
+{
+  "name": "@swain/llms",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema/index.ts",
+    "./providers": "./src/providers/index.ts",
+    "./protocols": "./src/protocols/index.ts",
+    "./transport": "./src/transport/index.ts"
+  },
+  "dependencies": {
+    "effect": "3.21.4",
+    "@effect/platform": "0.96.2"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.2",
+    "@tsconfig/bun": "1.0.10",
+    "@types/bun": "1.3.14",
+    "typescript": "6.0.3"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "test": "bun test test"
+  }
+}

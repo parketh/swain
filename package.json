@@ -1,0 +1,13 @@
+{
+  "name": "swain",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.3.14",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "typecheck": "bun run --cwd packages/llms typecheck",
+    "format": "bun run --cwd packages/llms format",
+    "format:check": "bun run --cwd packages/llms format:check",
+    "test": "bun test packages/llms/test"
+  }
+}
