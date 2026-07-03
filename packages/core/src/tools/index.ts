@@ -18,4 +18,15 @@ export {
   type ToolContextValue,
   toLLMTool,
 } from "./tool"
+export { WebFetch, WebFetchInput, WebFetchResult } from "./web-fetch"
+export {
+  ExaSearchProvider,
+  exaSearch,
+  makeWebSearch,
+  type SearchProvider,
+  WebSearch,
+  WebSearchInput,
+  WebSearchOutput,
+  WebSearchResult,
+} from "./web-search"
 export { Write, WriteInput, WriteResult } from "./write"
