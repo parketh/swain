@@ -1,0 +1,282 @@
+import { describe, expect, test } from "bun:test"
+import {
+  GenerationOptions,
+  LLMError,
+  LLMEvent,
+  LLMTurnSummary,
+  Message,
+  SystemContent,
+  Tool,
+  ToolCallId,
+} from "@swain/llms"
+import { AnthropicMessages } from "@swain/llms/protocols"
+import { Effect, Stream } from "effect"
+import {
+  fatalErrorChunks,
+  invalidToolJsonChunks,
+  maxTokensTurnChunks,
+  nonfatalFactChunks,
+  textTurnChunks,
+  thinkingTurnChunks,
+  toolUseTurnChunks,
+} from "./fixtures/anthropic-message-events"
+
+const prepareSync = (
+  ...args: Parameters<typeof AnthropicMessages.prepare>
+): Effect.Effect.Success<ReturnType<typeof AnthropicMessages.prepare>> =>
+  Effect.runSync(AnthropicMessages.prepare(...args))
+
+const prepareFailure = (...args: Parameters<typeof AnthropicMessages.prepare>) =>
+  Effect.runSync(AnthropicMessages.prepare(...args).pipe(Effect.flip))
+
+const decodeAll = (chunks: Array<unknown>) =>
+  Effect.runPromise(
+    AnthropicMessages.decode(Stream.fromIterable(chunks)).pipe(Stream.runCollect),
+  ).then((events) => Array.from(events))
+
+const decodeFailure = (chunks: Array<unknown>) =>
+  Effect.runPromise(
+    AnthropicMessages.decode(Stream.fromIterable(chunks)).pipe(Stream.runCollect, Effect.flip),
+  )
+
+describe("AnthropicMessages.prepare", () => {
+  test("builds the expected body for system + user + tool definitions", () => {
+    const lookup = Tool.define({
+      name: "lookup",
+      description: "Look up a value",
+      inputSchema: {
+        type: "object",
+        properties: { query: { type: "string" } },
+        required: ["query"],
+        additionalProperties: false,
+      },
+    })
+    const { path, headers, body } = prepareSync({
+      modelId: "claude-sonnet-4-5",
+      system: SystemContent.text("You are helpful."),
+      messages: [
+        Message.user("What is bun?"),
+        Message.assistant([
+          {
+            type: "tool-call",
+            toolCallId: ToolCallId.make("toolu_01"),
+            name: "lookup",
+            input: { query: "bun" },
+          },
+        ]),
+        Message.user([
+          { type: "text", text: "Summarize that." },
+          {
+            type: "tool-result",
+            toolCallId: ToolCallId.make("toolu_01"),
+            name: "lookup",
+            result: { type: "json", value: { answer: "a fast js runtime" } },
+            isError: false,
+          },
+        ]),
+      ],
+      tools: [lookup],
+      toolChoice: "auto",
+      generation: GenerationOptions.make({ maxTokens: 512, stop: ["END"] }),
+    })
+
+    expect(path).toBe("/messages")
+    expect(headers).toEqual({
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+    })
+    expect(body).toEqual({
+      model: "claude-sonnet-4-5",
+      messages: [
+        { role: "user", content: [{ type: "text", text: "What is bun?" }] },
+        {
+          role: "assistant",
+          content: [{ type: "tool_use", id: "toolu_01", name: "lookup", input: { query: "bun" } }],
+        },
+        {
+          role: "user",
+          // tool_result blocks are reordered before text per Anthropic's constraint
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "toolu_01",
+              content: '{"answer":"a fast js runtime"}',
+              is_error: false,
+            },
+            { type: "text", text: "Summarize that." },
+          ],
+        },
+      ],
+      stream: true,
+      max_tokens: 512,
+      system: "You are helpful.",
+      tools: [
+        {
+          name: "lookup",
+          description: "Look up a value",
+          input_schema: {
+            type: "object",
+            properties: { query: { type: "string" } },
+            required: ["query"],
+            additionalProperties: false,
+          },
+        },
+      ],
+      tool_choice: { type: "auto" },
+      stop_sequences: ["END"],
+    })
+  })
+
+  test("text tool results lower to string content and named tool choice to type tool", () => {
+    const { body } = prepareSync({
+      modelId: "claude-sonnet-4-5",
+      messages: [
+        Message.user([
+          {
+            type: "tool-result",
+            toolCallId: ToolCallId.make("toolu_02"),
+            result: { type: "text", value: "plain result" },
+          },
+        ]),
+      ],
+      toolChoice: { type: "tool", name: "lookup" },
+    })
+    expect(body.messages).toEqual([
+      {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "toolu_02", content: "plain result" }],
+      },
+    ])
+    expect(body.tool_choice).toEqual({ type: "tool", name: "lookup" })
+  })
+
+  test("max_tokens defaults when the request carries none", () => {
+    const { body } = prepareSync({ modelId: "m", messages: [Message.user("hi")] })
+    expect(body.max_tokens).toBe(4096)
+    const configured = prepareSync(
+      { modelId: "m", messages: [Message.user("hi")] },
+      { defaultMaxTokens: 1024 },
+    )
+    expect(configured.body.max_tokens).toBe(1024)
+  })
+
+  test("sequencing constraints fail locally with invalid-request", () => {
+    const emptyMessages = prepareFailure({ modelId: "m", messages: [] })
+    expect(emptyMessages).toBeInstanceOf(LLMError)
+    expect(emptyMessages.reason).toBe("invalid-request")
+
+    const assistantFirst = prepareFailure({
+      modelId: "m",
+      messages: [Message.assistant("hello")],
+    })
+    expect(assistantFirst.reason).toBe("invalid-request")
+
+    const emptyContent = prepareFailure({
+      modelId: "m",
+      messages: [Message.user([])],
+    })
+    expect(emptyContent.reason).toBe("invalid-request")
+  })
+})
+
+describe("AnthropicMessages.decode", () => {
+  test("text deltas produce lifecycle events with usage on finish", async () => {
+    const events = await decodeAll(textTurnChunks)
+    expect(events as Array<unknown>).toEqual([
+      { type: "text-start", contentId: "text-1" },
+      { type: "text-delta", contentId: "text-1", text: "Hello" },
+      { type: "text-delta", contentId: "text-1", text: " world" },
+      { type: "text-end", contentId: "text-1" },
+      { type: "finish", reason: "stop", usage: { inputTokens: 12, outputTokens: 4 } },
+    ])
+    const summary = await Effect.runPromise(LLMTurnSummary.fromEvents(events))
+    expect(summary.text).toBe("Hello world")
+  })
+
+  test("tool-use partial JSON produces input lifecycle events and final tool-call", async () => {
+    const events = await decodeAll(toolUseTurnChunks)
+    expect(events as Array<unknown>).toEqual([
+      { type: "text-start", contentId: "text-1" },
+      { type: "text-delta", contentId: "text-1", text: "Looking it up." },
+      { type: "text-end", contentId: "text-1" },
+      { type: "tool-input-start", toolCallId: "toolu_01", name: "lookup" },
+      { type: "tool-input-delta", toolCallId: "toolu_01", text: '{"query":' },
+      { type: "tool-input-delta", toolCallId: "toolu_01", text: '"bun"}' },
+      { type: "tool-input-end", toolCallId: "toolu_01", name: "lookup" },
+      { type: "tool-call", toolCallId: "toolu_01", name: "lookup", input: { query: "bun" } },
+      { type: "finish", reason: "tool-call", usage: { inputTokens: 30, outputTokens: 15 } },
+    ])
+  })
+
+  test("thinking deltas produce reasoning events and signature deltas stay local", async () => {
+    const events = await decodeAll(thinkingTurnChunks)
+    expect(events as Array<unknown>).toEqual([
+      { type: "reasoning-start", contentId: "reasoning-1" },
+      { type: "reasoning-delta", contentId: "reasoning-1", text: "Consider" },
+      { type: "reasoning-delta", contentId: "reasoning-1", text: " carefully." },
+      { type: "reasoning-end", contentId: "reasoning-1" },
+      { type: "text-start", contentId: "text-1" },
+      { type: "text-delta", contentId: "text-1", text: "The answer is 4." },
+      { type: "text-end", contentId: "text-1" },
+      { type: "finish", reason: "stop", usage: { inputTokens: 20, outputTokens: 9 } },
+    ])
+    const summary = await Effect.runPromise(LLMTurnSummary.fromEvents(events))
+    expect(summary.reasoning).toBe("Consider carefully.")
+    expect(summary.text).toBe("The answer is 4.")
+  })
+
+  test("max_tokens stop reason lowers to length", async () => {
+    const events = await decodeAll(maxTokensTurnChunks)
+    const finish = events.at(-1)
+    expect(finish).toEqual({
+      type: "finish",
+      reason: "length",
+      usage: { inputTokens: 6, outputTokens: 2 },
+    })
+  })
+
+  test("nonfatal error facts map to ProviderError and the stream still finishes", async () => {
+    const events = await decodeAll(nonfatalFactChunks)
+    const providerErrors = events.filter(LLMEvent.is.providerError)
+    expect(providerErrors).toEqual([
+      {
+        type: "provider-error",
+        message: "degraded quality period",
+        code: "informational_notice",
+        recoverable: true,
+      },
+    ])
+    const summary = await Effect.runPromise(LLMTurnSummary.fromEvents(events))
+    expect(summary.text).toBe("Hi there")
+    expect(summary.finish.reason).toBe("stop")
+  })
+
+  test("fatal error events fail with LLMError", async () => {
+    const error = await decodeFailure(fatalErrorChunks)
+    expect(error).toBeInstanceOf(LLMError)
+    expect(error.reason).toBe("overloaded")
+    expect(error.retryable).toBe(true)
+  })
+
+  test("malformed tool input JSON fails with invalid-provider-output", async () => {
+    const error = await decodeFailure(invalidToolJsonChunks)
+    expect(error).toBeInstanceOf(LLMError)
+    expect(error.reason).toBe("invalid-provider-output")
+  })
+
+  test("successful fixture streams end with exactly one final finish", async () => {
+    for (const fixture of [
+      textTurnChunks,
+      toolUseTurnChunks,
+      thinkingTurnChunks,
+      nonfatalFactChunks,
+      maxTokensTurnChunks,
+    ]) {
+      const events = await decodeAll(fixture)
+      const finishes = events.filter(LLMEvent.is.finish)
+      expect(finishes).toHaveLength(1)
+      expect(events.at(-1)?.type).toBe("finish")
+      await Effect.runPromise(LLMTurnSummary.fromEvents(events))
+    }
+  })
+})
