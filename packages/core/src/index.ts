@@ -1,3 +1,16 @@
+export { ToolError, type ToolErrorReason } from "./errors"
+export {
+  type Approval,
+  ApprovalService,
+  allow,
+  autoApproval,
+  deny,
+  makePermissions,
+  type PermissionDecision,
+  type PermissionMode,
+  type PermissionRequest,
+  type Permissions,
+} from "./permission"
 export { assembleSystemPrompt, type SystemPromptInput } from "./prompt"
 export {
   type CreateSessionInput,
