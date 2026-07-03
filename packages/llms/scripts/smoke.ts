@@ -22,7 +22,7 @@ const targets: ReadonlyArray<SmokeTarget> = [
   {
     name: "openai-codex",
     env: "OPENAI_CODEX_ACCESS_TOKEN",
-    model: () => OpenAICodex.configure().model("gpt-5.1-codex"),
+    model: () => OpenAICodex.configure().model("gpt-5.5"),
   },
   {
     name: "anthropic",
