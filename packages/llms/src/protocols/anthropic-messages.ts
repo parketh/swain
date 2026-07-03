@@ -37,6 +37,17 @@ export interface AnthropicMessagesConfig {
   readonly defaultMaxTokens?: number
 }
 
+/**
+ * Anthropic-specific request options read from `providerOptions.anthropic`.
+ * Sampling support varies by model; current Claude models reject `temperature`
+ * combined with `topP`.
+ */
+export interface AnthropicOptions {
+  readonly temperature?: number
+  readonly topP?: number
+  readonly topK?: number
+}
+
 export interface PreparedAnthropicRequest {
   readonly path: string
   readonly headers: Record<string, string>
@@ -148,8 +159,9 @@ const lowerTool = (tool: Tool) => ({
 const prepare = (
   request: AnthropicMessagesRequest,
   config: AnthropicMessagesConfig = {},
-): Effect.Effect<PreparedAnthropicRequest, LLMError> =>
-  lowerMessages(request.messages).pipe(
+): Effect.Effect<PreparedAnthropicRequest, LLMError> => {
+  const options = (request.providerOptions?.anthropic ?? {}) as AnthropicOptions
+  return lowerMessages(request.messages).pipe(
     Effect.map((messages) => ({
       path: ANTHROPIC_MESSAGES_PATH,
       headers: {
@@ -171,9 +183,13 @@ const prepare = (
         ...(request.generation?.stop !== undefined
           ? { stop_sequences: [...request.generation.stop] }
           : {}),
+        ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
+        ...(options.topP !== undefined ? { top_p: options.topP } : {}),
+        ...(options.topK !== undefined ? { top_k: options.topK } : {}),
       },
     })),
   )
+}
 
 interface WireChunk {
   readonly type?: string
