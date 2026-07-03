@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto"
 import type { Message, Model } from "@swain/llms"
+import { Effect } from "effect"
 import type { PermissionMode } from "../permission"
 
 export type FileStateEntry = {
@@ -33,6 +35,7 @@ export interface SessionState {
   readonly workingDirectory: string
   readonly systemContext: SystemContext
   readonly fileState: FileStateCache
+  readonly locks: Map<string, Effect.Semaphore>
   readonly messages: Array<Message>
   readonly counters: SessionCounters
 }
@@ -55,6 +58,43 @@ export const createSessionState = (input: CreateSessionInput): SessionState => (
     currentDate: input.currentDate,
   },
   fileState: new Map(),
+  locks: new Map(),
   messages: [...(input.messages ?? [])],
   counters: { turns: 0, inputTokens: 0, outputTokens: 0 },
 })
+
+export const digestContent = (content: string): string =>
+  createHash("sha256").update(content).digest("hex")
+
+/**
+ * Serializes an effect against the given absolute path within this process.
+ * Semaphores are created synchronously to avoid a create-time interleaving gap.
+ */
+export const withFileLock = <A, E, R>(
+  session: SessionState,
+  absolutePath: string,
+  effect: Effect.Effect<A, E, R>,
+): Effect.Effect<A, E, R> => {
+  let lock = session.locks.get(absolutePath)
+  if (lock === undefined) {
+    lock = Effect.unsafeMakeSemaphore(1)
+    session.locks.set(absolutePath, lock)
+  }
+  return lock.withPermits(1)(effect)
+}
+
+export const cacheEntry = (input: {
+  readonly path: string
+  readonly lastModifiedMs: number
+  readonly content: string
+}): FileStateEntry => ({
+  path: input.path,
+  kind: "text",
+  lastModifiedMs: input.lastModifiedMs,
+  digest: digestContent(input.content),
+  content: input.content,
+})
+
+/** A cached text entry is fresh when both its mtime and content digest match. */
+export const isFresh = (entry: FileStateEntry, lastModifiedMs: number, content: string): boolean =>
+  entry.lastModifiedMs === lastModifiedMs && entry.digest === digestContent(content)
