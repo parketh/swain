@@ -1,6 +1,6 @@
 import type { HttpClient } from "@effect/platform"
-import { Chunk, Effect, Stream } from "effect"
-import type { LLMError } from "./schema/errors"
+import { Effect, Stream } from "effect"
+import { LLMError } from "./schema/errors"
 import type { LLMEvent } from "./schema/events"
 import { Message, SystemContent, Tool } from "./schema/messages"
 import type { ToolChoice, UserContent } from "./schema/messages"
@@ -42,15 +42,30 @@ const streamTurn = (
 
 /**
  * Convenience wrapper over `LLM.streamTurn`: collects the streamed events of
- * one model turn into a single `LLMResponse`.
+ * one model turn into a single `LLMResponse`. When the stream fails after
+ * partial events, the failure carries them in `LLMError.eventsSoFar`.
  */
 const generateTurn = (
   request: LLMRequest,
 ): Effect.Effect<LLMResponse, LLMError, HttpClient.HttpClient> =>
-  streamTurn(request).pipe(
-    Stream.runCollect,
-    Effect.map((events) => ({ events: Chunk.toReadonlyArray(events) })),
-  )
+  Effect.suspend(() => {
+    const collected: Array<LLMEvent> = []
+    return streamTurn(request).pipe(
+      Stream.runForEach((event) => Effect.sync(() => collected.push(event))),
+      Effect.map(() => ({ events: [...collected] })),
+      Effect.mapError((error) =>
+        error.eventsSoFar !== undefined
+          ? error
+          : new LLMError({
+              reason: error.reason,
+              message: error.message,
+              retryable: error.retryable,
+              ...(error.retryAfter !== undefined && { retryAfter: error.retryAfter }),
+              eventsSoFar: [...collected],
+            }),
+      ),
+    )
+  })
 
 export const LLM = {
   request,
