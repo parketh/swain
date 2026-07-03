@@ -1,3 +1,4 @@
+export { LLMClient } from "./client"
 export { LLM, type LLMRequestInput } from "./llm"
 export { LLMError, LLMErrorReason } from "./schema/errors"
 export {

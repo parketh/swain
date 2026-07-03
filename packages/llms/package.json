@@ -4,6 +4,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./client": "./src/client.ts",
     "./schema": "./src/schema/index.ts",
     "./providers": "./src/providers/index.ts",
     "./protocols": "./src/protocols/index.ts",
