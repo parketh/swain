@@ -309,10 +309,6 @@ const trackFunctionCall = (state: DecodeState, item: WireItem, events: Array<LLM
   events.push(state.assembler.start(toolCallId, item.name ?? ""))
 }
 
-/**
- * Ends the streamed function call. Codex streams output items sequentially,
- * so exactly this call is open in the assembler.
- */
 const finishFunctionCall = (
   state: DecodeState,
   entry: ToolEntry,
@@ -328,7 +324,7 @@ const finishFunctionCall = (
       // emitting a delta the provider never streamed.
       state.assembler.append(entry.toolCallId, finalArguments)
     }
-    return state.assembler.finishAll()
+    return state.assembler.finish(entry.toolCallId)
   })
 
 const itemDone = (state: DecodeState, chunk: WireChunk): Effect.Effect<Array<LLMEvent>, LLMError> =>

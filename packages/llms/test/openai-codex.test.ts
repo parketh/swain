@@ -16,6 +16,7 @@ import {
   functionCallTurnChunks,
   incompleteTurnChunks,
   invalidToolJsonChunks,
+  parallelFunctionCallTurnChunks,
   quotaErrorChunks,
   textReasoningTurnChunks,
 } from "./fixtures/openai-codex-events"
@@ -197,6 +198,22 @@ describe("OpenAICodexResponses.decode", () => {
     ])
     const deltas = events.filter(LLMEvent.is.toolInputDelta)
     expect(deltas).toHaveLength(0)
+  })
+
+  test("parallel function calls finish independently", async () => {
+    const events = await decodeAll(parallelFunctionCallTurnChunks)
+    expect(events as Array<unknown>).toEqual([
+      { type: "tool-input-start", toolCallId: "call_1|fc_1", name: "lookup" },
+      { type: "tool-input-start", toolCallId: "call_2|fc_2", name: "lookup" },
+      { type: "tool-input-delta", toolCallId: "call_1|fc_1", text: '{"query":"bun"}' },
+      { type: "tool-input-delta", toolCallId: "call_2|fc_2", text: '{"query":' },
+      { type: "tool-input-end", toolCallId: "call_1|fc_1", name: "lookup" },
+      { type: "tool-call", toolCallId: "call_1|fc_1", name: "lookup", input: { query: "bun" } },
+      { type: "tool-input-delta", toolCallId: "call_2|fc_2", text: '"deno"}' },
+      { type: "tool-input-end", toolCallId: "call_2|fc_2", name: "lookup" },
+      { type: "tool-call", toolCallId: "call_2|fc_2", name: "lookup", input: { query: "deno" } },
+      { type: "finish", reason: "tool-call", usage: { inputTokens: 28, outputTokens: 13 } },
+    ])
   })
 
   test("invalid function-call JSON fails with invalid-provider-output", async () => {

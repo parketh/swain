@@ -16,6 +16,7 @@ export interface ToolInputAssembler {
   start(toolCallId: ToolCallId, name: string): ToolInputStart
   append(toolCallId: ToolCallId, text: string): ToolInputDelta
   started(toolCallId: ToolCallId): boolean
+  finish(toolCallId: ToolCallId): Effect.Effect<Array<ToolInputEnd | ToolCall>, LLMError>
   /** Ends every open tool call in start order: `tool-input-end` then the parsed `tool-call`. */
   finishAll(): Effect.Effect<Array<ToolInputEnd | ToolCall>, LLMError>
 }
@@ -36,6 +37,20 @@ const parseArgs = (entry: Entry): Effect.Effect<unknown, LLMError> => {
   })
 }
 
+const finishEntry = (entry: Entry): Effect.Effect<Array<ToolInputEnd | ToolCall>, LLMError> =>
+  Effect.gen(function* () {
+    const input = yield* parseArgs(entry)
+    return [
+      { type: "tool-input-end", toolCallId: entry.toolCallId, name: entry.name },
+      {
+        type: "tool-call",
+        toolCallId: entry.toolCallId,
+        name: entry.name,
+        input,
+      },
+    ]
+  })
+
 const makeAssembler = (): ToolInputAssembler => {
   const entries = new Map<ToolCallId, Entry>()
   return {
@@ -51,18 +66,20 @@ const makeAssembler = (): ToolInputAssembler => {
       return { type: "tool-input-delta", toolCallId, text }
     },
     started: (toolCallId) => entries.has(toolCallId),
+    finish: (toolCallId) =>
+      Effect.suspend(() => {
+        const entry = entries.get(toolCallId)
+        if (entry === undefined) {
+          return Effect.succeed<Array<ToolInputEnd | ToolCall>>([])
+        }
+        entries.delete(toolCallId)
+        return finishEntry(entry)
+      }),
     finishAll: () =>
       Effect.gen(function* () {
         const events: Array<ToolInputEnd | ToolCall> = []
         for (const entry of entries.values()) {
-          events.push({ type: "tool-input-end", toolCallId: entry.toolCallId, name: entry.name })
-          const input = yield* parseArgs(entry)
-          events.push({
-            type: "tool-call",
-            toolCallId: entry.toolCallId,
-            name: entry.name,
-            input,
-          })
+          events.push(...(yield* finishEntry(entry)))
         }
         entries.clear()
         return events

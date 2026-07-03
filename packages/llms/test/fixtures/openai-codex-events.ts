@@ -72,6 +72,44 @@ export const functionCallTurnChunks: Array<unknown> = [
   },
 ]
 
+export const parallelFunctionCallTurnChunks: Array<unknown> = [
+  {
+    type: "response.output_item.added",
+    output_index: 0,
+    item: { type: "function_call", id: "fc_1", call_id: "call_1", name: "lookup", arguments: "" },
+  },
+  {
+    type: "response.output_item.added",
+    output_index: 1,
+    item: { type: "function_call", id: "fc_2", call_id: "call_2", name: "lookup", arguments: "" },
+  },
+  { type: "response.function_call_arguments.delta", item_id: "fc_1", delta: '{"query":"bun"}' },
+  { type: "response.function_call_arguments.delta", item_id: "fc_2", delta: '{"query":' },
+  {
+    type: "response.function_call_arguments.done",
+    item_id: "fc_1",
+    arguments: '{"query":"bun"}',
+  },
+  { type: "response.function_call_arguments.delta", item_id: "fc_2", delta: '"deno"}' },
+  {
+    type: "response.function_call_arguments.done",
+    item_id: "fc_2",
+    arguments: '{"query":"deno"}',
+  },
+  {
+    type: "response.completed",
+    response: {
+      id: "resp_parallel",
+      status: "completed",
+      output: [
+        { type: "function_call", id: "fc_1", call_id: "call_1", name: "lookup" },
+        { type: "function_call", id: "fc_2", call_id: "call_2", name: "lookup" },
+      ],
+      usage: { input_tokens: 28, output_tokens: 13 },
+    },
+  },
+]
+
 /** Arguments arrive only on the done event; no streamed deltas. */
 export const doneOnlyArgumentsChunks: Array<unknown> = [
   {
