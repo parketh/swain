@@ -1,3 +1,12 @@
+export {
+  Ask,
+  AskAnswer,
+  type AskHandler,
+  AskInput,
+  AskQuestion,
+  AskResult,
+  AskService,
+} from "./ask"
 export { Bash, BashInput, BashResult, isHardDenied, isRisky } from "./bash"
 export { Edit, EditInput, EditResult } from "./edit"
 export { Glob, GlobInput, GlobResult } from "./glob"

@@ -5,7 +5,15 @@ import { Effect, Layer, Schema, Stream } from "effect"
 import type { Permissions } from "../src/permission"
 import { assembleSystemPrompt } from "../src/prompt"
 import { createSessionState, type SessionState } from "../src/state"
-import { callTool, defineTool, registryLayer, ToolContext, toLLMTool } from "../src/tools"
+import {
+  Ask,
+  AskService,
+  callTool,
+  defineTool,
+  registryLayer,
+  ToolContext,
+  toLLMTool,
+} from "../src/tools"
 
 const model: Model = {
   id: ModelId.make("test-model"),
@@ -171,5 +179,36 @@ describe("tool registry and caller", () => {
     })
     const result = await runCall(toolCall("BadOutput", { value: 1 }), [badOutput])
     expect(result.isError).toBe(true)
+  })
+})
+
+describe("Ask tool", () => {
+  test("produces the injected answers as a tool result", async () => {
+    const askLayer = Layer.succeed(AskService, {
+      ask: (input) =>
+        Effect.succeed({
+          answers: input.questions.map((question) => ({
+            question: question.question,
+            selected: [question.options[0] ?? ""],
+          })),
+        }),
+    })
+
+    const result = await Effect.runPromise(
+      callTool(
+        toolCall("Ask", {
+          questions: [{ question: "Framework?", options: ["Bun", "Node"] }],
+        }),
+      ).pipe(
+        Effect.provide(toolContextLayer(session())),
+        Effect.provide(registryLayer([Ask])),
+        Effect.provide(askLayer),
+      ),
+    )
+    expect(result.isError).toBeUndefined()
+    expect(result.result).toEqual({
+      type: "json",
+      value: { answers: [{ question: "Framework?", selected: ["Bun"] }] },
+    })
   })
 })
