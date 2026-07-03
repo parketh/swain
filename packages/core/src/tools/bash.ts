@@ -1,0 +1,129 @@
+import { Command } from "@effect/platform"
+import { Duration, Effect, Schema, Stream } from "effect"
+import { ToolError } from "../errors"
+import { defineTool, ToolContext } from "./tool"
+
+const NAME = "Bash"
+const DEFAULT_TIMEOUT_MS = 120_000
+const MAX_OUTPUT = 30_000
+
+/** Obviously destructive commands blocked in every mode, before execution. */
+const HARD_DENY: ReadonlyArray<RegExp> = [
+  /\brm\s+-[a-z]*r[a-z]*f?\s+\/(?:\s|$|\*)/,
+  /\bmkfs\b/,
+  /\bdd\b[^\n]*\bof=\/dev\//,
+  /:\s*\(\s*\)\s*\{[^}]*\}\s*;\s*:/,
+  /\b(shutdown|reboot|halt|poweroff)\b/,
+]
+
+/** Mutating/networked commands that require approval in `ask` mode. */
+const RISKY: ReadonlyArray<RegExp> = [
+  /\brm\b/,
+  /\bsudo\b/,
+  /\bmv\b/,
+  /\bchmod\b/,
+  /\bchown\b/,
+  /\bkill\b/,
+  /\bcurl\b/,
+  /\bwget\b/,
+  /\bgit\s+push\b/,
+  /\bnpm\s+(publish|install|i)\b/,
+  /\bbun\s+(install|add|remove)\b/,
+  />>?/,
+]
+
+export const isHardDenied = (command: string): boolean =>
+  HARD_DENY.some((pattern) => pattern.test(command))
+
+export const isRisky = (command: string): boolean => RISKY.some((pattern) => pattern.test(command))
+
+export const BashInput = Schema.Struct({
+  command: Schema.String,
+  timeoutMs: Schema.optional(Schema.Number),
+})
+
+export const BashResult = Schema.Struct({
+  stdout: Schema.String,
+  stderr: Schema.String,
+  exitCode: Schema.Number,
+  truncated: Schema.Boolean,
+})
+
+const collect = (stream: Stream.Stream<Uint8Array, unknown>): Effect.Effect<string, never> =>
+  stream.pipe(
+    Stream.decodeText(),
+    Stream.runFold("", (accumulator, chunk) => accumulator + chunk),
+    Effect.orElseSucceed(() => ""),
+  )
+
+const truncate = (text: string): { text: string; truncated: boolean } =>
+  text.length > MAX_OUTPUT
+    ? { text: `${text.slice(0, MAX_OUTPUT)}\n… output truncated`, truncated: true }
+    : { text, truncated: false }
+
+export const Bash = defineTool({
+  name: NAME,
+  description: "Execute an approved shell command in the working directory.",
+  inputSchema: BashInput,
+  outputSchema: BashResult,
+  readOnly: false,
+  call: (input) =>
+    Effect.gen(function* () {
+      if (isHardDenied(input.command)) {
+        return yield* new ToolError({
+          tool: NAME,
+          reason: "denied",
+          message: `Command is blocked as dangerous: ${input.command}`,
+        })
+      }
+
+      const { session, permission } = yield* ToolContext
+      const decision = yield* permission.check({
+        toolName: NAME,
+        readOnly: !isRisky(input.command),
+        summary: `Run: ${input.command}`,
+        command: input.command,
+      })
+      if (decision.type === "deny") {
+        return yield* new ToolError({ tool: NAME, reason: "denied", message: decision.reason })
+      }
+
+      const command = Command.make("bash", "-c", input.command).pipe(
+        Command.workingDirectory(session.workingDirectory),
+      )
+      const timeout = Duration.millis(input.timeoutMs ?? DEFAULT_TIMEOUT_MS)
+
+      return yield* Effect.scoped(
+        Effect.gen(function* () {
+          const process = yield* Command.start(command)
+          const [exitCode, stdout, stderr] = yield* Effect.all(
+            [process.exitCode, collect(process.stdout), collect(process.stderr)],
+            { concurrency: "unbounded" },
+          )
+          const out = truncate(stdout)
+          const err = truncate(stderr)
+          return {
+            stdout: out.text,
+            stderr: err.text,
+            exitCode: Number(exitCode),
+            truncated: out.truncated || err.truncated,
+          }
+        }),
+      ).pipe(
+        Effect.mapError((error) =>
+          error instanceof ToolError
+            ? error
+            : new ToolError({ tool: NAME, reason: "execution-failed", message: String(error) }),
+        ),
+        Effect.timeoutFail({
+          duration: timeout,
+          onTimeout: () =>
+            new ToolError({
+              tool: NAME,
+              reason: "execution-failed",
+              message: `Command timed out after ${Duration.toMillis(timeout)}ms`,
+            }),
+        }),
+      )
+    }),
+})
