@@ -162,6 +162,9 @@ const prepare = (request: OpenAICodexRequest, config: OpenAICodexConfig): Prepar
       ...(request.toolChoice !== undefined
         ? { tool_choice: lowerToolChoice(request.toolChoice) }
         : {}),
+      ...(request.generation?.maxTokens !== undefined
+        ? { max_output_tokens: request.generation.maxTokens }
+        : {}),
       ...(options.reasoning !== undefined ? { reasoning: options.reasoning } : {}),
     },
   }

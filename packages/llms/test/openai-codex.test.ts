@@ -72,6 +72,7 @@ describe("OpenAICodexResponses.prepare", () => {
         ],
         tools: [lookup],
         toolChoice: "auto",
+        generation: { maxTokens: 256 },
         providerOptions: { openaiCodex: { reasoning: { effort: "high", summary: "auto" } } },
       },
       config,
@@ -126,6 +127,7 @@ describe("OpenAICodexResponses.prepare", () => {
         },
       ],
       tool_choice: "auto",
+      max_output_tokens: 256,
       reasoning: { effort: "high", summary: "auto" },
     })
   })
