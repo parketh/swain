@@ -1,6 +1,6 @@
 import type { HttpClient } from "@effect/platform"
-import { Schema } from "effect"
 import type { Stream } from "effect"
+import { Schema } from "effect"
 import type { LLMError } from "./errors"
 import type { LLMEvent } from "./events"
 import type { ModelId, ProviderId } from "./ids"

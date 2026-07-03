@@ -1,8 +1,8 @@
 import { Effect, Stream } from "effect"
-import { AnthropicMessages } from "../protocols"
 import type { AnthropicMessagesRequest, AnthropicOptions } from "../protocols"
-import { ModelId, ProviderId } from "../schema"
+import { AnthropicMessages } from "../protocols"
 import type { LLMRequest, Model, ProviderOptions } from "../schema"
+import { ModelId, ProviderId } from "../schema"
 import { Auth, Http } from "../transport"
 
 export const ANTHROPIC_PROVIDER_ID = "anthropic"

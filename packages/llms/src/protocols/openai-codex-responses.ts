@@ -1,5 +1,4 @@
 import { Effect, Stream } from "effect"
-import { ContentId, LLMError, ToolCallId } from "../schema"
 import type {
   AssistantContent,
   FinishReason,
@@ -14,8 +13,9 @@ import type {
   Usage,
   UserMessage,
 } from "../schema"
-import { ToolInput } from "./tool-input"
+import { ContentId, LLMError, ToolCallId } from "../schema"
 import type { ToolInputAssembler } from "./tool-input"
+import { ToolInput } from "./tool-input"
 
 export const OPENAI_CODEX_RESPONSES_PATH = "/codex/responses"
 export const OPENAI_CODEX_BETA_HEADER = "responses=experimental"

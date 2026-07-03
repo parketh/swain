@@ -1,9 +1,9 @@
-import { HttpClient, HttpClientRequest } from "@effect/platform"
 import type { HttpClientError, HttpClientResponse } from "@effect/platform"
+import { HttpClient, HttpClientRequest } from "@effect/platform"
 import { Duration, Effect, Stream } from "effect"
 import { LLMError } from "../schema"
-import { SSE } from "./sse"
 import type { SSEEvent } from "./sse"
+import { SSE } from "./sse"
 
 export interface PrepareJsonOptions {
   readonly method?: "POST" | "PUT" | "PATCH" | "DELETE"

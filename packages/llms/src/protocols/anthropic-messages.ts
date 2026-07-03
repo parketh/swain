@@ -1,11 +1,10 @@
 import { Effect, Stream } from "effect"
-import { ContentId, LLMError, ToolCallId } from "../schema"
 import type {
   AssistantContent,
   FinishReason,
   GenerationOptions,
-  LLMEvent,
   LLMErrorReason,
+  LLMEvent,
   Message,
   ProviderOptions,
   SystemContent,
@@ -14,8 +13,9 @@ import type {
   ToolResultContent,
   UserMessage,
 } from "../schema"
-import { ToolInput } from "./tool-input"
+import { ContentId, LLMError, ToolCallId } from "../schema"
 import type { ToolInputAssembler } from "./tool-input"
+import { ToolInput } from "./tool-input"
 
 export const ANTHROPIC_MESSAGES_PATH = "/messages"
 export const ANTHROPIC_VERSION = "2023-06-01"

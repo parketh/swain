@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test"
-import { Effect, Stream } from "effect"
 import {
   LLMError,
   LLMEvent,
@@ -10,6 +9,7 @@ import {
   ToolCallId,
 } from "@swain/llms"
 import { OpenAICodexResponses } from "@swain/llms/protocols"
+import { Effect, Stream } from "effect"
 import {
   doneOnlyArgumentsChunks,
   failedResponseChunks,

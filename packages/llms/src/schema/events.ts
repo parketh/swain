@@ -1,8 +1,8 @@
 import { Effect, Schema } from "effect"
 import { LLMError } from "./errors"
 import { ContentId, ToolCallId } from "./ids"
-import { ReasoningContent, TextContent, ToolCallContent } from "./messages"
 import type { AssistantContent } from "./messages"
+import { ReasoningContent, TextContent, ToolCallContent } from "./messages"
 
 export const Usage = Schema.Struct({
   inputTokens: Schema.Number,

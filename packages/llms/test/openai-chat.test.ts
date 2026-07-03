@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test"
-import { Effect, Stream } from "effect"
 import {
   GenerationOptions,
   LLMError,
@@ -11,6 +10,7 @@ import {
   ToolCallId,
 } from "@swain/llms"
 import { OpenAIChat } from "@swain/llms/protocols"
+import { Effect, Stream } from "effect"
 import {
   invalidToolJsonChunks,
   noFinishReasonChunks,

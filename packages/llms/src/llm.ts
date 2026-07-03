@@ -2,10 +2,10 @@ import type { HttpClient } from "@effect/platform"
 import { Effect, Stream } from "effect"
 import { LLMError } from "./schema/errors"
 import type { LLMEvent } from "./schema/events"
-import { Message, SystemContent, Tool } from "./schema/messages"
 import type { ToolChoice, UserContent } from "./schema/messages"
-import { GenerationOptions } from "./schema/options"
+import { Message, SystemContent, Tool } from "./schema/messages"
 import type { LLMRequest, LLMResponse, Model, ProviderOptions } from "./schema/options"
+import { GenerationOptions } from "./schema/options"
 
 export interface LLMRequestInput {
   readonly model: Model

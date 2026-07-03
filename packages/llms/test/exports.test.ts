@@ -1,14 +1,10 @@
 import { describe, expect, test } from "bun:test"
-import { Effect } from "effect"
+import type { LLMEvent } from "@swain/llms"
 
 import * as root from "@swain/llms"
-import * as schema from "@swain/llms/schema"
-import * as providers from "@swain/llms/providers"
-import * as protocols from "@swain/llms/protocols"
-import * as transport from "@swain/llms/transport"
-
 import { LLM, LLMTurnSummary, Message, Tool, ToolChoice } from "@swain/llms"
-import type { LLMEvent } from "@swain/llms"
+import * as protocols from "@swain/llms/protocols"
+import * as providers from "@swain/llms/providers"
 import {
   Anthropic,
   DeepSeek,
@@ -17,6 +13,9 @@ import {
   OpenAICompatible,
   ZAI,
 } from "@swain/llms/providers"
+import * as schema from "@swain/llms/schema"
+import * as transport from "@swain/llms/transport"
+import { Effect } from "effect"
 
 describe("public export paths", () => {
   test("all export paths resolve", () => {

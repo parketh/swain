@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { HttpClient, HttpClientResponse } from "@effect/platform"
 import type { HttpClientRequest } from "@effect/platform"
-import { Effect, Layer, Stream } from "effect"
+import { HttpClient, HttpClientResponse } from "@effect/platform"
 import { LLM, LLMError, Message } from "@swain/llms"
 import {
   Anthropic,
@@ -12,6 +11,7 @@ import {
   ZAI,
 } from "@swain/llms/providers"
 import type { Model } from "@swain/llms/schema"
+import { Effect, Layer, Stream } from "effect"
 
 const textChunks = [
   { choices: [{ delta: { content: "Hello" } }] },

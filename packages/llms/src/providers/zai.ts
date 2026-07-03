@@ -1,6 +1,6 @@
 import type { Model, ProviderOptions } from "../schema"
-import { OpenAICompatible } from "./openai-compatible"
 import type { OpenAICompatibleFacade } from "./openai-compatible"
+import { OpenAICompatible } from "./openai-compatible"
 
 export const ZAI_PROVIDER_ID = "zai"
 export const ZAI_BASE_URL = "https://api.z.ai/api/paas/v4"

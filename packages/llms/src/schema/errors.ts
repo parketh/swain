@@ -1,5 +1,5 @@
-import { Data, Schema } from "effect"
 import type { Duration } from "effect"
+import { Data, Schema } from "effect"
 import type { LLMEvent } from "./events"
 
 export const LLMErrorReason = Schema.Literal(

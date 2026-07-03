@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
-
-import { HttpClient, HttpClientResponse } from "@effect/platform"
 import type { HttpClientRequest } from "@effect/platform"
+import { HttpClient, HttpClientResponse } from "@effect/platform"
+import type { LLMEvent, Model } from "@swain/llms"
 import {
   ContentId,
   LLM,
@@ -12,10 +12,9 @@ import {
   ProviderId,
   ToolCallId,
 } from "@swain/llms"
-import type { LLMEvent, Model } from "@swain/llms"
+import { OpenAI } from "@swain/llms/providers"
 import { Effect, Layer, Stream } from "effect"
 import { textTurnChunks, toolCallTurnChunks } from "./fixtures/openai-chat-events"
-import { OpenAI } from "@swain/llms/providers"
 
 const model: Model = {
   id: ModelId.make("test-model"),

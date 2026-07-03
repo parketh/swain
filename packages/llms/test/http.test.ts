@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test"
-import { HttpClient, HttpClientError, HttpClientResponse } from "@effect/platform"
 import type { HttpClientRequest } from "@effect/platform"
-import { Duration, Effect, Layer, Stream } from "effect"
+import { HttpClient, HttpClientError, HttpClientResponse } from "@effect/platform"
 import { LLMError } from "@swain/llms"
 import { Auth, Http } from "@swain/llms/transport"
+import { Duration, Effect, Layer, Stream } from "effect"
 
 const stubClient = (
   handler: (

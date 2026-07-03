@@ -1,5 +1,4 @@
 import { Effect, Stream } from "effect"
-import { ContentId, LLMError, ToolCallId } from "../schema"
 import type {
   FinishReason,
   GenerationOptions,
@@ -12,8 +11,9 @@ import type {
   ToolResultValue,
   Usage,
 } from "../schema"
-import { ToolInput } from "./tool-input"
+import { ContentId, LLMError, ToolCallId } from "../schema"
 import type { ToolInputAssembler } from "./tool-input"
+import { ToolInput } from "./tool-input"
 
 export const OPENAI_CHAT_PATH = "/chat/completions"
 

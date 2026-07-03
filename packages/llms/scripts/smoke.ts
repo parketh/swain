@@ -7,8 +7,8 @@
  */
 import { FetchHttpClient } from "@effect/platform"
 import { Effect, Stream } from "effect"
-import { LLM } from "../src/index"
 import type { Model } from "../src/index"
+import { LLM } from "../src/index"
 import { Anthropic, DeepSeek, OpenAI, OpenAICodex, ZAI } from "../src/providers/index"
 
 interface SmokeTarget {

@@ -1,6 +1,4 @@
 import { describe, expect, test } from "bun:test"
-import { Effect, Either, Schema } from "effect"
-
 import * as schema from "@swain/llms/schema"
 import {
   ContentId,
@@ -24,6 +22,7 @@ import {
   ToolInputStart,
   ToolResultContent,
 } from "@swain/llms/schema"
+import { Effect, Either, Schema } from "effect"
 
 const contentId = ContentId.make("content-1")
 const toolCallId = ToolCallId.make("call-1")

@@ -1,8 +1,8 @@
 import { Effect, Stream } from "effect"
-import { OpenAIChat } from "../protocols"
 import type { OpenAIChatOptions, OpenAIChatRequest } from "../protocols"
-import { ModelId, ProviderId } from "../schema"
+import { OpenAIChat } from "../protocols"
 import type { LLMRequest, Model, ProviderOptions } from "../schema"
+import { ModelId, ProviderId } from "../schema"
 import { Auth, Http } from "../transport"
 
 export interface OpenAICompatibleConfig {

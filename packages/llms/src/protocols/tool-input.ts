@@ -1,6 +1,6 @@
 import { Effect } from "effect"
-import { LLMError } from "../schema"
 import type { ToolCall, ToolCallId, ToolInputDelta, ToolInputEnd, ToolInputStart } from "../schema"
+import { LLMError } from "../schema"
 
 interface Entry {
   readonly toolCallId: ToolCallId

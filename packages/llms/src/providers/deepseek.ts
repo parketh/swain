@@ -1,6 +1,6 @@
 import type { Model, ProviderOptions } from "../schema"
-import { OpenAICompatible } from "./openai-compatible"
 import type { OpenAICompatibleFacade } from "./openai-compatible"
+import { OpenAICompatible } from "./openai-compatible"
 
 export const DEEPSEEK_PROVIDER_ID = "deepseek"
 export const DEEPSEEK_BASE_URL = "https://api.deepseek.com"

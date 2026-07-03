@@ -1,6 +1,6 @@
 import type { Model, ProviderOptions } from "../schema"
-import { OpenAICompatible } from "./openai-compatible"
 import type { OpenAICompatibleFacade } from "./openai-compatible"
+import { OpenAICompatible } from "./openai-compatible"
 
 export const OPENAI_PROVIDER_ID = "openai"
 export const OPENAI_BASE_URL = "https://api.openai.com/v1"
