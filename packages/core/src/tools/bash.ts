@@ -5,6 +5,7 @@ import { defineTool, ToolContext } from "../tool"
 
 const NAME = "Bash"
 const DEFAULT_TIMEOUT_MS = 120_000
+const MAX_TIMEOUT_MS = 600_000
 const MAX_OUTPUT = 30_000
 
 /** Obviously destructive commands blocked in every mode, before execution. */
@@ -91,7 +92,9 @@ export const Bash = defineTool({
       const command = Command.make("bash", "-c", input.command).pipe(
         Command.workingDirectory(session.workingDirectory),
       )
-      const timeout = Duration.millis(input.timeoutMs ?? DEFAULT_TIMEOUT_MS)
+      const timeout = Duration.millis(
+        Math.min(input.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS),
+      )
 
       return yield* Effect.scoped(
         Effect.gen(function* () {
