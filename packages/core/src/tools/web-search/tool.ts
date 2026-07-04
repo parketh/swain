@@ -3,13 +3,14 @@ import type { Effect } from "effect"
 import { Schema } from "effect"
 import type { ToolError } from "../../errors"
 import { defineTool, type Tool } from "../../tool"
+import { ExaSearchOptions } from "./exa"
 
 export const WebSearchInput = Schema.Struct({
   query: Schema.String,
   numResults: Schema.optional(Schema.Number),
   providerOptions: Schema.optional(
     Schema.Struct({
-      exa: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
+      exa: Schema.optional(ExaSearchOptions),
     }),
   ),
 })

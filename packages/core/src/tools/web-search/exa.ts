@@ -6,6 +6,11 @@ import type { SearchProvider, WebSearchInput, WebSearchOutput } from "./tool"
 const NAME = "WebSearch"
 const ENDPOINT = "https://api.exa.ai/search"
 
+/** Exa-specific search knobs threaded through `providerOptions.exa`. */
+export const ExaSearchOptions = Schema.Struct({
+  type: Schema.optional(Schema.Literal("auto", "neural", "keyword", "fast")),
+})
+
 const ExaResult = Schema.Struct({
   title: Schema.optional(Schema.NullOr(Schema.String)),
   url: Schema.String,
