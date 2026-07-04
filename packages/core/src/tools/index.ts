@@ -15,6 +15,7 @@ export {
   AskAnswer,
   type AskHandler,
   AskInput,
+  AskOption,
   AskQuestion,
   AskResult,
   AskService,

@@ -311,7 +311,7 @@ describe("Ask tool", () => {
         Effect.succeed({
           answers: input.questions.map((question) => ({
             question: question.question,
-            selected: [question.options[0] ?? ""],
+            selected: [question.options[0]?.label ?? ""],
           })),
         }),
     })
@@ -319,7 +319,15 @@ describe("Ask tool", () => {
     const result = await Effect.runPromise(
       callTool(
         toolCall("Ask", {
-          questions: [{ question: "Framework?", options: ["Bun", "Node"] }],
+          questions: [
+            {
+              question: "Framework?",
+              options: [
+                { label: "Bun", description: "Fast all-in-one runtime" },
+                { label: "Node", description: "Mature, widely supported" },
+              ],
+            },
+          ],
         }),
       ).pipe(
         Effect.provide(toolContextLayer(session())),
