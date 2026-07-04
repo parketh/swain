@@ -1,7 +1,7 @@
 import { HttpClient } from "@effect/platform"
 import { Effect, Schema } from "effect"
 import { ToolError } from "../errors"
-import { defineTool } from "./tool"
+import { defineTool } from "../tool"
 
 const NAME = "WebFetch"
 const MAX_TEXT = 100_000

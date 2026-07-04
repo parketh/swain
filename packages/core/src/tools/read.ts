@@ -4,7 +4,7 @@ import { ToolError } from "../errors"
 import { classify } from "../files/media"
 import { resolveWorkspacePath } from "../files/paths"
 import { cacheEntry } from "../state"
-import { defineTool, ToolContext } from "./tool"
+import { defineTool, ToolContext } from "../tool"
 
 const NAME = "Read"
 

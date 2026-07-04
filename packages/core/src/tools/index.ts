@@ -1,4 +1,16 @@
 export {
+  type AnyTool,
+  callTool,
+  defineTool,
+  makeToolRegistry,
+  type Tool,
+  ToolContext,
+  type ToolContextValue,
+  ToolRegistry,
+  toLLMTool,
+  toolRegistryLayer,
+} from "../tool"
+export {
   Ask,
   AskAnswer,
   type AskHandler,
@@ -12,21 +24,7 @@ export { Edit, EditInput, EditResult } from "./edit"
 export { Glob, GlobInput, GlobResult } from "./glob"
 export { Grep, GrepInput, GrepResult } from "./grep"
 export { Read, ReadInput, ReadResult } from "./read"
-export {
-  makeToolRegistry,
-  ToolRegistry,
-  toolRegistryLayer,
-} from "./registry"
 export { errorResult, successResult } from "./results"
-export {
-  type AnyTool,
-  callTool,
-  defineTool,
-  type Tool,
-  ToolContext,
-  type ToolContextValue,
-  toLLMTool,
-} from "./tool"
 export { WebFetch, WebFetchInput, WebFetchResult } from "./web-fetch"
 export {
   ExaSearchProvider,

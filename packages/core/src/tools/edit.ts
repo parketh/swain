@@ -4,7 +4,7 @@ import { ToolError } from "../errors"
 import { makeUnifiedDiff } from "../files/diff"
 import { resolveWorkspacePath } from "../files/paths"
 import { cacheEntry, isFresh, withFileLock } from "../state"
-import { defineTool, ToolContext } from "./tool"
+import { defineTool, ToolContext } from "../tool"
 
 const NAME = "Edit"
 

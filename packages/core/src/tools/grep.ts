@@ -2,7 +2,7 @@ import { Command } from "@effect/platform"
 import { Effect, Schema } from "effect"
 import { ToolError } from "../errors"
 import { resolveWorkspacePath } from "../files/paths"
-import { defineTool, ToolContext } from "./tool"
+import { defineTool, ToolContext } from "../tool"
 
 const NAME = "Grep"
 const MAX_MATCHES = 1000

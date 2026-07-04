@@ -1,7 +1,7 @@
 import { Command } from "@effect/platform"
 import { Duration, Effect, Schema, Stream } from "effect"
 import { ToolError } from "../errors"
-import { defineTool, ToolContext } from "./tool"
+import { defineTool, ToolContext } from "../tool"
 
 const NAME = "Bash"
 const DEFAULT_TIMEOUT_MS = 120_000

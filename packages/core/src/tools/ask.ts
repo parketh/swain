@@ -1,5 +1,5 @@
 import { Context, Effect, Schema } from "effect"
-import { defineTool } from "./tool"
+import { defineTool } from "../tool"
 
 export const AskQuestion = Schema.Struct({
   question: Schema.String,

@@ -3,7 +3,7 @@ import { Effect, Option, Schema } from "effect"
 import { ToolError } from "../errors"
 import { resolveWorkspacePath } from "../files/paths"
 import { cacheEntry, withFileLock } from "../state"
-import { defineTool, ToolContext } from "./tool"
+import { defineTool, ToolContext } from "../tool"
 
 const NAME = "Write"
 

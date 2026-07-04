@@ -2,7 +2,7 @@ import type { HttpClient } from "@effect/platform"
 import type { Effect } from "effect"
 import { Schema } from "effect"
 import type { ToolError } from "../../errors"
-import { defineTool, type Tool } from "../tool"
+import { defineTool, type Tool } from "../../tool"
 
 export const WebSearchInput = Schema.Struct({
   query: Schema.String,

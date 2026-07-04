@@ -1,11 +1,10 @@
 import type { JsonSchemaObject, ToolCall, ToolResultContent } from "@swain/llms"
 import { Tool as LLMTool } from "@swain/llms"
-import { Context, Effect, JSONSchema, ParseResult, Schema } from "effect"
-import { ToolError } from "../errors"
-import type { Permissions } from "../permission"
-import type { SessionState } from "../state"
-import { ToolRegistry } from "./registry"
-import { errorResult, successResult } from "./results"
+import { Context, Effect, JSONSchema, Layer, ParseResult, Schema } from "effect"
+import { ToolError } from "./errors"
+import type { Permissions } from "./permission"
+import type { SessionState } from "./state"
+import { errorResult, successResult } from "./tools/results"
 
 export interface Tool<Input, Output, ExtraRequirements = never> {
   readonly name: string
@@ -20,6 +19,17 @@ export interface Tool<Input, Output, ExtraRequirements = never> {
 
 // biome-ignore lint: heterogeneous tool storage erases input/output/requirement types
 export type AnyTool = Tool<any, any, any>
+
+export class ToolRegistry extends Context.Tag("@swain/core/ToolRegistry")<
+  ToolRegistry,
+  ReadonlyMap<string, AnyTool>
+>() {}
+
+export const makeToolRegistry = (tools: ReadonlyArray<AnyTool>): ReadonlyMap<string, AnyTool> =>
+  new Map(tools.map((tool) => [tool.name, tool]))
+
+export const toolRegistryLayer = (tools: ReadonlyArray<AnyTool>): Layer.Layer<ToolRegistry> =>
+  Layer.succeed(ToolRegistry, makeToolRegistry(tools))
 
 /** Identity helper that preserves a tool's inferred type parameters. */
 export const defineTool = <Input, Output, ExtraRequirements = never>(
