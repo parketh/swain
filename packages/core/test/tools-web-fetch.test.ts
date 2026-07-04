@@ -92,6 +92,30 @@ const redirectClient = (location: string, calls: { count: number }) =>
     }),
   )
 
+const streamingTextClient = (calls: { pulls: number }, totalChunks: number) =>
+  Layer.succeed(
+    HttpClient.HttpClient,
+    HttpClient.make((request: HttpClientRequest.HttpClientRequest) => {
+      const chunk = new Uint8Array(1024 * 1024)
+      const stream = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (calls.pulls >= totalChunks) {
+            controller.close()
+            return
+          }
+          calls.pulls += 1
+          controller.enqueue(chunk)
+        },
+      })
+      return Effect.succeed(
+        HttpClientResponse.fromWeb(
+          request,
+          new Response(stream, { status: 200, headers: { "content-type": "text/plain" } }),
+        ),
+      )
+    }),
+  )
+
 describe("WebFetch behavior", () => {
   test("returns text for text/html responses", async () => {
     const result = await Effect.runPromise(
@@ -128,5 +152,20 @@ describe("WebFetch behavior", () => {
     )
     expect(result.ok).toBe(false)
     expect(calls.count).toBe(1)
+  })
+
+  test("rejects streamed text bodies above the byte cap", async () => {
+    const calls = { pulls: 0 }
+    const result = await Effect.runPromise(
+      WebFetch.call({ url: "https://example.com" }).pipe(
+        Effect.provide(streamingTextClient(calls, 20)),
+        Effect.provide(toolContextLayer),
+      ),
+    ).then(
+      () => ({ ok: true }),
+      () => ({ ok: false }),
+    )
+    expect(result.ok).toBe(false)
+    expect(calls.pulls).toBeLessThan(20)
   })
 })

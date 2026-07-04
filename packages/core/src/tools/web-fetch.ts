@@ -1,7 +1,8 @@
 import * as NodeDns from "node:dns/promises"
 import * as NodeNet from "node:net"
+import type { HttpClientResponse } from "@effect/platform"
 import { FetchHttpClient, HttpClient } from "@effect/platform"
-import { Duration, Effect, Schema } from "effect"
+import { Duration, Effect, Schema, Stream } from "effect"
 import { ToolError } from "../errors"
 import { defineTool } from "../tool"
 
@@ -113,6 +114,33 @@ const validateResolvedTargets = (url: URL): Effect.Effect<void, ToolError> => {
 
 const httpError = (error: { message: string }): ToolError => fail("execution-failed", error.message)
 
+const readTextBody = (
+  response: HttpClientResponse.HttpClientResponse,
+): Effect.Effect<string, ToolError> =>
+  response.stream.pipe(
+    Stream.runFoldEffect(
+      { bytes: 0, chunks: [] as Array<Uint8Array> },
+      (state, chunk: Uint8Array) => {
+        const bytes = state.bytes + chunk.byteLength
+        if (bytes > MAX_BYTES) {
+          return Effect.fail(fail("precondition-failed", `Response is too large (${bytes} bytes).`))
+        }
+        state.chunks.push(chunk)
+        return Effect.succeed({ bytes, chunks: state.chunks })
+      },
+    ),
+    Effect.map(({ bytes, chunks }) => {
+      const body = new Uint8Array(bytes)
+      let offset = 0
+      for (const chunk of chunks) {
+        body.set(chunk, offset)
+        offset += chunk.byteLength
+      }
+      return new TextDecoder().decode(body)
+    }),
+    Effect.mapError((error) => (error instanceof ToolError ? error : httpError(error))),
+  )
+
 export const WebFetch = defineTool({
   name: NAME,
   description: "Fetch a URL over HTTP and return extracted text for text-like responses.",
@@ -151,7 +179,7 @@ export const WebFetch = defineTool({
               )
             }
             if (!isTextLike(contentType)) return { url, contentType, body: "" }
-            const body = yield* response.text.pipe(Effect.mapError(httpError))
+            const body = yield* readTextBody(response)
             return { url, contentType, body }
           })
 
