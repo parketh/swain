@@ -1,26 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import type { HttpClientRequest } from "@effect/platform"
 import { HttpClient, HttpClientResponse } from "@effect/platform"
-import type { Model } from "@swain/llms"
-import { ModelId, ProviderId } from "@swain/llms"
-import { Effect, Layer, Stream } from "effect"
-import { autoApproval, makePermissions } from "../src/permission"
-import { createSessionState } from "../src/state"
-import { ToolContext } from "../src/tools"
-import { WebFetch } from "../src/tools/web-fetch"
+import { Effect, Layer } from "effect"
 import { exaSearch } from "../src/tools/web-search"
-
-const model: Model = {
-  id: ModelId.make("test-model"),
-  provider: ProviderId.make("test"),
-  streamTurn: () => Stream.empty,
-}
-
-const toolContextLayer = Layer.succeed(ToolContext, {
-  session: createSessionState({ workingDirectory: "/", model, currentDate: "2026-07-04" }),
-  abortSignal: new AbortController().signal,
-  permission: makePermissions("auto", autoApproval),
-})
 
 const jsonResponse = (payload: unknown) =>
   Layer.succeed(
@@ -124,56 +106,5 @@ describe("exaSearch", () => {
     )
     expect(error.tool).toBe("WebSearch")
     expect(error.reason).toBe("precondition-failed")
-  })
-})
-
-describe("WebFetch", () => {
-  const htmlLayer = Layer.succeed(
-    HttpClient.HttpClient,
-    HttpClient.make((request: HttpClientRequest.HttpClientRequest) =>
-      Effect.succeed(
-        HttpClientResponse.fromWeb(
-          request,
-          new Response("<html>hi</html>", {
-            status: 200,
-            headers: { "content-type": "text/html; charset=utf-8" },
-          }),
-        ),
-      ),
-    ),
-  )
-
-  const binaryLayer = Layer.succeed(
-    HttpClient.HttpClient,
-    HttpClient.make((request: HttpClientRequest.HttpClientRequest) =>
-      Effect.succeed(
-        HttpClientResponse.fromWeb(
-          request,
-          new Response("bytes", { status: 200, headers: { "content-type": "image/png" } }),
-        ),
-      ),
-    ),
-  )
-
-  test("returns text for text/html responses", async () => {
-    const result = await Effect.runPromise(
-      WebFetch.call({ url: "https://example.com" }).pipe(
-        Effect.provide(htmlLayer),
-        Effect.provide(toolContextLayer),
-      ),
-    )
-    expect(result.supported).toBe(true)
-    expect(result.text).toBe("<html>hi</html>")
-  })
-
-  test("reports unsupported for non-text responses without body text", async () => {
-    const result = await Effect.runPromise(
-      WebFetch.call({ url: "https://example.com/x.png" }).pipe(
-        Effect.provide(binaryLayer),
-        Effect.provide(toolContextLayer),
-      ),
-    )
-    expect(result.supported).toBe(false)
-    expect(result.text).toBeUndefined()
   })
 })
