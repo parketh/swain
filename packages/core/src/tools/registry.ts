@@ -6,8 +6,8 @@ export class ToolRegistry extends Context.Tag("@swain/core/ToolRegistry")<
   ReadonlyMap<string, AnyTool>
 >() {}
 
-export const makeRegistry = (tools: ReadonlyArray<AnyTool>): ReadonlyMap<string, AnyTool> =>
+export const makeToolRegistry = (tools: ReadonlyArray<AnyTool>): ReadonlyMap<string, AnyTool> =>
   new Map(tools.map((tool) => [tool.name, tool]))
 
-export const registryLayer = (tools: ReadonlyArray<AnyTool>): Layer.Layer<ToolRegistry> =>
-  Layer.succeed(ToolRegistry, makeRegistry(tools))
+export const toolRegistryLayer = (tools: ReadonlyArray<AnyTool>): Layer.Layer<ToolRegistry> =>
+  Layer.succeed(ToolRegistry, makeToolRegistry(tools))

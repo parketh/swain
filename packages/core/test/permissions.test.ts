@@ -9,7 +9,14 @@ import { Effect, Layer, Schema, Stream } from "effect"
 import type { Approval, PermissionMode, PermissionRequest } from "../src/permission"
 import { autoApproval, deny, makePermissions } from "../src/permission"
 import { createSessionState, type SessionState } from "../src/state"
-import { Bash, callTool, defineTool, isHardDenied, registryLayer, ToolContext } from "../src/tools"
+import {
+  Bash,
+  callTool,
+  defineTool,
+  isHardDenied,
+  ToolContext,
+  toolRegistryLayer,
+} from "../src/tools"
 
 const model: Model = {
   id: ModelId.make("test-model"),
@@ -96,7 +103,10 @@ describe("callTool coarse gate", () => {
       currentDate: "2026-07-04",
     })
     return Effect.runPromise(
-      callTool(call).pipe(Effect.provide(layer(state)), Effect.provide(registryLayer([mutating]))),
+      callTool(call).pipe(
+        Effect.provide(layer(state)),
+        Effect.provide(toolRegistryLayer([mutating])),
+      ),
     )
   }
 
@@ -156,7 +166,7 @@ describe("Bash tool", () => {
             permission: makePermissions(mode, approval),
           }),
         ),
-        Effect.provide(registryLayer([Bash])),
+        Effect.provide(toolRegistryLayer([Bash])),
         Effect.provide(BunContext.layer),
       ),
     )

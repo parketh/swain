@@ -16,9 +16,9 @@ import {
   AskService,
   callTool,
   defineTool,
-  registryLayer,
   ToolContext,
   toLLMTool,
+  toolRegistryLayer,
 } from "../src/tools"
 import { textTurn, toolCallTurn } from "./utils/fixtures"
 import { scriptedLLMClient } from "./utils/harness"
@@ -50,12 +50,12 @@ const toolCall = (name: string, input: unknown): ToolCall => ({
 
 const runCall = (
   call: ToolCall,
-  tools: ReadonlyArray<Parameters<typeof registryLayer>[0][number]>,
+  tools: ReadonlyArray<Parameters<typeof toolRegistryLayer>[0][number]>,
 ) =>
   Effect.runPromise(
     callTool(call).pipe(
       Effect.provide(toolContextLayer(session())),
-      Effect.provide(registryLayer(tools)),
+      Effect.provide(toolRegistryLayer(tools)),
     ),
   )
 
@@ -220,7 +220,7 @@ describe("harness", () => {
       program.pipe(
         Effect.provide(llm),
         Effect.provide(toolContextLayer(session())),
-        Effect.provide(registryLayer([echo])),
+        Effect.provide(toolRegistryLayer([echo])),
       ),
     )
 
@@ -242,7 +242,7 @@ describe("runTurn", () => {
 
   const drive = (
     turns: Parameters<typeof scriptedLLMClient>[0],
-    tools: ReadonlyArray<Parameters<typeof registryLayer>[0][number]>,
+    tools: ReadonlyArray<Parameters<typeof toolRegistryLayer>[0][number]>,
     options?: { maxIterations?: number },
   ) => {
     const state = session()
@@ -253,7 +253,7 @@ describe("runTurn", () => {
         runTurn(state, options).pipe(
           Effect.provide(scriptedLLMClient(turns)),
           Effect.provide(toolContextLayer(state)),
-          Effect.provide(registryLayer(tools)),
+          Effect.provide(toolRegistryLayer(tools)),
         ),
       ),
     }
@@ -296,7 +296,7 @@ describe("runTurn", () => {
         Effect.flip,
         Effect.provide(scriptedLLMClient([toolCallTurn("Echo", { msg: "hi" })])),
         Effect.provide(toolContextLayer(state)),
-        Effect.provide(registryLayer([echo])),
+        Effect.provide(toolRegistryLayer([echo])),
       ),
     )
     expect(error).toBeInstanceOf(AgentError)
@@ -323,7 +323,7 @@ describe("Ask tool", () => {
         }),
       ).pipe(
         Effect.provide(toolContextLayer(session())),
-        Effect.provide(registryLayer([Ask])),
+        Effect.provide(toolRegistryLayer([Ask])),
         Effect.provide(askLayer),
       ),
     )

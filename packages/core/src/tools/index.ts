@@ -13,9 +13,9 @@ export { Glob, GlobInput, GlobResult } from "./glob"
 export { Grep, GrepInput, GrepResult } from "./grep"
 export { Read, ReadInput, ReadResult } from "./read"
 export {
-  makeRegistry,
-  registryLayer,
+  makeToolRegistry,
   ToolRegistry,
+  toolRegistryLayer,
 } from "./registry"
 export { errorResult, successResult } from "./results"
 export {

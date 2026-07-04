@@ -8,7 +8,16 @@ import { ModelId, ProviderId, ToolCallId } from "@swain/llms"
 import { Effect, Layer, Stream } from "effect"
 import { autoApproval, makePermissions } from "../src/permission"
 import { createSessionState, type SessionState } from "../src/state"
-import { callTool, Edit, Glob, Grep, Read, registryLayer, ToolContext, Write } from "../src/tools"
+import {
+  callTool,
+  Edit,
+  Glob,
+  Grep,
+  Read,
+  ToolContext,
+  toolRegistryLayer,
+  Write,
+} from "../src/tools"
 
 const model: Model = {
   id: ModelId.make("test-model"),
@@ -52,7 +61,7 @@ const run = (toolCall: ToolCall, state: SessionState = session): Promise<ToolRes
           permission: makePermissions(state.systemContext.permissionMode, autoApproval),
         }),
       ),
-      Effect.provide(registryLayer(tools)),
+      Effect.provide(toolRegistryLayer(tools)),
       Effect.provide(BunContext.layer),
     ),
   )
