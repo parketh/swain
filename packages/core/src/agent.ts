@@ -78,7 +78,10 @@ const loop = (
       session.counters.outputTokens += summary.usage.outputTokens
     }
 
-    if (summary.finish.reason !== "tool-call") return
+    // Use the concrete tool-call blocks as the continuation signal, not
+    // `finish.reason` alone: providers can report `tool-call` with no calls (or
+    // vice versa), and the emitted blocks are what we actually execute.
+    if (summary.toolCalls.length === 0) return
 
     const results = yield* Effect.forEach(summary.toolCalls, (toolCall) => callTool(toolCall))
     session.messages.push(Message.user(results))
