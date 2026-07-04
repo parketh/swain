@@ -107,6 +107,29 @@ describe("tools", () => {
     expect(tool.name).toBe("lookup")
   })
 
+  test("Tool.define preserves an optional outputSchema", () => {
+    const tool = Tool.define({
+      name: "lookup",
+      description: "Look up a value",
+      inputSchema: { type: "object", properties: { query: { type: "string" } } },
+      outputSchema: { type: "object", properties: { answer: { type: "string" } } },
+    })
+    expect(tool.outputSchema).toEqual({
+      type: "object",
+      properties: { answer: { type: "string" } },
+    })
+  })
+
+  test("Tool.define omits outputSchema when not provided", () => {
+    const tool = Tool.define({
+      name: "lookup",
+      description: "Look up a value",
+      inputSchema: { type: "object" },
+    })
+    expect(tool.outputSchema).toBeUndefined()
+    expect("outputSchema" in tool).toBe(false)
+  })
+
   test("invalid schema input fails through Effect Schema decoding", () => {
     const decoded = Schema.decodeUnknownEither(Tool)({
       name: 42,

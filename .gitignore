@@ -5,3 +5,4 @@ dist/
 !.env.example
 *.log
 .DS_Store
+*.tsbuildinfo
