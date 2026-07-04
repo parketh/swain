@@ -33,30 +33,30 @@ export const Write = defineTool({
       const { session, permission } = yield* ToolContext
       const path = yield* resolveWorkspacePath(NAME, session.workingDirectory, input.path)
 
-      const exists = yield* fs
-        .exists(path)
-        .pipe(Effect.mapError((error) => execError(error.message)))
-      if (exists) {
-        return yield* new ToolError({
-          tool: NAME,
-          reason: "precondition-failed",
-          message: `File already exists: ${input.path}. Use Edit to change it.`,
-        })
-      }
-
-      const decision = yield* permission.check({
-        toolName: NAME,
-        readOnly: false,
-        summary: `Create ${input.path}`,
-      })
-      if (decision.type === "deny") {
-        return yield* new ToolError({ tool: NAME, reason: "denied", message: decision.reason })
-      }
-
       return yield* withFileLock(
         session,
         path,
         Effect.gen(function* () {
+          const exists = yield* fs
+            .exists(path)
+            .pipe(Effect.mapError((error) => execError(error.message)))
+          if (exists) {
+            return yield* new ToolError({
+              tool: NAME,
+              reason: "precondition-failed",
+              message: `File already exists: ${input.path}. Use Edit to change it.`,
+            })
+          }
+
+          const decision = yield* permission.check({
+            toolName: NAME,
+            readOnly: false,
+            summary: `Create ${input.path}`,
+          })
+          if (decision.type === "deny") {
+            return yield* new ToolError({ tool: NAME, reason: "denied", message: decision.reason })
+          }
+
           yield* fs
             .makeDirectory(NodePath.dirname(path), { recursive: true })
             .pipe(Effect.mapError((error) => execError(error.message)))
