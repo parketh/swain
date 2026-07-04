@@ -33,6 +33,8 @@ export const runTurn = (
     const registry = yield* ToolRegistryTag
     const tools = Array.from(registry.values())
     const llmTools = tools.map(toLLMTool)
+    // TODO: assembled once per turn, outside the loop. Move inside `loop` once
+    // the prompt depends on per-iteration state (memory, skills, MCP servers).
     const system = assembleSystemPrompt({
       workingDirectory: session.workingDirectory,
       currentDate: session.systemContext.currentDate,
