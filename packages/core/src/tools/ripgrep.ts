@@ -1,13 +1,12 @@
 import { Command } from "@effect/platform"
-import { Effect, Stream } from "effect"
+import { Effect } from "effect"
 import { ToolError } from "../errors"
+import { collectCapped } from "./collect"
 
-const collect = (stream: Stream.Stream<Uint8Array, unknown>): Effect.Effect<string, never> =>
-  stream.pipe(
-    Stream.decodeText(),
-    Stream.runFold("", (accumulator, chunk) => accumulator + chunk),
-    Effect.orElseSucceed(() => ""),
-  )
+// Backstop against a runaway match set flooding memory; callers additionally
+// cap the returned line count. Wide enough that the count cap fires first in
+// normal use.
+const MAX_STDOUT = 20_000_000
 
 /**
  * Runs ripgrep and returns its stdout lines. Exit code 1 (no matches) is
@@ -29,7 +28,11 @@ export const runRipgrep = (tool: string, args: ReadonlyArray<string>, cwd: strin
         ),
       )
       const [exitCode, stdout, stderr] = yield* Effect.all(
-        [process.exitCode, collect(process.stdout), collect(process.stderr)],
+        [
+          process.exitCode,
+          collectCapped(process.stdout, MAX_STDOUT),
+          collectCapped(process.stderr, MAX_STDOUT),
+        ],
         { concurrency: "unbounded" },
       ).pipe(
         Effect.mapError(
@@ -40,9 +43,9 @@ export const runRipgrep = (tool: string, args: ReadonlyArray<string>, cwd: strin
         return yield* new ToolError({
           tool,
           reason: "execution-failed",
-          message: `ripgrep failed: ${stderr.trim() || `exit ${exitCode}`}`,
+          message: `ripgrep failed: ${stderr.text.trim() || `exit ${exitCode}`}`,
         })
       }
-      return stdout.split("\n").filter((line) => line.length > 0)
+      return stdout.text.split("\n").filter((line) => line.length > 0)
     }),
   )
