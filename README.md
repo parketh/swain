@@ -2,7 +2,7 @@
 
 > **swain** (_noun_): from Old Norse _sveinn_, a servant or attendant, someone who does work on your behalf.
 >
-> _or perhaps_ ...  a "**S**oft**W**are **AI** e**N**gineer".
+> _...or perhaps, a_ "<ins>**S**</ins>oft<ins>**W**</ins>are <ins>**AI**</ins> e<ins>**N**</ins>gineer".
 
 Swain is an agent harness for coding. It is organized as a Bun workspace of Effect-native packages:
 
