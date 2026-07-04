@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { BunContext } from "@effect/platform-bun"
@@ -116,6 +116,23 @@ describe("Read", () => {
     expect(value.supported).toBe(false)
     expect(value.content).toBeUndefined()
     expect(session.fileState.has(join(dir, "bin"))).toBe(false)
+  })
+
+  test("rejects symlinks that escape the workspace", async () => {
+    const external = mkdtempSync(join(tmpdir(), "swain-fs-external-"))
+    try {
+      writeFileSync(join(external, "secret.txt"), "secret")
+      symlinkSync(external, join(dir, "link"), "dir")
+
+      const read = await run(call("Read", { path: "link/secret.txt" }))
+      expect(read.isError).toBe(true)
+
+      const write = await run(call("Write", { path: "link/missing/new.txt", content: "x" }))
+      expect(write.isError).toBe(true)
+      expect(await Bun.file(join(external, "missing", "new.txt")).exists()).toBe(false)
+    } finally {
+      rmSync(external, { recursive: true, force: true })
+    }
   })
 })
 
