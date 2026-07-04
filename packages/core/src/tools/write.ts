@@ -1,3 +1,4 @@
+import * as NodePath from "node:path"
 import { FileSystem } from "@effect/platform"
 import { Effect, Option, Schema } from "effect"
 import { ToolError } from "../errors"
@@ -56,6 +57,9 @@ export const Write = defineTool({
         session,
         path,
         Effect.gen(function* () {
+          yield* fs
+            .makeDirectory(NodePath.dirname(path), { recursive: true })
+            .pipe(Effect.mapError((error) => execError(error.message)))
           yield* fs
             .writeFileString(path, input.content)
             .pipe(Effect.mapError((error) => execError(error.message)))
