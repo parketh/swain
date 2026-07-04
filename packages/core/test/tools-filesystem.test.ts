@@ -67,7 +67,7 @@ const run = (toolCall: ToolCall, state: SessionState = session): Promise<ToolRes
   )
 
 describe("Read", () => {
-  test("caches text file contents", async () => {
+  test("caches full contents and returns them with line numbers", async () => {
     writeFileSync(join(dir, "a.txt"), "hello")
     const result = await run(call("Read", { path: "a.txt" }))
     expect(result.isError).toBeUndefined()
@@ -78,10 +78,30 @@ describe("Read", () => {
         kind: "text",
         supported: true,
         bytes: 5,
-        content: "hello",
+        content: "     1\thello",
+        totalLines: 1,
+        truncated: false,
       },
     })
-    expect(session.fileState.has(join(dir, "a.txt"))).toBe(true)
+    // The cache holds the raw content (not the numbered view) so Edit matches.
+    expect(session.fileState.get(join(dir, "a.txt"))?.content).toBe("hello")
+  })
+
+  test("offset/limit page through a file and flag truncation", async () => {
+    writeFileSync(join(dir, "big.txt"), "l1\nl2\nl3\nl4\nl5")
+    const result = await run(call("Read", { path: "big.txt", offset: 2, limit: 2 }))
+    const value = (
+      result.result as { value: { content: string; totalLines: number; truncated: boolean } }
+    ).value
+    expect(value.content).toBe("     2\tl2\n     3\tl3")
+    expect(value.totalLines).toBe(5)
+    expect(value.truncated).toBe(true)
+  })
+
+  test("rejects files above the size cap", async () => {
+    writeFileSync(join(dir, "huge.txt"), "x".repeat(11 * 1024 * 1024))
+    const result = await run(call("Read", { path: "huge.txt" }))
+    expect(result.isError).toBe(true)
   })
 
   test("missing file returns an error result", async () => {
