@@ -1,3 +1,5 @@
+import * as NodeDns from "node:dns/promises"
+import * as NodeNet from "node:net"
 import { FetchHttpClient, HttpClient } from "@effect/platform"
 import { Duration, Effect, Schema } from "effect"
 import { ToolError } from "../errors"
@@ -27,24 +29,40 @@ const isTextLike = (contentType: string): boolean =>
 const fail = (reason: ToolError["reason"], message: string): ToolError =>
   new ToolError({ tool: NAME, reason, message })
 
+const normalizeHost = (host: string): string => {
+  const h = host.toLowerCase()
+  return h.startsWith("[") && h.endsWith("]") ? h.slice(1, -1) : h
+}
+
 /** Blocks loopback, private, link-local (incl. cloud metadata), and bare hosts. */
 const isBlockedHost = (host: string): boolean => {
-  const h = host.toLowerCase()
+  const h = normalizeHost(host)
   if (h === "localhost" || h.endsWith(".localhost")) return true
-  if (h === "::1" || h === "::" || h.startsWith("fc") || h.startsWith("fd") || h.startsWith("fe80"))
-    return true
-  if (/^\d+\.\d+\.\d+\.\d+$/.test(h)) {
-    const octets = h.split(".")
-    const a = Number(octets[0])
-    const b = Number(octets[1])
-    if (a === 127 || a === 10 || a === 0) return true
-    if (a === 192 && b === 168) return true
-    if (a === 169 && b === 254) return true // link-local + 169.254.169.254 metadata
-    if (a === 172 && b >= 16 && b <= 31) return true
-    return false
-  }
+  if (NodeNet.isIP(h) !== 0) return isBlockedIp(h)
   // Reject bare hostnames (no dot) — they resolve to internal/search-domain hosts.
   return !h.includes(".")
+}
+
+const isBlockedIp = (ip: string): boolean => {
+  const h = normalizeHost(ip)
+  const mapped = h.match(/::ffff:(\d+\.\d+\.\d+\.\d+)$/)
+  if (mapped?.[1] !== undefined) return isBlockedIpv4(mapped[1])
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(h)) return isBlockedIpv4(h)
+
+  if (h === "::1" || h === "::" || h.startsWith("fc") || h.startsWith("fd")) return true
+  if (/^fe[89ab][0-9a-f]?:/i.test(h)) return true
+  return false
+}
+
+const isBlockedIpv4 = (ip: string): boolean => {
+  const octets = ip.split(".")
+  const a = Number(octets[0])
+  const b = Number(octets[1])
+  if (a === 127 || a === 10 || a === 0) return true
+  if (a === 192 && b === 168) return true
+  if (a === 169 && b === 254) return true // link-local + 169.254.169.254 metadata
+  if (a === 172 && b >= 16 && b <= 31) return true
+  return false
 }
 
 const validateUrl = (raw: string): Effect.Effect<URL, ToolError> =>
@@ -68,6 +86,31 @@ const validateUrl = (raw: string): Effect.Effect<URL, ToolError> =>
     return url
   })
 
+const validateResolvedTargets = (url: URL): Effect.Effect<void, ToolError> => {
+  const host = normalizeHost(url.hostname)
+  if (NodeNet.isIP(host) !== 0) {
+    return isBlockedIp(host)
+      ? Effect.fail(fail("denied", `Refusing to fetch a private or local address: ${url.hostname}`))
+      : Effect.void
+  }
+
+  return Effect.tryPromise({
+    try: () => NodeDns.lookup(host, { all: true }),
+    catch: (error) =>
+      fail("execution-failed", error instanceof Error ? error.message : String(error)),
+  }).pipe(
+    Effect.flatMap((addresses) => {
+      const blocked = addresses.find((address) => isBlockedIp(address.address))
+      if (blocked !== undefined) {
+        return Effect.fail(
+          fail("denied", `Refusing to fetch a private or local address: ${url.hostname}`),
+        )
+      }
+      return Effect.void
+    }),
+  )
+}
+
 const httpError = (error: { message: string }): ToolError => fail("execution-failed", error.message)
 
 export const WebFetch = defineTool({
@@ -88,6 +131,7 @@ export const WebFetch = defineTool({
           hops: number,
         ): Effect.Effect<{ url: URL; contentType: string; body: string }, ToolError> =>
           Effect.gen(function* () {
+            yield* validateResolvedTargets(url)
             const response = yield* client.get(url.href).pipe(Effect.mapError(httpError))
             if (response.status >= 300 && response.status < 400) {
               const location = response.headers["location"]

@@ -47,6 +47,7 @@ describe("WebFetch input validation", () => {
   test.each([
     ["localhost", "http://localhost:8080/x"],
     ["metadata IP", "http://169.254.169.254/latest/meta-data"],
+    ["resolved loopback", "http://localtest.me/x"],
     ["private IP", "http://10.0.0.5/x"],
     ["bare hostname", "http://internalhost/x"],
     ["non-http scheme", "ftp://example.com"],
@@ -77,6 +78,20 @@ const stubClient = (body: string, contentType: string) =>
     ),
   )
 
+const redirectClient = (location: string, calls: { count: number }) =>
+  Layer.succeed(
+    HttpClient.HttpClient,
+    HttpClient.make((request: HttpClientRequest.HttpClientRequest) => {
+      calls.count += 1
+      return Effect.succeed(
+        HttpClientResponse.fromWeb(
+          request,
+          new Response("", { status: 302, headers: { location } }),
+        ),
+      )
+    }),
+  )
+
 describe("WebFetch behavior", () => {
   test("returns text for text/html responses", async () => {
     const result = await Effect.runPromise(
@@ -98,5 +113,20 @@ describe("WebFetch behavior", () => {
     )
     expect(result.supported).toBe(false)
     expect(result.text).toBeUndefined()
+  })
+
+  test("rejects redirects to hostnames that resolve private", async () => {
+    const calls = { count: 0 }
+    const result = await Effect.runPromise(
+      WebFetch.call({ url: "https://93.184.216.34" }).pipe(
+        Effect.provide(redirectClient("http://localtest.me/x", calls)),
+        Effect.provide(toolContextLayer),
+      ),
+    ).then(
+      () => ({ ok: true }),
+      () => ({ ok: false }),
+    )
+    expect(result.ok).toBe(false)
+    expect(calls.count).toBe(1)
   })
 })
