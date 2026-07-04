@@ -1,7 +1,8 @@
 import { Command } from "@effect/platform"
-import { Duration, Effect, Schema, Stream } from "effect"
+import { Duration, Effect, Schema } from "effect"
 import { ToolError } from "../errors"
 import { defineTool, ToolContext } from "../tool"
+import { collectCapped } from "./collect"
 
 const NAME = "Bash"
 const DEFAULT_TIMEOUT_MS = 120_000
@@ -50,17 +51,8 @@ export const BashResult = Schema.Struct({
   truncated: Schema.Boolean,
 })
 
-const collect = (stream: Stream.Stream<Uint8Array, unknown>): Effect.Effect<string, never> =>
-  stream.pipe(
-    Stream.decodeText(),
-    Stream.runFold("", (accumulator, chunk) => accumulator + chunk),
-    Effect.orElseSucceed(() => ""),
-  )
-
-const truncate = (text: string): { text: string; truncated: boolean } =>
-  text.length > MAX_OUTPUT
-    ? { text: `${text.slice(0, MAX_OUTPUT)}\n… output truncated`, truncated: true }
-    : { text, truncated: false }
+const render = ({ text, truncated }: { text: string; truncated: boolean }): string =>
+  truncated ? `${text}\n… output truncated` : text
 
 export const Bash = defineTool({
   name: NAME,
@@ -99,15 +91,17 @@ export const Bash = defineTool({
       return yield* Effect.scoped(
         Effect.gen(function* () {
           const process = yield* Command.start(command)
-          const [exitCode, stdout, stderr] = yield* Effect.all(
-            [process.exitCode, collect(process.stdout), collect(process.stderr)],
+          const [exitCode, out, err] = yield* Effect.all(
+            [
+              process.exitCode,
+              collectCapped(process.stdout, MAX_OUTPUT),
+              collectCapped(process.stderr, MAX_OUTPUT),
+            ],
             { concurrency: "unbounded" },
           )
-          const out = truncate(stdout)
-          const err = truncate(stderr)
           return {
-            stdout: out.text,
-            stderr: err.text,
+            stdout: render(out),
+            stderr: render(err),
             exitCode: Number(exitCode),
             truncated: out.truncated || err.truncated,
           }
