@@ -47,6 +47,9 @@ export const Edit = defineTool({
       if (input.oldText.length === 0) {
         return yield* fail("precondition-failed", "oldText must not be empty.")
       }
+      if (input.oldText === input.newText) {
+        return yield* fail("precondition-failed", "oldText and newText are identical; no change.")
+      }
       const fs = yield* FileSystem.FileSystem
       const { session, permission } = yield* ToolContext
       const path = yield* resolveWorkspacePath(NAME, session.workingDirectory, input.path)
