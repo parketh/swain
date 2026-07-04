@@ -1,6 +1,8 @@
 # Architecture
 
-Swain is a Bun workspace of Effect-native packages. The first package is `@swain/llms`.
+Swain is an agent harness for coding. It is organized as a Bun workspace of Effect-native packages:
+- `@swain/llms`: LLM provider library
+- `@swain/core`: core agent harness (loop, tools, memory, permissions)
 
 ## packages/llms
 
@@ -39,7 +41,7 @@ Full design record: `specs/0001-scaffold-llms.md`.
 
 ## packages/core
 
-The agent harness that `@swain/llms` deferred. It runs the repeated "LLM turn → tool results → next turn" loop over an in-memory session, on top of `@swain/llms/client` (a thin injectable `LLMClient` service over the `LLM` namespace).
+The core agent harness. It runs the "LLM turn → tool results → next turn" loop over an in-memory session, calling `@swain/llms/client` (a thin injectable `LLMClient` service over the `LLM` namespace).
 
 `core` owns session state, system prompt assembly, message history, tool registration/execution, permissions, and file-state safety. It is headless; a TUI is deferred.
 

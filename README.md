@@ -4,7 +4,10 @@
 >
 > _or perhaps_ ...  a "**S**oft**W**are **AI** e**N**gineer".
 
-Swain is an agent harness for coding. The first package, `@swain/llms`, is a protocol-first, SDK-free LLM provider library implementing streaming deltas, tool-call normalization, and a provider-neutral event contract.
+Swain is an agent harness for coding. It is organized as a Bun workspace of Effect-native packages:
+
+- `@swain/llms`: a protocol-first, SDK-free LLM provider library implementing streaming deltas, tool-call normalization, and a provider-neutral event contract.
+- `@swain/core`: the core agent harness, comprising the agentic loop, tools, memory, permissions, and file state management.
 
 ## Tech stack
 
@@ -27,18 +30,17 @@ specs/     # numbered build journals and design records
 
 - Architecture: [`ARCHITECTURE.md`](ARCHITECTURE.md)
 - Build journals & design records: [`specs/`](specs/)
-- Package docs: `packages/llms/README.md`
 
 ## Commands
 
 ```bash
 # install deps
 bun install      
-# run type checks
+# run checks
 bun run typecheck
-# run format + lint
-bun run format
 bun run format:check
+# run formatter
+bun run format
 # run tests
 bun test packages/llms/test packages/core/test
 ```
