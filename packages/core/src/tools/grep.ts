@@ -1,8 +1,7 @@
-import { Command } from "@effect/platform"
 import { Effect, Schema } from "effect"
-import { ToolError } from "../errors"
 import { resolveWorkspacePath } from "../files/paths"
 import { defineTool, ToolContext } from "../tool"
+import { runRipgrep } from "./ripgrep"
 
 const NAME = "Grep"
 const MAX_MATCHES = 1000
@@ -47,22 +46,24 @@ export const Grep = defineTool({
           ? session.workingDirectory
           : yield* resolveWorkspacePath(NAME, session.workingDirectory, input.path)
 
-      const args = ["--line-number", "--no-heading", "--color", "never"]
+      const args = [
+        "--line-number",
+        "--no-heading",
+        "--color",
+        "never",
+        "--hidden",
+        "--glob",
+        "!.git",
+        // Cap runaway minified/generated lines instead of flooding context.
+        "--max-columns",
+        "500",
+      ]
       if (input.glob !== undefined) args.push("--glob", input.glob)
+      // `-e` guards patterns starting with `-` from being parsed as flags.
       // Explicit "." search path; without it rg reads (and blocks on) stdin.
-      args.push(input.pattern, ".")
+      args.push("-e", input.pattern, ".")
 
-      const command = Command.make("rg", ...args).pipe(Command.workingDirectory(searchDir))
-      const lines = yield* Command.lines(command).pipe(
-        Effect.mapError(
-          (error) =>
-            new ToolError({
-              tool: NAME,
-              reason: "execution-failed",
-              message: `ripgrep failed: ${error.message}`,
-            }),
-        ),
-      )
+      const lines = yield* runRipgrep(NAME, args, searchDir)
       const matches = lines
         .map(parseLine)
         .filter((match): match is NonNullable<typeof match> => match !== undefined)

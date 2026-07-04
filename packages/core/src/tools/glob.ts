@@ -1,8 +1,7 @@
-import { Command } from "@effect/platform"
 import { Effect, Schema } from "effect"
-import { ToolError } from "../errors"
 import { resolveWorkspacePath } from "../files/paths"
 import { defineTool, ToolContext } from "../tool"
+import { runRipgrep } from "./ripgrep"
 
 const NAME = "Glob"
 const MAX_MATCHES = 1000
@@ -31,20 +30,13 @@ export const Glob = defineTool({
           ? session.workingDirectory
           : yield* resolveWorkspacePath(NAME, session.workingDirectory, input.path)
 
-      const command = Command.make("rg", "--files", "--glob", input.pattern).pipe(
-        Command.workingDirectory(searchDir),
+      // --hidden surfaces dotfiles (e.g. .github/); .git stays excluded.
+      // .gitignore is still respected, so build/vendor noise is filtered.
+      const matches = yield* runRipgrep(
+        NAME,
+        ["--files", "--hidden", "--glob", "!.git", "--glob", input.pattern],
+        searchDir,
       )
-      const lines = yield* Command.lines(command).pipe(
-        Effect.mapError(
-          (error) =>
-            new ToolError({
-              tool: NAME,
-              reason: "execution-failed",
-              message: `ripgrep failed: ${error.message}`,
-            }),
-        ),
-      )
-      const matches = lines.filter((line) => line.length > 0)
       return {
         matches: matches.slice(0, MAX_MATCHES),
         truncated: matches.length > MAX_MATCHES,
