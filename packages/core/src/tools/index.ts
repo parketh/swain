@@ -40,3 +40,27 @@ export {
   WebSearchResult,
 } from "./web-search"
 export { Write, WriteInput, WriteResult } from "./write"
+
+import type { AnyTool } from "../tool"
+import { Ask } from "./ask"
+import { Bash } from "./bash"
+import { Edit } from "./edit"
+import { Glob } from "./glob"
+import { Grep } from "./grep"
+import { Read } from "./read"
+import { WebFetch } from "./web-fetch"
+import { WebSearch } from "./web-search"
+import { Write } from "./write"
+
+/** The default tool set wired by interactive runtimes (REPL, TUI). */
+export const builtinTools: ReadonlyArray<AnyTool> = [
+  Read,
+  Write,
+  Edit,
+  Glob,
+  Grep,
+  Bash,
+  WebSearch,
+  WebFetch,
+  Ask,
+]
