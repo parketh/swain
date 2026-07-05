@@ -11,7 +11,7 @@ import { render } from "ink-testing-library"
 import { App } from "../src/app"
 import { CommandOverlay, filterCommands } from "../src/components/CommandOverlay"
 import { ListSelect } from "../src/components/ListSelect"
-import { PromptInput, promptSegments } from "../src/components/PromptInput"
+import { nextWord, PromptInput, prevWord, promptSegments } from "../src/components/PromptInput"
 import { QuestionPrompt } from "../src/components/QuestionPrompt"
 import { foldEvents } from "../src/components/Transcript"
 import type { TuiConfig } from "../src/config"
@@ -53,6 +53,16 @@ describe("pure helpers", () => {
     expect(filterCommands("he").map((c) => c.name)).toContain("help")
   })
 
+  test("prevWord/nextWord jump over whitespace-delimited words", () => {
+    const text = "foo bar baz"
+    expect(nextWord(text, 0)).toBe(3) // end of "foo"
+    expect(nextWord(text, 4)).toBe(7) // end of "bar"
+    expect(prevWord(text, 11)).toBe(8) // start of "baz"
+    expect(prevWord(text, 7)).toBe(4) // start of "bar"
+    expect(prevWord(text, 0)).toBe(0)
+    expect(nextWord(text, 11)).toBe(11)
+  })
+
   test("foldEvents accumulates streamed assistant text before finish", () => {
     const events: ReadonlyArray<AgentEvent> = [
       { type: "step-start", iteration: 0 },
@@ -85,9 +95,12 @@ describe("components", () => {
     expect(lastFrame()).toContain("/help")
   })
 
-  test("PromptInput highlights a command token with the command color", () => {
-    const { lastFrame } = render(<PromptInput value="/he" />)
-    expect(lastFrame()).toContain("/he")
+  test("PromptInput renders the command token and a multi-line value", () => {
+    expect(render(<PromptInput value="/he" cursor={3} />).lastFrame()).toContain("/he")
+    const multi = render(<PromptInput value={"first\nsecond"} cursor={11} />).lastFrame() ?? ""
+    expect(multi).toContain("first")
+    expect(multi).toContain("second")
+    expect(multi.split("\n").length).toBeGreaterThan(1)
   })
 
   test("ListSelect filters by query and selects the highlighted item on Enter", () => {

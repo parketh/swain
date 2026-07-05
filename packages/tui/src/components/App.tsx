@@ -10,7 +10,7 @@ import { FileSearch } from "./FileSearch"
 import { HelpView } from "./HelpView"
 import { ModelPicker } from "./ModelPicker"
 import { PermissionPrompt } from "./PermissionPrompt"
-import { PromptInput } from "./PromptInput"
+import { nextWord, PromptInput, prevWord } from "./PromptInput"
 import { QuestionPrompt, type QuestionPromptAnswer } from "./QuestionPrompt"
 import { ResumePicker } from "./ResumePicker"
 import { StatusLine } from "./StatusLine"
@@ -33,6 +33,7 @@ export const App = ({ controller }: AppProps) => {
   const { exit } = useApp()
   const [, forceRender] = useReducer((n: number) => n + 1, 0)
   const [value, setValue] = useState("")
+  const [cursor, setCursor] = useState(0)
   const [draft, setDraft] = useState<DraftState>(emptyDraft)
   const [overlayIndex, setOverlayIndex] = useState(0)
   const [question, setQuestion] = useState<PendingQuestion | undefined>(undefined)
@@ -58,25 +59,30 @@ export const App = ({ controller }: AppProps) => {
   const cwd = state.session.workingDirectory
   const commandMode = isCommandToken(value)
   const commandMatches = commandMode ? filterCommands(value.slice(1)) : []
-  const fileToken = commandMode ? undefined : detectFileToken(value)
+  const fileToken = commandMode ? undefined : detectFileToken(value, cursor)
   const fileMatches: ReadonlyArray<FileMatch> =
     fileToken !== undefined ? searchFiles(cwd, fileToken.query) : []
   const overlayCount = commandMode ? commandMatches.length : fileMatches.length
   const highlight = overlayCount === 0 ? 0 : Math.min(overlayIndex, overlayCount - 1)
 
+  const setInput = (text: string, pos: number): void => {
+    setValue(text)
+    setCursor(Math.max(0, Math.min(pos, text.length)))
+    setOverlayIndex(0)
+  }
+  const insert = (text: string): void =>
+    setInput(value.slice(0, cursor) + text + value.slice(cursor), cursor + text.length)
+
   const acceptCommand = (): void => {
     const match = commandMatches[highlight]
-    if (match !== undefined) {
-      setValue(`/${match.name} `)
-      setOverlayIndex(0)
-    }
+    if (match !== undefined) setInput(`/${match.name} `, match.name.length + 2)
   }
 
   const acceptFile = (): void => {
     const match = fileMatches[highlight]
     if (fileToken !== undefined && match !== undefined) {
-      setValue(replaceToken(value, fileToken, match.path).text)
-      setOverlayIndex(0)
+      const next = replaceToken(value, fileToken, match.path)
+      setInput(next.text, next.cursor)
     }
   }
 
@@ -87,8 +93,7 @@ export const App = ({ controller }: AppProps) => {
 
   const submit = async (): Promise<void> => {
     const text = value
-    setValue("")
-    setOverlayIndex(0)
+    setInput("", 0)
     setNotice(undefined)
     if (text.trim() === "") return
     const parsed = parseCommand(text)
@@ -151,33 +156,42 @@ export const App = ({ controller }: AppProps) => {
         return
       }
       if (key.shift && key.tab) return controller.cyclePermissionMode()
-      if (key.escape) {
-        setValue("")
-        setOverlayIndex(0)
-        return
-      }
+      if (key.escape) return setInput("", 0)
+
+      // Word navigation: Option/Alt + Left/Right. Terminals deliver this either
+      // as an arrow with the meta modifier, or as ESC-b / ESC-f (meta + b/f).
+      if (key.meta && (key.leftArrow || input === "b")) return setCursor(prevWord(value, cursor))
+      if (key.meta && (key.rightArrow || input === "f")) return setCursor(nextWord(value, cursor))
+
       if (key.upArrow) return setOverlayIndex((i) => Math.max(0, i - 1))
       if (key.downArrow)
         return setOverlayIndex((i) => Math.min(Math.max(0, overlayCount - 1), i + 1))
-      if (key.tab || (key.rightArrow && commandMode)) {
+
+      if (key.leftArrow) return setCursor(Math.max(0, cursor - 1))
+      if (key.rightArrow) {
+        if (commandMode && commandMatches.length > 0) return acceptCommand()
+        return setCursor(Math.min(value.length, cursor + 1))
+      }
+
+      if (key.tab) {
         if (commandMode) return acceptCommand()
         if (fileToken !== undefined) return acceptFile()
         return
       }
+
       if (key.return) {
+        if (key.shift) return insert("\n") // Shift+Enter inserts a newline
         if (commandMode && commandMatches.length > 0) return acceptCommand()
         void submit()
         return
       }
+
       if (key.backspace || key.delete) {
-        setValue((v) => v.slice(0, -1))
-        setOverlayIndex(0)
+        if (cursor > 0) setInput(value.slice(0, cursor - 1) + value.slice(cursor), cursor - 1)
         return
       }
-      if (input && !key.ctrl && !key.meta) {
-        setValue((v) => v + input)
-        setOverlayIndex(0)
-      }
+
+      if (input && !key.ctrl && !key.meta) insert(input)
     },
     { isActive: question === undefined && approval === undefined && dialog === undefined },
   )
@@ -256,7 +270,9 @@ export const App = ({ controller }: AppProps) => {
       ) : (
         <>
           {notice !== undefined ? <Text dimColor>{notice}</Text> : null}
-          <PromptInput value={value} />
+          <Box borderStyle="single" borderLeft={false} borderRight={false} borderColor="gray">
+            <PromptInput value={value} cursor={cursor} />
+          </Box>
           {commandMode ? <CommandOverlay query={value.slice(1)} highlight={highlight} /> : null}
           {fileToken !== undefined ? (
             <FileSearch matches={fileMatches} highlight={highlight} />
