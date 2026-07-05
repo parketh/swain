@@ -3,10 +3,18 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { BunContext } from "@effect/platform-bun"
-import type { Model, ToolCall } from "@swain/llms"
-import { LLMClient, LLMTurnSummary, ModelId, ProviderId, ToolCallId } from "@swain/llms"
+import type { LLMEvent, Model, ToolCall } from "@swain/llms"
+import {
+  ContentId,
+  LLMClient,
+  LLMError,
+  LLMTurnSummary,
+  ModelId,
+  ProviderId,
+  ToolCallId,
+} from "@swain/llms"
 import { Effect, Layer, Schema, Stream } from "effect"
-import { runTurn, submitPrompt } from "../src/agent"
+import { type AgentEvent, runTurn, submitPrompt } from "../src/agent"
 import { AgentError } from "../src/errors"
 import type { Permissions } from "../src/permission"
 import { assembleSystemPrompt } from "../src/prompt"
@@ -286,6 +294,103 @@ describe("runTurn", () => {
       role: "assistant",
       content: [{ type: "text", text: "done" }],
     })
+  })
+
+  test("forwards llm events, step boundaries, and tool lifecycle to onEvent", async () => {
+    const contentId = ContentId.make("c-1")
+    const twoDeltaTurn: ReadonlyArray<LLMEvent> = [
+      { type: "text-start", contentId },
+      { type: "text-delta", contentId, text: "he" },
+      { type: "text-delta", contentId, text: "llo" },
+      { type: "text-end", contentId },
+      { type: "finish", reason: "stop", usage: { inputTokens: 1, outputTokens: 2 } },
+    ]
+    const state = session()
+    submitPrompt(state, "hi")
+    const events: Array<AgentEvent> = []
+    await Effect.runPromise(
+      runTurn(state, {
+        onEvent: (event) => Effect.sync(() => events.push(event)),
+      }).pipe(
+        Effect.provide(scriptedLLMClient([twoDeltaTurn])),
+        Effect.provide(toolContextLayer(state)),
+        Effect.provide(toolRegistryLayer([])),
+      ),
+    )
+
+    const deltas = events
+      .filter((e) => e.type === "llm-event" && e.event.type === "text-delta")
+      .map((e) => (e.type === "llm-event" && e.event.type === "text-delta" ? e.event.text : ""))
+    expect(deltas).toEqual(["he", "llo"])
+
+    const stepStart = events.findIndex((e) => e.type === "step-start")
+    const firstDelta = events.findIndex(
+      (e) => e.type === "llm-event" && e.event.type === "text-delta",
+    )
+    const stepEnd = events.findIndex((e) => e.type === "step-end")
+    expect(stepStart).toBeGreaterThanOrEqual(0)
+    expect(stepStart).toBeLessThan(firstDelta)
+    expect(firstDelta).toBeLessThan(stepEnd)
+    const end = events.find((e) => e.type === "step-end")
+    expect(end).toMatchObject({ reason: "stop", usage: { inputTokens: 1, outputTokens: 2 } })
+  })
+
+  test("emits tool-execution-start before and tool-execution-end after callTool", async () => {
+    const state = session()
+    submitPrompt(state, "hi")
+    const events: Array<AgentEvent> = []
+    await Effect.runPromise(
+      runTurn(state, {
+        onEvent: (event) => Effect.sync(() => events.push(event)),
+      }).pipe(
+        Effect.provide(scriptedLLMClient([toolCallTurn("Echo", { msg: "hi" }), textTurn("done")])),
+        Effect.provide(toolContextLayer(state)),
+        Effect.provide(toolRegistryLayer([echo])),
+      ),
+    )
+    const start = events.findIndex((e) => e.type === "tool-execution-start")
+    const finish = events.findIndex((e) => e.type === "tool-execution-end")
+    expect(start).toBeGreaterThanOrEqual(0)
+    expect(start).toBeLessThan(finish)
+    expect(events[start]).toMatchObject({ name: "Echo", input: { msg: "hi" } })
+    expect(events[finish]).toMatchObject({ name: "Echo", isError: false })
+  })
+
+  test("emits one non-recoverable llm agent-error before failing on a fatal LLMError", async () => {
+    const failingLLM = Layer.succeed(LLMClient.Service, {
+      request: LLMClient.request,
+      streamTurn: () =>
+        Stream.fail(new LLMError({ reason: "server-error", message: "boom", retryable: false })),
+      generateTurn: () =>
+        Effect.fail(new LLMError({ reason: "server-error", message: "boom", retryable: false })),
+    })
+    const state = session()
+    submitPrompt(state, "hi")
+    const events: Array<AgentEvent> = []
+    const error = await Effect.runPromise(
+      runTurn(state, {
+        onEvent: (event) => Effect.sync(() => events.push(event)),
+      }).pipe(
+        Effect.flip,
+        Effect.provide(failingLLM),
+        Effect.provide(toolContextLayer(state)),
+        Effect.provide(toolRegistryLayer([])),
+      ),
+    )
+    expect(error).toBeInstanceOf(LLMError)
+    const agentErrors = events.filter((e) => e.type === "agent-error")
+    expect(agentErrors).toHaveLength(1)
+    expect(agentErrors[0]).toMatchObject({ source: "llm", recoverable: false })
+    // No assistant message is appended when the turn fails.
+    expect(state.messages).toHaveLength(1)
+  })
+
+  test("appends the assistant message only after the turn completes", async () => {
+    const { state, run } = drive([textTurn("final")], [])
+    expect(state.messages).toHaveLength(1)
+    await run
+    expect(state.messages).toHaveLength(2)
+    expect(state.messages[1]).toMatchObject({ role: "assistant" })
   })
 
   test("fails with a typed error when the tool loop never terminates", async () => {
