@@ -1,7 +1,7 @@
 import { Command } from "@effect/platform"
-import { Duration, Effect, Schema } from "effect"
+import { Duration, Effect, Schema, Stream } from "effect"
 import { ToolError } from "../errors"
-import { defineTool, ToolContext } from "../tool"
+import { defineTool, ToolContext, ToolProgress } from "../tool"
 import { collectCapped } from "./collect"
 
 const NAME = "Bash"
@@ -54,6 +54,32 @@ export const BashResult = Schema.Struct({
 const render = ({ text, truncated }: { text: string; truncated: boolean }): string =>
   truncated ? `${text}\n… output truncated` : text
 
+/**
+ * Folds a byte stream into capped text like `collectCapped`, but taps each
+ * decoded chunk into `emit` before folding so observers see stdout as it
+ * arrives. Emission stops once the cap is reached, staying consistent with
+ * `truncated`; each `emit` completes before the next chunk folds.
+ */
+const collectStreaming = (
+  stream: Stream.Stream<Uint8Array, unknown>,
+  cap: number,
+  emit: (delta: string) => Effect.Effect<void>,
+): Effect.Effect<{ text: string; truncated: boolean }, never> =>
+  stream.pipe(
+    Stream.decodeText(),
+    Stream.runFoldEffect({ text: "", truncated: false }, (state, chunk) => {
+      if (state.truncated) return Effect.succeed(state)
+      if (state.text.length + chunk.length > cap) {
+        const capped = chunk.slice(0, cap - state.text.length)
+        return (capped.length > 0 ? emit(capped) : Effect.void).pipe(
+          Effect.as({ text: state.text + capped, truncated: true }),
+        )
+      }
+      return emit(chunk).pipe(Effect.as({ text: state.text + chunk, truncated: false }))
+    }),
+    Effect.orElseSucceed(() => ({ text: "", truncated: false })),
+  )
+
 export const Bash = defineTool({
   name: NAME,
   description: "Execute an approved shell command in the working directory.",
@@ -71,6 +97,7 @@ export const Bash = defineTool({
       }
 
       const { session, permission } = yield* ToolContext
+      const progress = yield* ToolProgress
       const decision = yield* permission.check({
         toolName: NAME,
         readOnly: !isRisky(input.command),
@@ -94,7 +121,7 @@ export const Bash = defineTool({
           const [exitCode, out, err] = yield* Effect.all(
             [
               process.exitCode,
-              collectCapped(process.stdout, MAX_OUTPUT),
+              collectStreaming(process.stdout, MAX_OUTPUT, progress.emit),
               collectCapped(process.stderr, MAX_OUTPUT),
             ],
             { concurrency: "unbounded" },

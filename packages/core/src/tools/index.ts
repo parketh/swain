@@ -6,6 +6,8 @@ export {
   type Tool,
   ToolContext,
   type ToolContextValue,
+  ToolProgress,
+  type ToolProgressValue,
   ToolRegistry,
   toLLMTool,
   toolRegistryLayer,

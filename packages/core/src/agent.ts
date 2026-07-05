@@ -197,7 +197,16 @@ const loop = (
           input: toolCall.input,
         })
         .pipe(
-          Effect.andThen(callTool(toolCall)),
+          Effect.andThen(
+            callTool(toolCall, (text) =>
+              ctx.emit({
+                type: "tool-execution-delta",
+                name: toolCall.name,
+                toolCallId: toolCall.toolCallId,
+                text,
+              }),
+            ),
+          ),
           Effect.tap((result) =>
             ctx.emit({
               type: "tool-execution-end",
