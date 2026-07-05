@@ -3,6 +3,7 @@
 Swain is an agent harness for coding. It is organized as a Bun workspace of Effect-native packages:
 - `@swain/llms`: LLM provider library
 - `@swain/core`: core agent harness (loop, tools, memory, permissions)
+- `@swain/tui`: Ink-based interactive CLI over the core loop
 
 ## packages/llms
 
@@ -54,3 +55,36 @@ The core agent harness. It runs the "LLM turn → tool results → next turn" lo
 - **Persistence:** session metadata and transcript persist under `.swain/sessions/<id>/`; runtime cache, locks, and pending approvals do not.
 
 Full design record: `specs/0002-core-agent-loop.md`.
+
+## packages/tui
+
+An Ink/React interactive CLI over the core loop. It owns terminal state, command parsing, local config/credential storage, model selection, file search, and the approval/question UI, while delegating model turns, tools, sessions, and permissions to `@swain/core` and `@swain/llms`.
+
+### Layers
+
+```
+bin/swain.tsx → run()          flag parsing, model resolution, app mount
+      ▼
+components/ (App, PromptInput, Transcript, StatusLine, overlays,
+            ListSelect, QuestionPrompt, PermissionPrompt, pickers)
+      │  React-owned transcript/draft state; forwarded AgentEvents
+      ▼
+controller.ts                  bridges UI actions to Effect programs,
+                               forwards each AgentEvent, owns TuiState
+      ▼
+runtime.ts                     ManagedRuntime over LLMClient + tools +
+                               BunContext + TUI Ask/Approval bridges
+      ▼
+@swain/core (runTurn, sessions, tools, permissions)
+```
+
+### Key decisions
+
+- **Core event observer:** `runTurn()` takes an optional `onEvent` observer emitting provider deltas, step boundaries, tool lifecycle, and errors as `AgentEvent`; the `Effect<void>` API and final session mutations are unchanged for headless callers.
+- **Tool progress channel:** `callTool` provides a per-call `ToolProgress` service (no-op by default); `Bash` streams stdout as `tool-execution-delta`. Progress is advisory and never persisted.
+- **Controller owns state, React owns display:** `TuiState` holds session/model/mode; transcript rows and draft streaming buffers are local React state derived from `session.messages` plus forwarded events.
+- **Commands are local:** built-in `/` commands are parsed and executed in the TUI; only `/plan` with args sends a model prompt.
+- **Global typed config:** provider credentials/settings and the active model live in `${XDG_CONFIG_HOME:-~/.config}/swain/config.json` (dir `0700`, file `0600`), validated with Effect Schema. `models.ts` owns the static provider/model/variant catalog and lowers variants to `providerOptions`. Session/transcript persistence stays project-local under `.swain/sessions/<id>/`.
+- **Interaction bridges:** the TUI-backed `AskService` and `ApprovalService` suspend the tool Effect and resolve once the `QuestionPrompt`/`PermissionPrompt` submits.
+
+Full design record: `specs/0003-tui.md`.

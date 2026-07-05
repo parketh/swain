@@ -51,7 +51,16 @@ bun test packages/llms/test packages/core/test packages/tui/test
 
 ```bash
 bun run packages/tui/bin/swain.tsx
+# optional overrides
+bun run packages/tui/bin/swain.tsx --model anthropic:claude-sonnet-4-5
+bun run packages/tui/bin/swain.tsx --permission-mode auto
+bun run packages/tui/bin/swain.tsx --resume <session-id>
 ```
+
+Inside the TUI: `/connect` stores provider credentials, `/model` and `/variants`
+pick the active model, `/plan` switches to plan mode, `/usage` shows counters,
+`/clear` starts a fresh session, and `/resume` reopens a saved one. Shift-Tab
+cycles the permission mode (`ask → auto → plan`).
 
 Provider credentials are stored in a global config file at
 `${XDG_CONFIG_HOME:-~/.config}/swain/config.json` (mode `0600`). Use `/connect`
