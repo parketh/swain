@@ -1,3 +1,5 @@
+import { readdirSync, statSync } from "node:fs"
+import { join as pathJoin } from "node:path"
 import type { HttpClient } from "@effect/platform"
 import {
   type AgentEvent,
@@ -57,6 +59,11 @@ export interface ConnectResult {
   readonly error?: string
 }
 
+export interface SavedSession {
+  readonly sessionId: string
+  readonly modifiedMs: number
+}
+
 export interface ControllerDeps {
   readonly session: SessionState
   readonly activeModel: ActiveModel
@@ -95,6 +102,7 @@ export interface Controller {
   refreshAvailableModels(): void
   clearConversation(): void
   resumeSession(sessionId: string): Promise<void>
+  listSessions(): ReadonlyArray<SavedSession>
   interrupt(): void
   dispose(): void
 }
@@ -382,6 +390,21 @@ export const makeController = (deps: ControllerDeps): Controller => {
       session = loaded
       requestOptions = result.selection.requestOptions
       notify()
+    },
+
+    listSessions: () => {
+      const dir = pathJoin(session.workingDirectory, ".swain", "sessions")
+      try {
+        return readdirSync(dir, { withFileTypes: true })
+          .filter((entry) => entry.isDirectory())
+          .map((entry) => {
+            const modifiedMs = statSync(pathJoin(dir, entry.name, "session.json")).mtimeMs
+            return { sessionId: entry.name, modifiedMs }
+          })
+          .sort((a, b) => b.modifiedMs - a.modifiedMs)
+      } catch {
+        return []
+      }
     },
 
     interrupt: () => {

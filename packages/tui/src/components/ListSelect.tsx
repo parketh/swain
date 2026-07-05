@@ -70,7 +70,10 @@ export const ListSelect = <Value,>({
           const active = i === index
           const isSelected = selected !== undefined && item.value === selected
           return (
-            <Text key={item.label} color={item.disabled ? "gray" : active ? "cyan" : undefined}>
+            <Text
+              key={`${i}-${item.label}`}
+              color={item.disabled ? "gray" : active ? "cyan" : undefined}
+            >
               {active ? "› " : "  "}
               {item.label}
               {isSelected ? " (current)" : ""}

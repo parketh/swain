@@ -293,4 +293,37 @@ describe("App", () => {
     await flush()
     expect(lastFrame()).toContain("hello world")
   })
+
+  test("/model with no args opens the model picker", async () => {
+    const { stdin, lastFrame } = render(<App controller={makeCtrl()} />)
+    stdin.write("/model ")
+    await flush()
+    stdin.write("\r")
+    await flush()
+    expect(lastFrame()).toContain("Select a model")
+    expect(lastFrame()).toContain("claude-sonnet-4-5")
+  })
+
+  test("/variants with no args opens the variant picker for the active model", async () => {
+    const { stdin, lastFrame } = render(<App controller={makeCtrl()} />)
+    stdin.write("/variants ")
+    await flush()
+    stdin.write("\r")
+    await flush()
+    expect(lastFrame()).toContain("Select a variant")
+    expect(lastFrame()).toContain("default")
+    expect(lastFrame()).toContain("extended thinking")
+  })
+
+  test("/connect opens a provider picker with every static provider", async () => {
+    const { stdin, lastFrame } = render(<App controller={makeCtrl()} />)
+    stdin.write("/connect ")
+    await flush()
+    stdin.write("\r")
+    await flush()
+    expect(lastFrame()).toContain("Connect a provider")
+    expect(lastFrame()).toContain("Anthropic")
+    expect(lastFrame()).toContain("OpenAI")
+    expect(lastFrame()).toContain("DeepSeek")
+  })
 })

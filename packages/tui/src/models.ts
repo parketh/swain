@@ -52,7 +52,6 @@ const CATALOG: ReadonlyArray<ProviderSpec> = [
         id: "claude-sonnet-4-5",
         label: "Claude Sonnet 4.5",
         variants: [
-          { id: "default", label: "default" },
           {
             id: "thinking",
             label: "extended thinking",

@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { type AgentEvent, createSessionState, type PermissionMode } from "@swain/core"
+import { BunContext } from "@effect/platform-bun"
+import { type AgentEvent, createSessionState, type PermissionMode, saveSession } from "@swain/core"
 import type { LLMEvent, LLMRequest, Model } from "@swain/llms"
 import { ContentId, ModelId, ProviderId, ToolCallId } from "@swain/llms"
 import { LLMClient } from "@swain/llms/client"
@@ -188,5 +189,103 @@ describe("controller", () => {
     const toolResult = messages.find((m) => m.content.some((block) => block.type === "tool-result"))
     expect(toolResult).toBeDefined()
     expect(messages.at(-1)).toMatchObject({ role: "assistant" })
+  })
+})
+
+describe("controller command actions", () => {
+  let dir: string
+  let controller: Controller
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "swain-ctrl2-"))
+  })
+  afterEach(() => {
+    controller?.dispose()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  const build = (initialConfig: TuiConfig, persist = true): Controller => {
+    const session = createSessionState({
+      workingDirectory: dir,
+      model: testModel,
+      permissionMode: "auto",
+      currentDate: "2026-07-05",
+    })
+    controller = makeController({
+      session,
+      activeModel: { provider: "anthropic", modelId: "claude-sonnet-4-5" },
+      config: initialConfig,
+      configPath: join(dir, "config.json"),
+      env: {},
+      llmLayer: scripted([textTurn("ok")]).layer,
+      persist,
+    })
+    return controller
+  }
+
+  test("connecting a provider makes its models available and stores a redacted key", async () => {
+    const c = build({ providers: {} })
+    expect(c.getState().availableModels).toHaveLength(0)
+    const result = await c.connectProvider("anthropic", { apiKey: "sk-secret-1234" })
+    expect(result.ok).toBe(true)
+    expect(c.getState().availableModels.some((m) => m.provider === "anthropic")).toBe(true)
+    const provider = c.getState().connectableProviders.find((p) => p.id === "anthropic")
+    expect(provider?.configured).toBe(true)
+    expect(provider?.redactedKey).toBeDefined()
+    expect(provider?.redactedKey).not.toBe("sk-secret-1234")
+  })
+
+  test("a failed config write reports an error and leaves the provider unconfigured", async () => {
+    const c = build({ providers: {} })
+    // Point the config at a path under a file so makeDirectory fails.
+    const bad = makeController({
+      session: createSessionState({
+        workingDirectory: dir,
+        model: testModel,
+        currentDate: "2026-07-05",
+      }),
+      activeModel: { provider: "anthropic", modelId: "claude-sonnet-4-5" },
+      config: { providers: {} },
+      configPath: join(dir, "config.json", "nested.json"),
+      env: {},
+      llmLayer: scripted([textTurn("ok")]).layer,
+      persist: true,
+    })
+    // Create the blocking file where a directory is expected.
+    await c.connectProvider("anthropic", { apiKey: "sk-1" })
+    const result = await bad.connectProvider("anthropic", { apiKey: "sk-2" })
+    expect(result.ok).toBe(false)
+    expect(bad.getState().connectableProviders.find((p) => p.id === "anthropic")?.configured).toBe(
+      false,
+    )
+    bad.dispose()
+  })
+
+  test("selecting an invalid model emits an agent-error", async () => {
+    const c = build({ providers: { anthropic: { apiKey: "sk-1" } } })
+    const events: Array<AgentEvent> = []
+    c.onEvent((event) => events.push(event))
+    await c.selectModel("anthropic", "no-such-model")
+    expect(events.some((e) => e.type === "agent-error")).toBe(true)
+  })
+
+  test("resume loads a saved session and rehydrates counters", async () => {
+    const c = build({ providers: { anthropic: { apiKey: "sk-1" } } })
+    // Persist a session to disk with counters.
+    const original = createSessionState({
+      sessionId: "s-resume",
+      workingDirectory: dir,
+      model: testModel,
+      permissionMode: "auto",
+      currentDate: "2026-07-05",
+    })
+    original.counters.turns = 3
+    original.counters.inputTokens = 12
+    original.counters.outputTokens = 8
+    await Effect.runPromise(saveSession(original).pipe(Effect.provide(BunContext.layer)))
+    const listed = c.listSessions()
+    expect(listed.some((s) => s.sessionId === "s-resume")).toBe(true)
+    await c.resumeSession("s-resume")
+    expect(c.getState().session.sessionId).toBe("s-resume")
+    expect(c.getUsage()).toMatchObject({ turns: 3, inputTokens: 12, outputTokens: 8 })
   })
 })
