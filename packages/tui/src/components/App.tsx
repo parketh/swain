@@ -1,11 +1,12 @@
 import { Box, Text, useApp, useInput } from "ink"
 import { useEffect, useReducer, useState } from "react"
 import { parseCommand } from "../commands"
-import type { Controller, PendingQuestion } from "../controller"
+import type { Controller, PendingApproval, PendingQuestion } from "../controller"
 import { detectFileToken, type FileMatch, replaceToken, searchFiles } from "../fs"
 import { CommandOverlay, filterCommands } from "./CommandOverlay"
 import { FileSearch } from "./FileSearch"
 import { HelpView } from "./HelpView"
+import { PermissionPrompt } from "./PermissionPrompt"
 import { PromptInput } from "./PromptInput"
 import { QuestionPrompt, type QuestionPromptAnswer } from "./QuestionPrompt"
 import { StatusLine } from "./StatusLine"
@@ -24,16 +25,19 @@ export const App = ({ controller }: AppProps) => {
   const [draft, setDraft] = useState<DraftState>(emptyDraft)
   const [overlayIndex, setOverlayIndex] = useState(0)
   const [question, setQuestion] = useState<PendingQuestion | undefined>(undefined)
+  const [approval, setApproval] = useState<PendingApproval | undefined>(undefined)
   const [showHelp, setShowHelp] = useState(false)
 
   useEffect(() => {
     const unsubState = controller.subscribe(forceRender)
     const unsubEvents = controller.onEvent((event) => setDraft((prev) => foldEvent(prev, event)))
     const unsubQuestion = controller.onQuestion((request) => setQuestion(request))
+    const unsubApproval = controller.onApproval((request) => setApproval(request))
     return () => {
       unsubState()
       unsubEvents()
       unsubQuestion()
+      unsubApproval()
     }
   }, [controller])
 
@@ -119,7 +123,7 @@ export const App = ({ controller }: AppProps) => {
         setOverlayIndex(0)
       }
     },
-    { isActive: question === undefined },
+    { isActive: question === undefined && approval === undefined },
   )
 
   if (showHelp) {
@@ -134,7 +138,15 @@ export const App = ({ controller }: AppProps) => {
   return (
     <Box flexDirection="column">
       <Transcript messages={state.session.messages} draft={draft} />
-      {question !== undefined ? (
+      {approval !== undefined ? (
+        <PermissionPrompt
+          request={approval.request}
+          onDecision={(decision) => {
+            controller.resolveApproval(approval.id, decision)
+            setApproval(undefined)
+          }}
+        />
+      ) : question !== undefined ? (
         <QuestionPrompt
           questions={question.input.questions.map((q) => ({
             question: q.question,
