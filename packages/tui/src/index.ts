@@ -1,1 +1,2 @@
-export { App, type AppProps, type StartOptions, startApp } from "./app"
+export { App, type StartOptions, startApp } from "./app"
+export type { AppProps } from "./components/App"

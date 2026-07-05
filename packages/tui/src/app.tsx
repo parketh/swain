@@ -1,26 +1,14 @@
-import { Box, render, Text } from "ink"
-import type React from "react"
+import { render } from "ink"
+import { App } from "./components/App"
+import type { Controller } from "./controller"
 
-export interface AppProps {
-  readonly cwd: string
-}
-
-/**
- * Root Ink component. Task 1 renders a minimal REPL shell; later tasks replace
- * the body with the transcript, prompt input, status line, and overlays.
- */
-export const App: React.FC<AppProps> = ({ cwd }) => (
-  <Box flexDirection="column">
-    <Text color="cyan">swain</Text>
-    <Text dimColor>{cwd}</Text>
-  </Box>
-)
+export { App } from "./components/App"
 
 export interface StartOptions {
-  readonly cwd: string
+  readonly controller: Controller
 }
 
-/** Mounts the Ink app. Ctrl+C exits cleanly via Ink's default handler. */
+/** Mounts the Ink app. Ctrl+C interrupts a running turn or exits when idle. */
 export const startApp = (options: StartOptions): void => {
-  render(<App cwd={options.cwd} />)
+  render(<App controller={options.controller} />, { exitOnCtrlC: false })
 }
