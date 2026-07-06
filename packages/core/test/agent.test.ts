@@ -479,8 +479,8 @@ describe("session persistence", () => {
     })
 
     const reloaded = await Effect.runPromise(
-      saveSession(original)
-        .pipe(Effect.andThen(loadSession({ sessionId: "s-persist", model, rootDir: dir })))
+      saveSession(original, dir)
+        .pipe(Effect.andThen(loadSession({ sessionId: "s-persist", model, sessionsDir: dir })))
         .pipe(Effect.provide(BunContext.layer)),
     )
 
