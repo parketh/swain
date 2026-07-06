@@ -2,6 +2,8 @@ import type { PermissionMode } from "@swain/core"
 import { Box, Text } from "ink"
 import type { ActiveModel } from "../config"
 
+const ACCENT = "#7dd3ff"
+
 // "SWAIN" in the ANSI Shadow figlet font; each row is colored on a cyan→blue
 // vertical gradient for a bit of depth.
 const BANNER: ReadonlyArray<readonly [string, string]> = [
@@ -45,24 +47,23 @@ export const WelcomeScreen = ({ cwd, activeModel, permissionMode }: WelcomeScree
       ))}
     </Box>
     <Box marginTop={1}>
-      <Text dimColor>
-        a{" "}
-        <Text color="#45c0f2" bold>
-          S
+      <Text>
+        <Text color={ACCENT} bold>
+          s
         </Text>
-        oft
-        <Text color="#45c0f2" bold>
-          W
+        <Text>oft</Text>
+        <Text color={ACCENT} bold>
+          w
         </Text>
-        are{" "}
-        <Text color="#45c0f2" bold>
-          AI
-        </Text>{" "}
-        e
-        <Text color="#45c0f2" bold>
-          N
+        <Text>are </Text>
+        <Text color={ACCENT} bold>
+          ai
         </Text>
-        gineer
+        <Text> e</Text>
+        <Text color={ACCENT} bold>
+          n
+        </Text>
+        <Text>gineer</Text>
       </Text>
     </Box>
     <Box
