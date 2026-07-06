@@ -2,6 +2,7 @@ import { Box, Text, useInput } from "ink"
 import { useState } from "react"
 import type { ProviderConfig } from "../config"
 import type { CredentialField, ProviderOption } from "../models"
+import { theme } from "../theme"
 import { ListSelect, type ListSelectItem } from "./ListSelect"
 
 export interface ConnectDialogProps {
@@ -76,7 +77,9 @@ const CredentialForm = ({
           </Text>
         )
       })}
-      <Text dimColor>Enter to advance · Enter on the last field to save · Esc to cancel</Text>
+      <Text color={theme.muted}>
+        Enter to advance · Enter on the last field to save · Esc to cancel
+      </Text>
     </Box>
   )
 }

@@ -5,6 +5,7 @@ import { parseCommand } from "../commands"
 import type { ProviderConfig } from "../config"
 import type { Controller, PendingApproval, PendingQuestion } from "../controller"
 import { detectFileToken, type FileMatch, replaceToken, searchFiles } from "../fs"
+import { theme } from "../theme"
 import { CommandOverlay, filterCommands } from "./CommandOverlay"
 import { ConnectDialog } from "./ConnectDialog"
 import { FileSearch } from "./FileSearch"
@@ -324,7 +325,7 @@ export const App = ({ controller }: AppProps) => {
   const overlay = showHelp ? (
     <Box flexDirection="column">
       <HelpView />
-      <Text dimColor>press any key to return</Text>
+      <Text color={theme.muted}>press any key to return</Text>
     </Box>
   ) : approval !== undefined ? (
     <PermissionPrompt
@@ -439,7 +440,7 @@ export const App = ({ controller }: AppProps) => {
             {overlay}
           </Box>
         ) : null}
-        {notice !== undefined ? <Text dimColor>{notice}</Text> : null}
+        {notice !== undefined ? <Text color={theme.muted}>{notice}</Text> : null}
         <Box borderStyle="single" borderLeft={false} borderRight={false} borderColor="gray">
           <PromptInput value={value} cursor={cursor} />
         </Box>

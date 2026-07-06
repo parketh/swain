@@ -1,5 +1,6 @@
 import { Box, Text } from "ink"
 import { COMMAND_NAMES } from "../commands"
+import { theme } from "../theme"
 
 export const COMMAND_COLOR = "magenta"
 export const UNKNOWN_COLOR = "red"
@@ -91,7 +92,7 @@ export const PromptInput = ({ value, cursor }: PromptInputProps) => {
       <Box>
         <Text color="green">{"› "}</Text>
         <Text>{`${INV_ON} ${INV_OFF}`}</Text>
-        <Text dimColor> type a prompt, or / for commands</Text>
+        <Text color={theme.muted}> type a prompt, or / for commands</Text>
       </Box>
     )
   }

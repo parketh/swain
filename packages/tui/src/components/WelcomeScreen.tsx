@@ -1,8 +1,7 @@
 import type { PermissionMode } from "@swain/core"
 import { Box, Text } from "ink"
 import type { ActiveModel } from "../config"
-
-const ACCENT = "#7dd3ff"
+import { theme } from "../theme"
 
 // "SWAIN" in the ANSI Shadow figlet font; each row is colored on a cyan→blue
 // vertical gradient for a bit of depth.
@@ -48,22 +47,22 @@ export const WelcomeScreen = ({ cwd, activeModel, permissionMode }: WelcomeScree
     </Box>
     <Box marginTop={1}>
       <Text>
-        <Text color={ACCENT} bold>
+        <Text color={theme.primaryDim} bold>
           s
         </Text>
-        <Text>oft</Text>
-        <Text color={ACCENT} bold>
+        <Text color={theme.muted}>oft</Text>
+        <Text color={theme.primaryDim} bold>
           w
         </Text>
-        <Text>are </Text>
-        <Text color={ACCENT} bold>
+        <Text color={theme.muted}>are </Text>
+        <Text color={theme.primaryDim} bold>
           ai
         </Text>
-        <Text> e</Text>
-        <Text color={ACCENT} bold>
+        <Text color={theme.muted}> e</Text>
+        <Text color={theme.primaryDim} bold>
           n
         </Text>
-        <Text>gineer</Text>
+        <Text color={theme.muted}>gineer</Text>
       </Text>
     </Box>
     <Box
@@ -84,14 +83,14 @@ export const WelcomeScreen = ({ cwd, activeModel, permissionMode }: WelcomeScree
       </Text>
       <Text>
         <Text color="cyan">{"cwd".padEnd(6)}</Text>
-        <Text dimColor>{home(cwd)}</Text>
+        <Text color={theme.muted}>{home(cwd)}</Text>
       </Text>
     </Box>
     <Box flexDirection="column" marginTop={1}>
       {TIPS.map(([key, description]) => (
         <Text key={key}>
           <Text color="magenta">{key.padEnd(6)}</Text>
-          <Text dimColor> {description}</Text>
+          <Text color={theme.muted}> {description}</Text>
         </Text>
       ))}
     </Box>

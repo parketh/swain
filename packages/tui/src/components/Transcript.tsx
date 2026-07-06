@@ -1,6 +1,7 @@
 import type { AgentEvent } from "@swain/core"
 import type { Message } from "@swain/llms"
 import { Box, Text } from "ink"
+import { theme } from "../theme"
 
 export interface ToolRow {
   readonly toolCallId: string
@@ -120,7 +121,7 @@ export const Transcript = ({ messages, draft }: TranscriptProps) => (
     {messages.map((message, i) => (
       <MessageRow key={i} message={message} />
     ))}
-    {draft.reasoning !== "" ? <Text dimColor>{draft.reasoning}</Text> : null}
+    {draft.reasoning !== "" ? <Text color={theme.muted}>{draft.reasoning}</Text> : null}
     {draft.tools.map((row) => (
       <Text key={row.toolCallId} color={row.isError ? "red" : "blue"}>
         ⚙ {row.name}

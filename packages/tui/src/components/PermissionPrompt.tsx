@@ -2,6 +2,7 @@ import type { PermissionDecision, PermissionRequest } from "@swain/core"
 import { Box, Text, useInput } from "ink"
 import { useState } from "react"
 import { denyDecision, PERMISSION_CHOICES } from "../permissions"
+import { theme } from "../theme"
 
 export interface PermissionPromptProps {
   readonly request: PermissionRequest
@@ -32,7 +33,7 @@ export const PermissionPrompt = ({ request, onDecision }: PermissionPromptProps)
         Permission required
       </Text>
       <Text>
-        <Text dimColor>tool: </Text>
+        <Text color={theme.muted}>tool: </Text>
         {request.toolName}
       </Text>
       <Text>{request.summary}</Text>

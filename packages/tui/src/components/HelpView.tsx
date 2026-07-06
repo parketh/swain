@@ -1,5 +1,6 @@
 import { Box, Text } from "ink"
 import { COMMANDS } from "../commands"
+import { theme } from "../theme"
 
 const KEYS: ReadonlyArray<readonly [string, string]> = [
   ["Enter", "submit prompt / accept command"],
@@ -19,14 +20,14 @@ export const HelpView = () => (
     {COMMANDS.map((command) => (
       <Text key={command.name}>
         <Text color="magenta">/{command.name}</Text>
-        <Text dimColor> — {command.summary}</Text>
+        <Text color={theme.muted}> — {command.summary}</Text>
       </Text>
     ))}
     <Text bold>Keys</Text>
     {KEYS.map(([key, description]) => (
       <Text key={key}>
         <Text color="cyan">{key}</Text>
-        <Text dimColor> — {description}</Text>
+        <Text color={theme.muted}> — {description}</Text>
       </Text>
     ))}
   </Box>

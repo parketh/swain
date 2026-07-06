@@ -1,5 +1,6 @@
 import { Box, Text } from "ink"
 import { COMMANDS, type CommandInfo } from "../commands"
+import { theme } from "../theme"
 
 /**
  * Filters built-in commands by name prefix (ranked first) then summary
@@ -27,7 +28,7 @@ export const CommandOverlay = ({ query, highlight }: CommandOverlayProps) => {
       {matches.map((command, i) => (
         <Text key={command.name} color={i === highlight ? "cyan" : undefined}>
           {i === highlight ? "› " : "  "}
-          {`/${command.name}`} <Text dimColor>— {command.summary}</Text>
+          {`/${command.name}`} <Text color={theme.muted}>— {command.summary}</Text>
         </Text>
       ))}
     </Box>

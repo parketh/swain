@@ -1,5 +1,6 @@
 import { Box, Text, useInput } from "ink"
 import { useState } from "react"
+import { theme } from "../theme"
 
 export interface ListSelectItem<Value> {
   readonly value: Value
@@ -62,9 +63,9 @@ export const ListSelect = <Value,>({
   return (
     <Box flexDirection="column">
       <Text bold>{title}</Text>
-      <Text dimColor>{`filter: ${query}`}</Text>
+      <Text color={theme.muted}>{`filter: ${query}`}</Text>
       {filtered.length === 0 ? (
-        <Text dimColor>no matches</Text>
+        <Text color={theme.muted}>no matches</Text>
       ) : (
         filtered.map((item, i) => {
           const active = i === index
