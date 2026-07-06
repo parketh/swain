@@ -48,9 +48,10 @@ const CATALOG: ReadonlyArray<ProviderSpec> = [
     optionalFields: ["baseURL"],
     envFallback: ["ANTHROPIC_API_KEY"],
     models: [
+      { id: "claude-opus-4-8", label: "Claude Opus 4.8", variants: [] },
       {
-        id: "claude-sonnet-4-5",
-        label: "Claude Sonnet 4.5",
+        id: "claude-sonnet-5",
+        label: "Claude Sonnet 5",
         variants: [
           {
             id: "thinking",
@@ -59,7 +60,6 @@ const CATALOG: ReadonlyArray<ProviderSpec> = [
           },
         ],
       },
-      { id: "claude-opus-4-1", label: "Claude Opus 4.1", variants: [] },
     ],
     build: (modelId, creds) =>
       Anthropic.configure({
@@ -75,8 +75,10 @@ const CATALOG: ReadonlyArray<ProviderSpec> = [
     optionalFields: ["baseURL"],
     envFallback: ["OPENAI_API_KEY"],
     models: [
-      { id: "gpt-4.1", label: "GPT-4.1", variants: [] },
-      { id: "gpt-4o", label: "GPT-4o", variants: [] },
+      { id: "gpt-5.5", label: "ChatGPT 5.5", variants: [] },
+      { id: "gpt-5.5-pro", label: "ChatGPT 5.5 Pro", variants: [] },
+      { id: "gpt-5.4-nano", label: "ChatGPT 5.4 nano", variants: [] },
+      { id: "gpt-5.4-mini", label: "ChatGPT 5.4 mini", variants: [] },
     ],
     build: (modelId, creds) =>
       OpenAI.configure({
@@ -92,8 +94,8 @@ const CATALOG: ReadonlyArray<ProviderSpec> = [
     optionalFields: ["baseURL"],
     envFallback: ["DEEPSEEK_API_KEY"],
     models: [
-      { id: "deepseek-chat", label: "DeepSeek Chat", variants: [] },
-      { id: "deepseek-reasoner", label: "DeepSeek Reasoner", variants: [] },
+      { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash", variants: [] },
+      { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro", variants: [] },
     ],
     build: (modelId, creds) =>
       DeepSeek.configure({
@@ -108,7 +110,7 @@ const CATALOG: ReadonlyArray<ProviderSpec> = [
     requiredFields: ["apiKey"],
     optionalFields: ["baseURL"],
     envFallback: ["ZAI_API_KEY"],
-    models: [{ id: "glm-4.6", label: "GLM-4.6", variants: [] }],
+    models: [{ id: "glm-5.2", label: "GLM 5.2", variants: [] }],
     build: (modelId, creds) =>
       ZAI.configure({
         ...(creds?.apiKey !== undefined && { apiKey: creds.apiKey }),

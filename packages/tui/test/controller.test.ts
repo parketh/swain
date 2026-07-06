@@ -12,7 +12,7 @@ import { sessionsDir, type TuiConfig } from "../src/config"
 import { type Controller, makeController } from "../src/controller"
 
 const testModel: Model = {
-  id: ModelId.make("claude-sonnet-4-5"),
+  id: ModelId.make("claude-sonnet-5"),
   provider: ProviderId.make("anthropic"),
   streamTurn: () => Stream.empty,
 }
@@ -87,7 +87,7 @@ describe("controller", () => {
     })
     controller = makeController({
       session,
-      activeModel: { provider: "anthropic", modelId: "claude-sonnet-4-5" },
+      activeModel: { provider: "anthropic", modelId: "claude-sonnet-5" },
       config,
       configPath: join(dir, "config.json"),
       env: {},
@@ -212,7 +212,7 @@ describe("controller command actions", () => {
     })
     controller = makeController({
       session,
-      activeModel: { provider: "anthropic", modelId: "claude-sonnet-4-5" },
+      activeModel: { provider: "anthropic", modelId: "claude-sonnet-5" },
       config: initialConfig,
       configPath: join(dir, "config.json"),
       env: {},
@@ -243,7 +243,7 @@ describe("controller command actions", () => {
         model: testModel,
         currentDate: "2026-07-05",
       }),
-      activeModel: { provider: "anthropic", modelId: "claude-sonnet-4-5" },
+      activeModel: { provider: "anthropic", modelId: "claude-sonnet-5" },
       config: { providers: {} },
       configPath: join(dir, "config.json", "nested.json"),
       env: {},

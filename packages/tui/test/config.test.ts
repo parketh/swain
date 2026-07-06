@@ -124,23 +124,23 @@ describe("resolveModelSelection", () => {
   }
 
   test("rejects an unconfigured provider", () => {
-    const result = resolveModelSelection("zai", "glm-4.6", undefined, config, {})
+    const result = resolveModelSelection("zai", "glm-5.2", undefined, config, {})
     expect(result.type).toBe("error")
     if (result.type === "error") expect(result.error.reason).toBe("provider-not-configured")
   })
 
   test("rejects an unknown variant", () => {
-    const result = resolveModelSelection("anthropic", "claude-sonnet-4-5", "nope", config, {})
+    const result = resolveModelSelection("anthropic", "claude-sonnet-5", "nope", config, {})
     expect(result.type).toBe("error")
     if (result.type === "error") expect(result.error.reason).toBe("unknown-variant")
   })
 
   test("returns a Model whose provider/id match the selection", () => {
-    const result = resolveModelSelection("anthropic", "claude-sonnet-4-5", undefined, config, {})
+    const result = resolveModelSelection("anthropic", "claude-sonnet-5", undefined, config, {})
     expect(result.type).toBe("ok")
     if (result.type === "ok") {
       expect(result.selection.model.provider as string).toBe("anthropic")
-      expect(result.selection.model.id as string).toBe("claude-sonnet-4-5")
+      expect(result.selection.model.id as string).toBe("claude-sonnet-5")
     }
   })
 
@@ -155,7 +155,7 @@ describe("resolveModelSelection", () => {
   })
 
   test("lowers an anthropic thinking variant to providerOptions.anthropic.thinking", () => {
-    const result = resolveModelSelection("anthropic", "claude-sonnet-4-5", "thinking", config, {})
+    const result = resolveModelSelection("anthropic", "claude-sonnet-5", "thinking", config, {})
     expect(result.type).toBe("ok")
     if (result.type === "ok") {
       const opts = result.selection.requestOptions.providerOptions as {
@@ -166,7 +166,7 @@ describe("resolveModelSelection", () => {
   })
 
   test("a chat-compatible provider with no reasoning variants yields no reasoning options", () => {
-    const result = resolveModelSelection("openai", "gpt-4.1", undefined, config, {})
+    const result = resolveModelSelection("openai", "gpt-5.5", undefined, config, {})
     expect(result.type).toBe("ok")
     if (result.type === "ok") {
       expect(result.selection.requestOptions.providerOptions).toBeUndefined()
