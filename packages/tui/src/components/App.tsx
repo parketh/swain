@@ -38,8 +38,12 @@ const debugKey = (input: string, key: Record<string, unknown>): void => {
     .filter(([, v]) => v)
     .map(([k]) => k)
     .join(",")
+  const bytes = [...input].map((c) => (c.codePointAt(0) ?? 0).toString(16).padStart(2, "0"))
   try {
-    appendFileSync("/tmp/swain-keys.log", `input=${JSON.stringify(input)} flags=[${flags}]\n`)
+    appendFileSync(
+      "/tmp/swain-keys.log",
+      `input=${JSON.stringify(input)} bytes=[${bytes.join(" ")}] flags=[${flags}]\n`,
+    )
   } catch {}
 }
 
