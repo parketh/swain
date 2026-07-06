@@ -17,7 +17,13 @@ import type { AskHandler, AskInput, AskResult } from "@swain/core/tools"
 import type { GenerationOptions, ProviderOptions } from "@swain/llms"
 import { Effect, Fiber, type Layer } from "effect"
 import type { CommandParseResult } from "./commands"
-import { type ActiveModel, type ProviderConfig, saveConfig, type TuiConfig } from "./config"
+import {
+  type ActiveModel,
+  type ProviderConfig,
+  saveConfig,
+  sessionsDir,
+  type TuiConfig,
+} from "./config"
 import {
   availableModels,
   connectableProviders,
@@ -180,6 +186,9 @@ export const makeController = (deps: ControllerDeps): Controller => {
     ...(deps.httpLayer !== undefined && { httpLayer: deps.httpLayer }),
   })
 
+  const sessionsDirFor = (s: SessionState): string =>
+    sessionsDir(deps.configPath, s.workingDirectory)
+
   let currentAbort: AbortController | undefined
   let currentFiber: Fiber.RuntimeFiber<void, unknown> | undefined
 
@@ -202,7 +211,7 @@ export const makeController = (deps: ControllerDeps): Controller => {
     currentFiber = fiber
     try {
       await runtime.runPromise(Fiber.join(fiber))
-      if (persist) await runtime.runPromise(saveSession(session))
+      if (persist) await runtime.runPromise(saveSession(session, sessionsDirFor(session)))
     } catch {
       // Fatal LLM/agent failures are surfaced through onEvent as agent-error;
       // interruptions leave the partial draft visible without being persisted.
@@ -267,7 +276,9 @@ export const makeController = (deps: ControllerDeps): Controller => {
     })
     notify()
     if (persist && previous.messages.length > 0) {
-      void runtime.runPromise(saveSession(previous)).catch(() => undefined)
+      void runtime
+        .runPromise(saveSession(previous, sessionsDirFor(previous)))
+        .catch(() => undefined)
     }
   }
 
@@ -384,7 +395,7 @@ export const makeController = (deps: ControllerDeps): Controller => {
         loadSession({
           sessionId,
           model: result.selection.model,
-          rootDir: session.workingDirectory,
+          sessionsDir: sessionsDirFor(session),
         }),
       )
       session = loaded
@@ -393,7 +404,7 @@ export const makeController = (deps: ControllerDeps): Controller => {
     },
 
     listSessions: () => {
-      const dir = pathJoin(session.workingDirectory, ".swain", "sessions")
+      const dir = sessionsDirFor(session)
       try {
         return readdirSync(dir, { withFileTypes: true })
           .filter((entry) => entry.isDirectory())

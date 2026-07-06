@@ -53,6 +53,19 @@ export const configDir = (env: Env = process.env): string => {
 export const defaultConfigPath = (env: Env = process.env): string =>
   NodePath.join(configDir(env), "config.json")
 
+/** Folder-safe slug of an absolute path, e.g. `/Users/x/dev` → `-Users-x-dev`. */
+const projectSlug = (workingDirectory: string): string =>
+  workingDirectory.replace(/[^A-Za-z0-9]/g, "-")
+
+/**
+ * Directory holding a project's saved sessions, scoped by working directory so
+ * `/resume` only lists sessions from the current project. Anchored to the same
+ * base as `config.json` (its parent dir) — i.e. `~/.config/swain/sessions/` —
+ * rather than the project tree, so sessions are stored globally.
+ */
+export const sessionsDir = (configPath: string, workingDirectory: string): string =>
+  NodePath.join(NodePath.dirname(configPath), "sessions", projectSlug(workingDirectory))
+
 /** Loads config from `path`; a missing file resolves to empty defaults. */
 export const loadConfig = (
   path: string,

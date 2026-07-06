@@ -8,7 +8,7 @@ import type { LLMEvent, LLMRequest, Model } from "@swain/llms"
 import { ContentId, ModelId, ProviderId, ToolCallId } from "@swain/llms"
 import { LLMClient } from "@swain/llms/client"
 import { Effect, Layer, Stream } from "effect"
-import type { TuiConfig } from "../src/config"
+import { sessionsDir, type TuiConfig } from "../src/config"
 import { type Controller, makeController } from "../src/controller"
 
 const testModel: Model = {
@@ -281,7 +281,11 @@ describe("controller command actions", () => {
     original.counters.turns = 3
     original.counters.inputTokens = 12
     original.counters.outputTokens = 8
-    await Effect.runPromise(saveSession(original).pipe(Effect.provide(BunContext.layer)))
+    await Effect.runPromise(
+      saveSession(original, sessionsDir(join(dir, "config.json"), dir)).pipe(
+        Effect.provide(BunContext.layer),
+      ),
+    )
     const listed = c.listSessions()
     expect(listed.some((s) => s.sessionId === "s-resume")).toBe(true)
     await c.resumeSession("s-resume")
