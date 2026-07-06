@@ -53,6 +53,10 @@ export const App = ({ controller }: AppProps) => {
   const [value, setValue] = useState("")
   const [cursor, setCursor] = useState(0)
   const inputRef = useRef({ value: "", cursor: 0 })
+  // Ctrl+C is a two-step exit: the first press clears the input and arms this
+  // flag (with a timeout to disarm); a second press while armed exits.
+  const ctrlCArmed = useRef(false)
+  const ctrlCTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const [draft, setDraft] = useState<DraftState>(emptyDraft)
   const [overlayIndex, setOverlayIndex] = useState(0)
   const [question, setQuestion] = useState<PendingQuestion | undefined>(undefined)
@@ -60,6 +64,13 @@ export const App = ({ controller }: AppProps) => {
   const [dialog, setDialog] = useState<Dialog | undefined>(undefined)
   const [notice, setNotice] = useState<string | undefined>(undefined)
   const [showHelp, setShowHelp] = useState(false)
+
+  useEffect(
+    () => () => {
+      if (ctrlCTimer.current !== undefined) clearTimeout(ctrlCTimer.current)
+    },
+    [],
+  )
 
   useEffect(() => {
     const unsubState = controller.subscribe(forceRender)
@@ -112,6 +123,16 @@ export const App = ({ controller }: AppProps) => {
     const { value: v, cursor: c } = inputRef.current
     const start = prevWord(v, c)
     setInput(v.slice(0, start) + v.slice(c), start)
+  }
+
+  const disarmCtrlC = (): void => {
+    if (!ctrlCArmed.current) return
+    ctrlCArmed.current = false
+    if (ctrlCTimer.current !== undefined) {
+      clearTimeout(ctrlCTimer.current)
+      ctrlCTimer.current = undefined
+    }
+    setNotice(undefined)
   }
 
   const acceptCommand = (): void => {
@@ -188,17 +209,47 @@ export const App = ({ controller }: AppProps) => {
   useInput(
     (input, key) => {
       debugKey(input, key as unknown as Record<string, unknown>)
+      // Any key other than Ctrl+C cancels a pending exit.
+      if (!(key.ctrl && input === "c")) disarmCtrlC()
       if (showHelp) {
         setShowHelp(false)
         return
       }
       if (key.ctrl && input === "c") {
-        if (controller.getState().running) controller.interrupt()
-        else exit()
+        if (controller.getState().running) {
+          controller.interrupt()
+          return
+        }
+        if (ctrlCArmed.current) {
+          if (ctrlCTimer.current !== undefined) clearTimeout(ctrlCTimer.current)
+          exit()
+          return
+        }
+        setInput("", 0)
+        ctrlCArmed.current = true
+        setNotice("Press Ctrl+C again to exit")
+        ctrlCTimer.current = setTimeout(() => {
+          ctrlCArmed.current = false
+          ctrlCTimer.current = undefined
+          setNotice(undefined)
+        }, 2000)
         return
       }
       if (key.shift && key.tab) return controller.cyclePermissionMode()
-      if (key.escape) return setInput("", 0)
+      if (key.escape) {
+        // While a turn is loading, Esc cancels it and returns the prompt to the
+        // editor for amendment; otherwise it just clears the input.
+        if (controller.getState().running) {
+          void controller.cancelTurn().then((restored) => {
+            if (restored !== undefined) {
+              setDraft(emptyDraft)
+              setInput(restored, restored.length)
+            }
+          })
+          return
+        }
+        return setInput("", 0)
+      }
 
       // Read the latest text from the ref so multi-event bursts compose.
       const v = inputRef.current.value

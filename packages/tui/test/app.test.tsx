@@ -430,4 +430,51 @@ describe("App", () => {
     expect(lastFrame()).toContain("OpenAI")
     expect(lastFrame()).toContain("DeepSeek")
   })
+
+  test("Ctrl+C clears the input and arms exit instead of exiting on the first press", async () => {
+    const { stdin, lastFrame } = render(<App controller={makeCtrl()} />)
+    stdin.write("draft text")
+    await flush()
+    stdin.write("\x03") // Ctrl+C
+    await flush()
+    const frame = clean(lastFrame())
+    expect(frame).not.toContain("draft text") // input cleared
+    expect(frame).toContain("Press Ctrl+C again to exit")
+  })
+
+  test("Esc cancels a loading turn and restores the prompt for editing", async () => {
+    const hanging = Layer.succeed(LLMClient.Service, {
+      request: LLMClient.request,
+      streamTurn: () => Stream.never,
+      generateTurn: () => Effect.never,
+    })
+    const c = makeController({
+      session: createSessionState({
+        workingDirectory: dir,
+        model: testModel,
+        permissionMode: "ask",
+        currentDate: "2026-07-05",
+      }),
+      activeModel: { provider: "anthropic", modelId: "claude-sonnet-4-5" },
+      config,
+      configPath: join(dir, "config.json"),
+      env: {},
+      llmLayer: hanging,
+      persist: false,
+    })
+    built.push(c)
+    const { stdin, lastFrame } = render(<App controller={c} />)
+    stdin.write("hello there")
+    await flush()
+    stdin.write("\r") // submit
+    await flush()
+    expect(c.getState().running).toBe(true)
+    expect(c.getState().session.messages).toHaveLength(1) // user prompt pushed
+    stdin.write("\x1b") // Esc cancels the loading turn
+    await flush()
+    await flush()
+    expect(c.getState().running).toBe(false)
+    expect(c.getState().session.messages).toHaveLength(0) // turn retracted
+    expect(clean(lastFrame())).toContain("hello there") // prompt restored to editor
+  })
 })

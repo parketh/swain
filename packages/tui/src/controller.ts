@@ -110,6 +110,13 @@ export interface Controller {
   resumeSession(sessionId: string): Promise<void>
   listSessions(): ReadonlyArray<SavedSession>
   interrupt(): void
+  /**
+   * Cancels the running turn and retracts it: the in-flight prompt and any
+   * partial assistant/tool messages are removed from the session, and the
+   * original prompt text is returned so the UI can restore it for editing.
+   * Resolves to `undefined` when nothing was running.
+   */
+  cancelTurn(): Promise<string | undefined>
   dispose(): void
 }
 
@@ -191,6 +198,9 @@ export const makeController = (deps: ControllerDeps): Controller => {
 
   let currentAbort: AbortController | undefined
   let currentFiber: Fiber.RuntimeFiber<void, unknown> | undefined
+  // Snapshot of `session.messages.length` before the running prompt was pushed,
+  // plus the prompt text, so a cancel can retract the turn and restore the text.
+  let pendingPrompt: { readonly text: string; readonly retractAt: number } | undefined
 
   const runTurnNow = async (): Promise<void> => {
     running = true
@@ -261,9 +271,12 @@ export const makeController = (deps: ControllerDeps): Controller => {
   }
 
   const submitPrompt = async (text: string): Promise<void> => {
+    const retractAt = session.messages.length
     coreSubmitPrompt(session, text)
+    pendingPrompt = { text, retractAt }
     notify()
     await runTurnNow()
+    pendingPrompt = undefined
   }
 
   const clearConversation = (): void => {
@@ -421,6 +434,20 @@ export const makeController = (deps: ControllerDeps): Controller => {
     interrupt: () => {
       currentAbort?.abort()
       if (currentFiber !== undefined) runtime.runFork(Fiber.interrupt(currentFiber))
+    },
+
+    cancelTurn: async () => {
+      if (!running) return undefined
+      const pending = pendingPrompt
+      const fiber = currentFiber
+      currentAbort?.abort()
+      // Await full interruption before truncating so the loop can't push more
+      // messages past the retract point after we've cut it.
+      if (fiber !== undefined) await runtime.runPromise(Fiber.interrupt(fiber))
+      if (pending === undefined) return undefined
+      session.messages.length = pending.retractAt
+      notify()
+      return pending.text
     },
 
     dispose: () => {
