@@ -387,9 +387,9 @@ export const App = ({ controller }: AppProps) => {
       onCancel={() => setDialog(undefined)}
     />
   ) : commandMode ? (
-    <CommandOverlay query={value.slice(1)} highlight={highlight} />
+    <CommandOverlay query={value.slice(1)} highlight={highlight} width={columns} />
   ) : fileToken !== undefined ? (
-    <FileSearch matches={fileMatches} highlight={highlight} />
+    <FileSearch matches={fileMatches} highlight={highlight} width={columns} />
   ) : null
 
   // A pristine session (no history, nothing streaming) shows the welcome
@@ -429,14 +429,7 @@ export const App = ({ controller }: AppProps) => {
           the conversation instead of pushing it up. */}
       <Box flexDirection="column" flexShrink={0}>
         {overlay !== null ? (
-          <Box
-            position="absolute"
-            bottom="100%"
-            width={columns}
-            flexDirection="column"
-            paddingX={1}
-            backgroundColor="black"
-          >
+          <Box position="absolute" bottom="100%" width={columns} flexDirection="column">
             {overlay}
           </Box>
         ) : null}
