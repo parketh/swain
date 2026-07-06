@@ -423,9 +423,22 @@ export const App = ({ controller }: AppProps) => {
           <Transcript messages={state.session.messages} draft={draft} />
         )}
       </Box>
-      {/* Pinned bottom: overlays render directly above the prompt. */}
+      {/* Pinned bottom: the prompt + status stay in flow, while any overlay is
+          absolutely positioned to float directly above them — drawn on top of
+          the conversation instead of pushing it up. */}
       <Box flexDirection="column" flexShrink={0}>
-        {overlay}
+        {overlay !== null ? (
+          <Box
+            position="absolute"
+            bottom="100%"
+            width={columns}
+            flexDirection="column"
+            paddingX={1}
+            backgroundColor="black"
+          >
+            {overlay}
+          </Box>
+        ) : null}
         {notice !== undefined ? <Text dimColor>{notice}</Text> : null}
         <Box borderStyle="single" borderLeft={false} borderRight={false} borderColor="gray">
           <PromptInput value={value} cursor={cursor} />
