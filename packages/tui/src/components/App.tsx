@@ -393,7 +393,6 @@ export const App = ({ controller }: AppProps) => {
       <StatusLine
         activeModel={state.activeModel}
         permissionMode={state.permissionMode}
-        sessionId={state.session.sessionId}
         usage={controller.getUsage()}
         running={state.running}
       />
