@@ -104,6 +104,10 @@ describe("components", () => {
     expect(multi).toContain("first")
     expect(multi).toContain("second")
     expect(multi.split("\n").length).toBeGreaterThan(1)
+    // A blank interior line must keep its height (regression: empty lines used
+    // to collapse, hiding second/subsequent Shift+Enter newlines).
+    const gapped = clean(render(<PromptInput value={"a\n\nb"} cursor={3} />).lastFrame())
+    expect(gapped.split("\n").length).toBe(3)
   })
 
   test("ListSelect filters by query and selects the highlighted item on Enter", () => {

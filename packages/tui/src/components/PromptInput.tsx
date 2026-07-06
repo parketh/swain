@@ -119,24 +119,23 @@ export const PromptInput = ({ value, cursor }: PromptInputProps) => {
     remaining -= len + 1
   }
 
+  // Join all lines into ONE Text so embedded blank lines keep their height —
+  // a Box column of per-line Text nodes collapses empty lines to zero rows.
+  const body = lines
+    .map((line, li) =>
+      renderLine(
+        line,
+        li === cursorLine ? cursorCol : undefined,
+        li === 0 ? tokenEnd : 0,
+        li === 0 ? tokenAnsi : undefined,
+      ),
+    )
+    .join("\n")
+
   return (
     <Box flexDirection="row">
       <Text color="green">{"› "}</Text>
-      <Box flexDirection="column">
-        {lines.map((line, li) => (
-          <Text
-            // biome-ignore lint/suspicious/noArrayIndexKey: lines are positional
-            key={li}
-          >
-            {renderLine(
-              line,
-              li === cursorLine ? cursorCol : undefined,
-              li === 0 ? tokenEnd : 0,
-              li === 0 ? tokenAnsi : undefined,
-            )}
-          </Text>
-        ))}
-      </Box>
+      <Text>{body}</Text>
     </Box>
   )
 }
