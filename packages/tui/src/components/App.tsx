@@ -18,6 +18,7 @@ import { StatusLine } from "./StatusLine"
 import { type DraftState, emptyDraft, foldEvent, Transcript } from "./Transcript"
 import { useTerminalSize } from "./useTerminalSize"
 import { VariantPicker } from "./VariantPicker"
+import { WelcomeScreen } from "./WelcomeScreen"
 
 type Dialog =
   | { readonly kind: "model" }
@@ -390,6 +391,16 @@ export const App = ({ controller }: AppProps) => {
     <FileSearch matches={fileMatches} highlight={highlight} />
   ) : null
 
+  // A pristine session (no history, nothing streaming) shows the welcome
+  // screen, centered in the scrollback region, instead of an empty transcript.
+  const isNewSession =
+    state.session.messages.length === 0 &&
+    !state.running &&
+    draft.assistant === "" &&
+    draft.reasoning === "" &&
+    draft.tools.length === 0 &&
+    draft.errors.length === 0
+
   return (
     <Box flexDirection="column" height={rows} width={columns}>
       {/* Scrollback region: fills all space above the prompt, clips the oldest
@@ -398,10 +409,19 @@ export const App = ({ controller }: AppProps) => {
         flexGrow={1}
         flexShrink={1}
         flexDirection="column"
-        justifyContent="flex-end"
+        justifyContent={isNewSession ? "center" : "flex-end"}
+        alignItems={isNewSession ? "center" : "flex-start"}
         overflow="hidden"
       >
-        <Transcript messages={state.session.messages} draft={draft} />
+        {isNewSession ? (
+          <WelcomeScreen
+            cwd={cwd}
+            activeModel={state.activeModel}
+            permissionMode={state.permissionMode}
+          />
+        ) : (
+          <Transcript messages={state.session.messages} draft={draft} />
+        )}
       </Box>
       {/* Pinned bottom: overlays render directly above the prompt. */}
       <Box flexDirection="column" flexShrink={0}>
