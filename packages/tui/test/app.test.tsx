@@ -18,6 +18,9 @@ import type { TuiConfig } from "../src/config"
 import { type Controller, makeController } from "../src/controller"
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 25))
+// The prompt renders the cursor/command color as raw inline ANSI (so each line
+// is one Ink text atom); ink-testing-library keeps those codes in the frame.
+const clean = (frame: string | undefined): string => (frame ?? "").replace(/\[[0-9;]*m/g, "")
 const RIGHT = "[C"
 const LEFT = "[D"
 const SHIFT_TAB = "[Z"
@@ -96,8 +99,8 @@ describe("components", () => {
   })
 
   test("PromptInput renders the command token and a multi-line value", () => {
-    expect(render(<PromptInput value="/he" cursor={3} />).lastFrame()).toContain("/he")
-    const multi = render(<PromptInput value={"first\nsecond"} cursor={11} />).lastFrame() ?? ""
+    expect(clean(render(<PromptInput value="/he" cursor={3} />).lastFrame())).toContain("/he")
+    const multi = clean(render(<PromptInput value={"first\nsecond"} cursor={11} />).lastFrame())
     expect(multi).toContain("first")
     expect(multi).toContain("second")
     expect(multi.split("\n").length).toBeGreaterThan(1)
@@ -264,7 +267,7 @@ describe("App", () => {
     const { stdin, lastFrame } = render(<App controller={makeCtrl()} />)
     stdin.write("/model x")
     await flush()
-    expect(lastFrame()).toContain("/model x")
+    expect(clean(lastFrame())).toContain("/model x")
     expect(lastFrame()).not.toContain("/clear")
   })
 

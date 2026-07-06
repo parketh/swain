@@ -1,9 +1,17 @@
 import { Box, Text } from "ink"
-import type { ReactNode } from "react"
 import { COMMAND_NAMES } from "../commands"
 
 export const COMMAND_COLOR = "magenta"
 export const UNKNOWN_COLOR = "red"
+
+// Raw ANSI so each line renders as a SINGLE string (one Ink Text atom) instead
+// of many per-character nodes — per-char nodes get laid out separately by Yoga
+// and can wrap mid-word in a real terminal. Mirrors Claude Code's approach of
+// building one string with the cursor inverted inline.
+const INV_ON = "[7m"
+const INV_OFF = "[27m"
+const FG_RESET = "[39m"
+const FG = { command: "[35m", unknown: "[31m" } as const
 
 export interface PromptSegment {
   readonly text: string
@@ -54,37 +62,22 @@ const commandTokenEnd = (line: string): number => {
   return ws === -1 ? line.length : ws
 }
 
-const Line = ({
-  text,
-  cursorCol,
-  tokenEnd,
-  tokenColor,
-}: {
-  readonly text: string
-  readonly cursorCol: number | undefined
-  readonly tokenEnd: number
-  readonly tokenColor: string | undefined
-}) => {
-  const chars: Array<ReactNode> = []
-  for (let i = 0; i <= text.length; i += 1) {
-    const isCursor = i === cursorCol
-    if (i === text.length) {
-      if (isCursor)
-        chars.push(
-          <Text key={i} inverse={true}>
-            {" "}
-          </Text>,
-        )
-      break
-    }
-    const color = tokenColor !== undefined && i < tokenEnd ? tokenColor : undefined
-    chars.push(
-      <Text key={i} inverse={isCursor} color={color}>
-        {text[i]}
-      </Text>,
-    )
+/** Builds one line's display string with the cursor inverted inline. */
+const renderLine = (
+  line: string,
+  cursorCol: number | undefined,
+  tokenEnd: number,
+  tokenAnsi: string | undefined,
+): string => {
+  let out = ""
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i] ?? ""
+    const colored = tokenAnsi !== undefined && i < tokenEnd ? `${tokenAnsi}${ch}${FG_RESET}` : ch
+    out += i === cursorCol ? `${INV_ON}${colored}${INV_OFF}` : colored
   }
-  return <Text>{chars}</Text>
+  // Cursor sitting just past the end of the line renders as an inverted space.
+  if (cursorCol === line.length) out += `${INV_ON} ${INV_OFF}`
+  return out
 }
 
 export interface PromptInputProps {
@@ -97,7 +90,7 @@ export const PromptInput = ({ value, cursor }: PromptInputProps) => {
     return (
       <Box>
         <Text color="green">{"› "}</Text>
-        <Text inverse> </Text>
+        <Text>{`${INV_ON} ${INV_OFF}`}</Text>
         <Text dimColor> type a prompt, or / for commands</Text>
       </Box>
     )
@@ -106,10 +99,10 @@ export const PromptInput = ({ value, cursor }: PromptInputProps) => {
   const lines = value.split("\n")
   const singleCommand = lines.length === 1 && value.startsWith("/")
   const tokenEnd = singleCommand ? commandTokenEnd(value) : 0
-  const tokenColor = singleCommand
+  const tokenAnsi = singleCommand
     ? matchesAnyPrefix(value.slice(1, tokenEnd))
-      ? COMMAND_COLOR
-      : UNKNOWN_COLOR
+      ? FG.command
+      : FG.unknown
     : undefined
 
   // Map the flat cursor index to (line, column).
@@ -131,14 +124,17 @@ export const PromptInput = ({ value, cursor }: PromptInputProps) => {
       <Text color="green">{"› "}</Text>
       <Box flexDirection="column">
         {lines.map((line, li) => (
-          <Line
+          <Text
             // biome-ignore lint/suspicious/noArrayIndexKey: lines are positional
             key={li}
-            text={line}
-            cursorCol={li === cursorLine ? cursorCol : undefined}
-            tokenEnd={li === 0 ? tokenEnd : 0}
-            tokenColor={li === 0 ? tokenColor : undefined}
-          />
+          >
+            {renderLine(
+              line,
+              li === cursorLine ? cursorCol : undefined,
+              li === 0 ? tokenEnd : 0,
+              li === 0 ? tokenAnsi : undefined,
+            )}
+          </Text>
         ))}
       </Box>
     </Box>

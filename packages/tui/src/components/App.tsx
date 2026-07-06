@@ -1,3 +1,4 @@
+import { appendFileSync } from "node:fs"
 import { Box, Text, useApp, useInput } from "ink"
 import { useEffect, useReducer, useState } from "react"
 import { parseCommand } from "../commands"
@@ -28,6 +29,19 @@ export interface AppProps {
 }
 
 const isCommandToken = (value: string): boolean => value.startsWith("/") && !/\s/.test(value)
+
+// Opt-in raw key logging for diagnosing terminal escape sequences: set
+// SWAIN_DEBUG_KEYS=1, reproduce, and inspect /tmp/swain-keys.log.
+const debugKey = (input: string, key: Record<string, unknown>): void => {
+  if (process.env.SWAIN_DEBUG_KEYS !== "1") return
+  const flags = Object.entries(key)
+    .filter(([, v]) => v)
+    .map(([k]) => k)
+    .join(",")
+  try {
+    appendFileSync("/tmp/swain-keys.log", `input=${JSON.stringify(input)} flags=[${flags}]\n`)
+  } catch {}
+}
 
 export const App = ({ controller }: AppProps) => {
   const { exit } = useApp()
@@ -70,8 +84,12 @@ export const App = ({ controller }: AppProps) => {
     setCursor(Math.max(0, Math.min(pos, text.length)))
     setOverlayIndex(0)
   }
-  const insert = (text: string): void =>
-    setInput(value.slice(0, cursor) + text + value.slice(cursor), cursor + text.length)
+  const insert = (text: string): void => {
+    // Strip carriage returns so a fused/echoed CR can never become an invisible
+    // character in the value; newlines are inserted explicitly as "\n".
+    const clean = text.replace(/\r/g, "")
+    setInput(value.slice(0, cursor) + clean + value.slice(cursor), cursor + clean.length)
+  }
 
   const acceptCommand = (): void => {
     const match = commandMatches[highlight]
@@ -146,6 +164,7 @@ export const App = ({ controller }: AppProps) => {
 
   useInput(
     (input, key) => {
+      debugKey(input, key as unknown as Record<string, unknown>)
       if (showHelp) {
         setShowHelp(false)
         return
