@@ -12,5 +12,5 @@ export const theme = {
   /** Accent — the light-blue/cyan used for the SWAIN wordmark. */
   primary: "#7dd3ff",
   /** Dimmer variant of the accent, for de-emphasized accent text. */
-  primaryDim: "#4b7f99",
+  primaryDim: "#66a6cc",
 } as const
