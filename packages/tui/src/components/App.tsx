@@ -294,6 +294,7 @@ export const App = ({ controller }: AppProps) => {
         if (cur > 0 && v[cur - 1] === "\\")
           return setInput(`${v.slice(0, cur - 1)}\n${v.slice(cur)}`, cur)
         if (commandMode && commandMatches.length > 0) return runCommand()
+        if (fileToken !== undefined && fileMatches.length > 0) return acceptFile()
         void submit()
         return
       }

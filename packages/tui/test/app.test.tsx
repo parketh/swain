@@ -300,6 +300,18 @@ describe("App", () => {
     expect(lastFrame()).toContain("src")
   })
 
+  test("Enter inserts the highlighted file path instead of submitting", async () => {
+    const { stdin, lastFrame } = render(<App controller={makeCtrl()} />)
+    stdin.write("@src")
+    await flush()
+    stdin.write("\r")
+    await flush()
+    // File accepted into the input; the prompt was not submitted (no empty
+    // placeholder) and typing can continue.
+    expect(clean(lastFrame())).toContain("@src")
+    expect(lastFrame()).not.toContain("type a prompt")
+  })
+
   test("Shift-Tab cycles the permission mode", async () => {
     const c = makeCtrl()
     const { stdin } = render(<App controller={c} />)
