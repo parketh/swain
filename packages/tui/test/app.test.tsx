@@ -325,6 +325,55 @@ describe("App", () => {
     expect(frame).toContain("b")
   })
 
+  test("repeated fused Shift+Enter keeps adding lines", async () => {
+    const c = makeCtrl()
+    const { stdin, lastFrame } = render(<App controller={c} />)
+    stdin.write("a")
+    await flush()
+    stdin.write("\\\r")
+    await flush()
+    stdin.write("b")
+    await flush()
+    stdin.write("\\\r") // second Shift+Enter must also insert a newline
+    await flush()
+    stdin.write("c")
+    await flush()
+    // Never submitted (a second Shift+Enter that submitted would push a user
+    // message), and all three characters are still in the buffer.
+    expect(c.getState().session.messages).toHaveLength(0)
+    const frame = clean(lastFrame())
+    for (const ch of ["a", "b", "c"]) expect(frame).toContain(ch)
+  })
+
+  test("Shift+Enter split across a synchronous burst still composes", async () => {
+    // No flush between writes: the handler fires multiple times before React
+    // re-renders, so this only passes if editing reads the latest text (ref),
+    // not a stale closure.
+    const c = makeCtrl()
+    const { stdin, lastFrame } = render(<App controller={c} />)
+    stdin.write("a")
+    stdin.write("\\") // backslash and CR arriving as separate events in one tick
+    stdin.write("\r")
+    stdin.write("b")
+    await flush()
+    expect(c.getState().session.messages).toHaveLength(0)
+    const frame = clean(lastFrame())
+    expect(frame).toContain("a")
+    expect(frame).toContain("b")
+  })
+
+  test("Option+Backspace deletes the word before the cursor", async () => {
+    const c = makeCtrl()
+    const { stdin, lastFrame } = render(<App controller={c} />)
+    stdin.write("foo bar")
+    await flush()
+    stdin.write("") // ESC + DEL = Option+Backspace
+    await flush()
+    const frame = clean(lastFrame())
+    expect(frame).toContain("foo")
+    expect(frame).not.toContain("bar")
+  })
+
   test("backslash + Enter inserts a newline (line continuation)", async () => {
     const c = makeCtrl()
     const { stdin } = render(<App controller={c} />)

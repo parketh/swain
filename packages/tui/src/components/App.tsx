@@ -1,6 +1,6 @@
 import { appendFileSync } from "node:fs"
 import { Box, Text, useApp, useInput } from "ink"
-import { useEffect, useReducer, useState } from "react"
+import { useEffect, useReducer, useRef, useState } from "react"
 import { parseCommand } from "../commands"
 import type { ProviderConfig } from "../config"
 import type { Controller, PendingApproval, PendingQuestion } from "../controller"
@@ -48,6 +48,7 @@ export const App = ({ controller }: AppProps) => {
   const [, forceRender] = useReducer((n: number) => n + 1, 0)
   const [value, setValue] = useState("")
   const [cursor, setCursor] = useState(0)
+  const inputRef = useRef({ value: "", cursor: 0 })
   const [draft, setDraft] = useState<DraftState>(emptyDraft)
   const [overlayIndex, setOverlayIndex] = useState(0)
   const [question, setQuestion] = useState<PendingQuestion | undefined>(undefined)
@@ -79,16 +80,34 @@ export const App = ({ controller }: AppProps) => {
   const overlayCount = commandMode ? commandMatches.length : fileMatches.length
   const highlight = overlayCount === 0 ? 0 : Math.min(overlayIndex, overlayCount - 1)
 
+  // Editing reads/writes go through this ref, not the render-scope `value`/
+  // `cursor`, so a burst of key events (e.g. a terminal delivering Shift+Enter
+  // as two synchronous events) composes on the latest text instead of a stale
+  // closure from the last render.
   const setInput = (text: string, pos: number): void => {
+    const c = Math.max(0, Math.min(pos, text.length))
+    inputRef.current = { value: text, cursor: c }
     setValue(text)
-    setCursor(Math.max(0, Math.min(pos, text.length)))
+    setCursor(c)
     setOverlayIndex(0)
+  }
+  const moveCursor = (pos: number): void => {
+    const { value: v } = inputRef.current
+    const c = Math.max(0, Math.min(pos, v.length))
+    inputRef.current = { value: v, cursor: c }
+    setCursor(c)
   }
   const insert = (text: string): void => {
     // Strip carriage returns so a fused/echoed CR can never become an invisible
     // character in the value; newlines are inserted explicitly as "\n".
+    const { value: v, cursor: c } = inputRef.current
     const clean = text.replace(/\r/g, "")
-    setInput(value.slice(0, cursor) + clean + value.slice(cursor), cursor + clean.length)
+    setInput(v.slice(0, c) + clean + v.slice(c), c + clean.length)
+  }
+  const deleteWordBefore = (): void => {
+    const { value: v, cursor: c } = inputRef.current
+    const start = prevWord(v, c)
+    setInput(v.slice(0, start) + v.slice(c), start)
   }
 
   const acceptCommand = (): void => {
@@ -110,7 +129,7 @@ export const App = ({ controller }: AppProps) => {
     )?.variants ?? []
 
   const submit = async (): Promise<void> => {
-    const text = value
+    const text = inputRef.current.value
     setInput("", 0)
     setNotice(undefined)
     if (text.trim() === "") return
@@ -177,19 +196,26 @@ export const App = ({ controller }: AppProps) => {
       if (key.shift && key.tab) return controller.cyclePermissionMode()
       if (key.escape) return setInput("", 0)
 
+      // Read the latest text from the ref so multi-event bursts compose.
+      const v = inputRef.current.value
+      const cur = inputRef.current.cursor
+
       // Word navigation: Option/Alt + Left/Right. Terminals deliver this either
       // as an arrow with the meta modifier, or as ESC-b / ESC-f (meta + b/f).
-      if (key.meta && (key.leftArrow || input === "b")) return setCursor(prevWord(value, cursor))
-      if (key.meta && (key.rightArrow || input === "f")) return setCursor(nextWord(value, cursor))
+      if (key.meta && (key.leftArrow || input === "b")) return moveCursor(prevWord(v, cur))
+      if (key.meta && (key.rightArrow || input === "f")) return moveCursor(nextWord(v, cur))
+      // Delete the word before the cursor: Option+Backspace (meta+backspace) or Ctrl+W.
+      if ((key.meta && (key.backspace || key.delete)) || (key.ctrl && input === "w"))
+        return deleteWordBefore()
 
       if (key.upArrow) return setOverlayIndex((i) => Math.max(0, i - 1))
       if (key.downArrow)
         return setOverlayIndex((i) => Math.min(Math.max(0, overlayCount - 1), i + 1))
 
-      if (key.leftArrow) return setCursor(Math.max(0, cursor - 1))
+      if (key.leftArrow) return moveCursor(cur - 1)
       if (key.rightArrow) {
         if (commandMode && commandMatches.length > 0) return acceptCommand()
-        return setCursor(Math.min(value.length, cursor + 1))
+        return moveCursor(cur + 1)
       }
 
       if (key.tab) {
@@ -203,15 +229,15 @@ export const App = ({ controller }: AppProps) => {
         // the ESC+CR that `terminal-setup` installs both decode as meta+return),
         // or a trailing backslash before the cursor (`\` + Enter continuation).
         if (key.shift || key.meta) return insert("\n")
-        if (cursor > 0 && value[cursor - 1] === "\\")
-          return setInput(`${value.slice(0, cursor - 1)}\n${value.slice(cursor)}`, cursor)
+        if (cur > 0 && v[cur - 1] === "\\")
+          return setInput(`${v.slice(0, cur - 1)}\n${v.slice(cur)}`, cur)
         if (commandMode && commandMatches.length > 0) return acceptCommand()
         void submit()
         return
       }
 
       if (key.backspace || key.delete) {
-        if (cursor > 0) setInput(value.slice(0, cursor - 1) + value.slice(cursor), cursor - 1)
+        if (cur > 0) setInput(v.slice(0, cur - 1) + v.slice(cur), cur - 1)
         return
       }
 
