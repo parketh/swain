@@ -16,6 +16,7 @@ import { QuestionPrompt, type QuestionPromptAnswer } from "./QuestionPrompt"
 import { ResumePicker } from "./ResumePicker"
 import { StatusLine } from "./StatusLine"
 import { type DraftState, emptyDraft, foldEvent, Transcript } from "./Transcript"
+import { useTerminalSize } from "./useTerminalSize"
 import { VariantPicker } from "./VariantPicker"
 
 type Dialog =
@@ -64,6 +65,7 @@ export const App = ({ controller }: AppProps) => {
   const [dialog, setDialog] = useState<Dialog | undefined>(undefined)
   const [notice, setNotice] = useState<string | undefined>(undefined)
   const [showHelp, setShowHelp] = useState(false)
+  const { rows, columns } = useTerminalSize()
 
   useEffect(
     () => () => {
@@ -315,95 +317,106 @@ export const App = ({ controller }: AppProps) => {
     { isActive: question === undefined && approval === undefined && dialog === undefined },
   )
 
-  if (showHelp) {
-    return (
-      <Box flexDirection="column">
-        <HelpView />
-        <Text dimColor>press any key to return</Text>
-      </Box>
-    )
-  }
+  // Everything that renders as an overlay above the pinned prompt: help, a
+  // permission/question prompt, a picker dialog, or the command/file suggestion
+  // lists. Only one is shown at a time; the prompt input stays visible below.
+  const overlay = showHelp ? (
+    <Box flexDirection="column">
+      <HelpView />
+      <Text dimColor>press any key to return</Text>
+    </Box>
+  ) : approval !== undefined ? (
+    <PermissionPrompt
+      request={approval.request}
+      onDecision={(decision) => {
+        controller.resolveApproval(approval.id, decision)
+        setApproval(undefined)
+      }}
+    />
+  ) : question !== undefined ? (
+    <QuestionPrompt
+      questions={question.input.questions.map((q) => ({
+        question: q.question,
+        options: q.options.map((o) => ({ label: o.label, description: o.description })),
+        ...(q.multiSelect !== undefined && { multiSelect: q.multiSelect }),
+      }))}
+      onSubmit={(answers: ReadonlyArray<QuestionPromptAnswer>) => {
+        controller.answerQuestion(
+          question.id,
+          answers.map((a) => ({ question: a.question, selected: a.selected })),
+        )
+        setQuestion(undefined)
+      }}
+    />
+  ) : dialog?.kind === "model" ? (
+    <ModelPicker
+      models={state.availableModels}
+      active={state.activeModel}
+      onSelect={(provider, modelId) => {
+        void controller.selectModel(provider, modelId)
+        setDialog(undefined)
+      }}
+      onCancel={() => setDialog(undefined)}
+    />
+  ) : dialog?.kind === "variants" ? (
+    <VariantPicker
+      variants={variantsForActive()}
+      current={state.activeModel.variant}
+      onSelect={(variant) => {
+        void controller.setVariant(variant)
+        setDialog(undefined)
+      }}
+      onCancel={() => setDialog(undefined)}
+    />
+  ) : dialog?.kind === "resume" ? (
+    <ResumePicker
+      sessions={controller.listSessions()}
+      onSelect={(sessionId) => {
+        void controller.resumeSession(sessionId)
+        setDialog(undefined)
+      }}
+      onCancel={() => setDialog(undefined)}
+    />
+  ) : dialog?.kind === "connect" ? (
+    <ConnectDialog
+      providers={state.connectableProviders}
+      {...(dialog.provider !== undefined && { initialProvider: dialog.provider })}
+      onSubmit={connect}
+      onCancel={() => setDialog(undefined)}
+    />
+  ) : commandMode ? (
+    <CommandOverlay query={value.slice(1)} highlight={highlight} />
+  ) : fileToken !== undefined ? (
+    <FileSearch matches={fileMatches} highlight={highlight} />
+  ) : null
 
   return (
-    <Box flexDirection="column">
-      <Transcript messages={state.session.messages} draft={draft} />
-      {approval !== undefined ? (
-        <PermissionPrompt
-          request={approval.request}
-          onDecision={(decision) => {
-            controller.resolveApproval(approval.id, decision)
-            setApproval(undefined)
-          }}
+    <Box flexDirection="column" height={rows} width={columns}>
+      {/* Scrollback region: fills all space above the prompt, clips the oldest
+          content, and anchors the newest turn just above the prompt. */}
+      <Box
+        flexGrow={1}
+        flexShrink={1}
+        flexDirection="column"
+        justifyContent="flex-end"
+        overflow="hidden"
+      >
+        <Transcript messages={state.session.messages} draft={draft} />
+      </Box>
+      {/* Pinned bottom: overlays render directly above the prompt. */}
+      <Box flexDirection="column" flexShrink={0}>
+        {overlay}
+        {notice !== undefined ? <Text dimColor>{notice}</Text> : null}
+        <Box borderStyle="single" borderLeft={false} borderRight={false} borderColor="gray">
+          <PromptInput value={value} cursor={cursor} />
+        </Box>
+        <StatusLine
+          activeModel={state.activeModel}
+          permissionMode={state.permissionMode}
+          usage={controller.getUsage()}
+          running={state.running}
         />
-      ) : question !== undefined ? (
-        <QuestionPrompt
-          questions={question.input.questions.map((q) => ({
-            question: q.question,
-            options: q.options.map((o) => ({ label: o.label, description: o.description })),
-            ...(q.multiSelect !== undefined && { multiSelect: q.multiSelect }),
-          }))}
-          onSubmit={(answers: ReadonlyArray<QuestionPromptAnswer>) => {
-            controller.answerQuestion(
-              question.id,
-              answers.map((a) => ({ question: a.question, selected: a.selected })),
-            )
-            setQuestion(undefined)
-          }}
-        />
-      ) : dialog?.kind === "model" ? (
-        <ModelPicker
-          models={state.availableModels}
-          active={state.activeModel}
-          onSelect={(provider, modelId) => {
-            void controller.selectModel(provider, modelId)
-            setDialog(undefined)
-          }}
-          onCancel={() => setDialog(undefined)}
-        />
-      ) : dialog?.kind === "variants" ? (
-        <VariantPicker
-          variants={variantsForActive()}
-          current={state.activeModel.variant}
-          onSelect={(variant) => {
-            void controller.setVariant(variant)
-            setDialog(undefined)
-          }}
-          onCancel={() => setDialog(undefined)}
-        />
-      ) : dialog?.kind === "resume" ? (
-        <ResumePicker
-          sessions={controller.listSessions()}
-          onSelect={(sessionId) => {
-            void controller.resumeSession(sessionId)
-            setDialog(undefined)
-          }}
-          onCancel={() => setDialog(undefined)}
-        />
-      ) : dialog?.kind === "connect" ? (
-        <ConnectDialog
-          providers={state.connectableProviders}
-          {...(dialog.provider !== undefined && { initialProvider: dialog.provider })}
-          onSubmit={connect}
-          onCancel={() => setDialog(undefined)}
-        />
-      ) : (
-        <>
-          {notice !== undefined ? <Text dimColor>{notice}</Text> : null}
-          <Box borderStyle="single" borderLeft={false} borderRight={false} borderColor="gray">
-            <PromptInput value={value} cursor={cursor} />
-          </Box>
-          {commandMode ? <CommandOverlay query={value.slice(1)} highlight={highlight} /> : null}
-          {fileToken !== undefined ? (
-            <FileSearch matches={fileMatches} highlight={highlight} />
-          ) : null}
-        </>
-      )}
-      <StatusLine
-        activeModel={state.activeModel}
-        permissionMode={state.permissionMode}
-        usage={controller.getUsage()}
-        running={state.running}
-      />
+      </Box>
     </Box>
   )
 }
