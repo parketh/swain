@@ -307,6 +307,41 @@ describe("App", () => {
     expect(lastFrame()).toContain("hello world")
   })
 
+  test("a fused Shift+Enter (\\<CR>) inserts a newline instead of submitting", async () => {
+    const c = makeCtrl()
+    const { stdin, lastFrame } = render(<App controller={c} />)
+    stdin.write("a")
+    await flush()
+    stdin.write("\\\r") // fused backslash + CR, as the terminal delivers Shift+Enter
+    await flush()
+    stdin.write("b")
+    await flush()
+    expect(c.getState().session.messages).toHaveLength(0) // not submitted
+    const frame = lastFrame() ?? ""
+    expect(frame).toContain("a")
+    expect(frame).toContain("b")
+  })
+
+  test("backslash + Enter inserts a newline (line continuation)", async () => {
+    const c = makeCtrl()
+    const { stdin } = render(<App controller={c} />)
+    stdin.write("a\\")
+    await flush()
+    stdin.write("\r") // plain Enter after a trailing backslash → newline, not submit
+    await flush()
+    expect(c.getState().session.messages).toHaveLength(0)
+  })
+
+  test("Option/Meta+Enter (ESC+CR) inserts a newline", async () => {
+    const c = makeCtrl()
+    const { stdin } = render(<App controller={c} />)
+    stdin.write("a")
+    await flush()
+    stdin.write("\x1b\r") // ESC+CR → decoded as meta+return
+    await flush()
+    expect(c.getState().session.messages).toHaveLength(0)
+  })
+
   test("/model with no args opens the model picker", async () => {
     const { stdin, lastFrame } = render(<App controller={makeCtrl()} />)
     stdin.write("/model ")

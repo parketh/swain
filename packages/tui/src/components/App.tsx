@@ -180,7 +180,12 @@ export const App = ({ controller }: AppProps) => {
       }
 
       if (key.return) {
-        if (key.shift) return insert("\n") // Shift+Enter inserts a newline
+        // Newline instead of submit for: Shift/Option+Enter (Option+Enter and
+        // the ESC+CR that `terminal-setup` installs both decode as meta+return),
+        // or a trailing backslash before the cursor (`\` + Enter continuation).
+        if (key.shift || key.meta) return insert("\n")
+        if (cursor > 0 && value[cursor - 1] === "\\")
+          return setInput(`${value.slice(0, cursor - 1)}\n${value.slice(cursor)}`, cursor)
         if (commandMode && commandMatches.length > 0) return acceptCommand()
         void submit()
         return
@@ -190,6 +195,12 @@ export const App = ({ controller }: AppProps) => {
         if (cursor > 0) setInput(value.slice(0, cursor - 1) + value.slice(cursor), cursor - 1)
         return
       }
+
+      // Some terminals deliver Shift+Enter as a fused "\<CR>" chunk (bytes
+      // 0x5c 0x0d) with no return flag; and pasted text carries embedded
+      // newlines. Insert any CR/LF as a newline, dropping a backslash that
+      // immediately precedes it.
+      if (/[\r\n]/.test(input)) return insert(input.replace(/\\?(?:\r\n|\r|\n)/g, "\n"))
 
       if (input && !key.ctrl && !key.meta) insert(input)
     },
