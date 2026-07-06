@@ -140,6 +140,13 @@ export const App = ({ controller }: AppProps) => {
     if (match !== undefined) setInput(`/${match.name} `, match.name.length + 2)
   }
 
+  const runCommand = (): void => {
+    const match = commandMatches[highlight]
+    if (match === undefined) return
+    setInput(`/${match.name}`, match.name.length + 1)
+    void submit()
+  }
+
   const acceptFile = (): void => {
     const match = fileMatches[highlight]
     if (fileToken !== undefined && match !== undefined) {
@@ -286,7 +293,7 @@ export const App = ({ controller }: AppProps) => {
         if (key.shift || key.meta) return insert("\n")
         if (cur > 0 && v[cur - 1] === "\\")
           return setInput(`${v.slice(0, cur - 1)}\n${v.slice(cur)}`, cur)
-        if (commandMode && commandMatches.length > 0) return acceptCommand()
+        if (commandMode && commandMatches.length > 0) return runCommand()
         void submit()
         return
       }

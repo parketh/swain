@@ -267,6 +267,17 @@ describe("App", () => {
     expect(lastFrame()).not.toContain("Show commands")
   })
 
+  test("Enter executes the highlighted command instead of inserting it", async () => {
+    const { stdin, lastFrame } = render(<App controller={makeCtrl()} />)
+    stdin.write("/he")
+    await flush()
+    stdin.write("\r")
+    await flush()
+    // /help executed: the help screen (unique "Keys" section) is shown rather
+    // than the command being left in the input.
+    expect(lastFrame()).toContain("cycle permission mode")
+  })
+
   test("a recognized command with args keeps the token highlighted and hides suggestions", async () => {
     const { stdin, lastFrame } = render(<App controller={makeCtrl()} />)
     stdin.write("/model x")
