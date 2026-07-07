@@ -453,6 +453,30 @@ describe("App", () => {
     expect(lastFrame()).toContain("DeepSeek")
   })
 
+  test("submitting a prompt with no provider configured redirects to connect", async () => {
+    const c = makeController({
+      session: createSessionState({
+        workingDirectory: dir,
+        model: testModel,
+        permissionMode: "ask",
+        currentDate: "2026-07-05",
+      }),
+      activeModel: { provider: "none", modelId: "unconfigured" },
+      config: { providers: {} },
+      configPath: join(dir, "config.json"),
+      llmLayer: scripted([[]]),
+      persist: false,
+    })
+    built.push(c)
+    const { stdin, lastFrame } = render(<App controller={c} />)
+    stdin.write("hello")
+    await flush()
+    stdin.write("\r")
+    await flush()
+    expect(lastFrame()).toContain("Connect a provider")
+    expect(c.getState().session.messages).toHaveLength(0)
+  })
+
   test("Ctrl+C clears the input and arms exit instead of exiting on the first press", async () => {
     const { stdin, lastFrame } = render(<App controller={makeCtrl()} />)
     stdin.write("draft text")

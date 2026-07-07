@@ -170,6 +170,10 @@ export const App = ({ controller }: AppProps) => {
     setNotice(undefined)
     if (text.trim() === "") return
     const parsed = parseCommand(text)
+    if (parsed.type === "prompt" && controller.getState().activeModel.provider === "none") {
+      setNotice("Connect a provider to send a prompt.")
+      return setDialog({ kind: "connect" })
+    }
     if (parsed.type !== "command") {
       setDraft(emptyDraft)
       await controller.executeCommand(parsed)
