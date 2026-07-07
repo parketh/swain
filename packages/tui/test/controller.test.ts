@@ -90,7 +90,6 @@ describe("controller", () => {
       activeModel: { provider: "anthropic", modelId: "claude-sonnet-5" },
       config,
       configPath: join(dir, "config.json"),
-      env: {},
       llmLayer: llm.layer,
       persist: false,
     })
@@ -215,7 +214,6 @@ describe("controller command actions", () => {
       activeModel: { provider: "anthropic", modelId: "claude-sonnet-5" },
       config: initialConfig,
       configPath: join(dir, "config.json"),
-      env: {},
       llmLayer: scripted([textTurn("ok")]).layer,
       persist,
     })
@@ -246,7 +244,6 @@ describe("controller command actions", () => {
       activeModel: { provider: "anthropic", modelId: "claude-sonnet-5" },
       config: { providers: {} },
       configPath: join(dir, "config.json", "nested.json"),
-      env: {},
       llmLayer: scripted([textTurn("ok")]).layer,
       persist: true,
     })

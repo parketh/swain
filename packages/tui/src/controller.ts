@@ -34,8 +34,6 @@ import {
 import { type LLMClientService, makeRuntime, toolContextLayer } from "./runtime"
 import { type UsageSnapshot, usageSnapshot } from "./usage"
 
-type Env = Record<string, string | undefined>
-
 export interface RequestOptions {
   readonly providerOptions?: ProviderOptions
   readonly generation?: GenerationOptions
@@ -76,7 +74,6 @@ export interface ControllerDeps {
   readonly config: TuiConfig
   readonly configPath: string
   readonly requestOptions?: RequestOptions
-  readonly env?: Env
   readonly llmLayer?: Layer.Layer<LLMClientService>
   readonly httpLayer?: Layer.Layer<HttpClient.HttpClient>
   /** Persist session/config on mutations. Off in tests that don't assert I/O. */
@@ -126,7 +123,6 @@ export interface Controller {
  * React. Forwards each `AgentEvent` to subscribers as it arrives.
  */
 export const makeController = (deps: ControllerDeps): Controller => {
-  const env = deps.env ?? process.env
   const persist = deps.persist ?? true
 
   let session = deps.session
@@ -135,8 +131,8 @@ export const makeController = (deps: ControllerDeps): Controller => {
   let requestOptions: RequestOptions = deps.requestOptions ?? {}
   let running = false
 
-  let availableCache = availableModels(config, env)
-  let connectableCache = connectableProviders(config, env)
+  let availableCache = availableModels(config)
+  let connectableCache = connectableProviders(config)
 
   const stateListeners = new Set<() => void>()
   const eventListeners = new Set<(event: AgentEvent) => void>()
@@ -159,8 +155,8 @@ export const makeController = (deps: ControllerDeps): Controller => {
   }
 
   const refreshDerived = (): void => {
-    availableCache = availableModels(config, env)
-    connectableCache = connectableProviders(config, env)
+    availableCache = availableModels(config)
+    connectableCache = connectableProviders(config)
   }
 
   const askHandler: AskHandler = {
@@ -258,7 +254,7 @@ export const makeController = (deps: ControllerDeps): Controller => {
     modelId: string,
     variant: string | undefined,
   ): Promise<void> => {
-    const result = resolveModelSelection(provider, modelId, variant, config, env)
+    const result = resolveModelSelection(provider, modelId, variant, config)
     if (result.type === "error") {
       emitEvent({ type: "agent-error", source: "agent", message: result.error.message })
       return
@@ -398,7 +394,6 @@ export const makeController = (deps: ControllerDeps): Controller => {
         activeModel.modelId,
         activeModel.variant,
         config,
-        env,
       )
       if (result.type === "error") {
         emitEvent({ type: "agent-error", source: "agent", message: result.error.message })

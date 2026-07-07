@@ -232,7 +232,6 @@ describe("App", () => {
       activeModel: { provider: "anthropic", modelId: "claude-sonnet-5" },
       config,
       configPath: join(dir, "config.json"),
-      env: {},
       llmLayer: scripted(turns),
       persist: false,
     })
@@ -481,7 +480,6 @@ describe("App", () => {
       activeModel: { provider: "anthropic", modelId: "claude-sonnet-5" },
       config,
       configPath: join(dir, "config.json"),
-      env: {},
       llmLayer: hanging,
       persist: false,
     })

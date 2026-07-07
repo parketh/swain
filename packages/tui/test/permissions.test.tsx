@@ -169,7 +169,6 @@ describe("App approval integration", () => {
       activeModel: { provider: "anthropic", modelId: "claude-sonnet-4-5" },
       config,
       configPath: join(dir, "config.json"),
-      env: {},
       llmLayer: scripted(turns),
       persist: false,
     })

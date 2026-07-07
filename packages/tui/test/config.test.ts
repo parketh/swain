@@ -89,7 +89,7 @@ describe("redaction", () => {
 
 describe("provider catalog", () => {
   test("connectable providers include every static provider, unconfigured by default", () => {
-    const providers = connectableProviders({ providers: {} }, {})
+    const providers = connectableProviders({ providers: {} })
     const ids = providers.map((p) => p.id)
     expect(ids).toEqual(
       expect.arrayContaining(["anthropic", "openai", "deepseek", "zai", "openai-codex"]),
@@ -97,20 +97,26 @@ describe("provider catalog", () => {
     expect(providers.every((p) => p.configured === false)).toBe(true)
   })
 
-  test("availableModels excludes providers with neither stored creds nor env fallback", () => {
-    const models = availableModels({ providers: {} }, {})
+  test("availableModels excludes providers without stored creds", () => {
+    const models = availableModels({ providers: {} })
     expect(models).toHaveLength(0)
   })
 
   test("availableModels includes a provider once its API key is saved", () => {
-    const models = availableModels({ providers: { anthropic: { apiKey: "sk-1" } } }, {})
+    const models = availableModels({ providers: { anthropic: { apiKey: "sk-1" } } })
     expect(models.some((m) => m.provider === "anthropic")).toBe(true)
     expect(models.every((m) => m.provider === "anthropic")).toBe(true)
   })
 
-  test("availableModels includes a provider configured via env fallback", () => {
-    const models = availableModels({ providers: {} }, { OPENAI_API_KEY: "sk-env" })
-    expect(models.some((m) => m.provider === "openai")).toBe(true)
+  test("availableModels ignores provider env vars", () => {
+    const prev = process.env.OPENAI_API_KEY
+    process.env.OPENAI_API_KEY = "sk-env"
+    try {
+      expect(availableModels({ providers: {} })).toHaveLength(0)
+    } finally {
+      if (prev === undefined) delete process.env.OPENAI_API_KEY
+      else process.env.OPENAI_API_KEY = prev
+    }
   })
 })
 
@@ -124,19 +130,19 @@ describe("resolveModelSelection", () => {
   }
 
   test("rejects an unconfigured provider", () => {
-    const result = resolveModelSelection("zai", "glm-5.2", undefined, config, {})
+    const result = resolveModelSelection("zai", "glm-5.2", undefined, config)
     expect(result.type).toBe("error")
     if (result.type === "error") expect(result.error.reason).toBe("provider-not-configured")
   })
 
   test("rejects an unknown variant", () => {
-    const result = resolveModelSelection("anthropic", "claude-sonnet-5", "nope", config, {})
+    const result = resolveModelSelection("anthropic", "claude-sonnet-5", "nope", config)
     expect(result.type).toBe("error")
     if (result.type === "error") expect(result.error.reason).toBe("unknown-variant")
   })
 
   test("returns a Model whose provider/id match the selection", () => {
-    const result = resolveModelSelection("anthropic", "claude-sonnet-5", undefined, config, {})
+    const result = resolveModelSelection("anthropic", "claude-sonnet-5", undefined, config)
     expect(result.type).toBe("ok")
     if (result.type === "ok") {
       expect(result.selection.model.provider as string).toBe("anthropic")
@@ -145,7 +151,7 @@ describe("resolveModelSelection", () => {
   })
 
   test("lowers a codex effort variant to reasoning providerOptions", () => {
-    const result = resolveModelSelection("openai-codex", "gpt-5-codex", "high", config, {})
+    const result = resolveModelSelection("openai-codex", "gpt-5-codex", "high", config)
     expect(result.type).toBe("ok")
     if (result.type === "ok") {
       expect(result.selection.requestOptions.providerOptions).toEqual({
@@ -155,7 +161,7 @@ describe("resolveModelSelection", () => {
   })
 
   test("lowers an anthropic thinking variant to providerOptions.anthropic.thinking", () => {
-    const result = resolveModelSelection("anthropic", "claude-sonnet-5", "thinking", config, {})
+    const result = resolveModelSelection("anthropic", "claude-sonnet-5", "thinking", config)
     expect(result.type).toBe("ok")
     if (result.type === "ok") {
       const opts = result.selection.requestOptions.providerOptions as {
@@ -166,7 +172,7 @@ describe("resolveModelSelection", () => {
   })
 
   test("a chat-compatible provider with no reasoning variants yields no reasoning options", () => {
-    const result = resolveModelSelection("openai", "gpt-5.5", undefined, config, {})
+    const result = resolveModelSelection("openai", "gpt-5.5", undefined, config)
     expect(result.type).toBe("ok")
     if (result.type === "ok") {
       expect(result.selection.requestOptions.providerOptions).toBeUndefined()

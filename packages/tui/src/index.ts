@@ -74,7 +74,7 @@ export const run = async (options: RunOptions = {}): Promise<void> => {
     loadConfig(configPath).pipe(Effect.provide(BunContext.layer)),
   )
 
-  const models = availableModels(config, env)
+  const models = availableModels(config)
   const isAvailable = (candidate: ActiveModel): boolean =>
     models.some((m) => m.provider === candidate.provider && m.modelId === candidate.modelId)
 
@@ -104,7 +104,6 @@ export const run = async (options: RunOptions = {}): Promise<void> => {
       requested.modelId,
       requested.variant,
       config,
-      env,
     )
     if (resolved.type === "ok") {
       model = resolved.selection.model
@@ -139,7 +138,6 @@ export const run = async (options: RunOptions = {}): Promise<void> => {
     activeModel,
     config: effectiveConfig,
     configPath,
-    env,
     requestOptions,
   })
 

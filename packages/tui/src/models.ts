@@ -4,8 +4,6 @@ import { Data } from "effect"
 import type { ProviderConfig, TuiConfig } from "./config"
 import { redactKey } from "./config"
 
-type Env = Record<string, string | undefined>
-
 export type CredentialField = "apiKey" | "baseURL" | "accountId" | "accessToken"
 
 interface VariantSpec {
@@ -28,7 +26,6 @@ interface ProviderSpec {
   readonly popular: boolean
   readonly requiredFields: ReadonlyArray<CredentialField>
   readonly optionalFields: ReadonlyArray<CredentialField>
-  readonly envFallback: ReadonlyArray<string>
   readonly models: ReadonlyArray<ModelSpec>
   readonly build: (modelId: string, creds: ProviderConfig | undefined) => Model
 }
@@ -46,7 +43,6 @@ const CATALOG: ReadonlyArray<ProviderSpec> = [
     popular: true,
     requiredFields: ["apiKey"],
     optionalFields: ["baseURL"],
-    envFallback: ["ANTHROPIC_API_KEY"],
     models: [
       { id: "claude-opus-4-8", label: "Claude Opus 4.8", variants: [] },
       {
@@ -73,7 +69,6 @@ const CATALOG: ReadonlyArray<ProviderSpec> = [
     popular: true,
     requiredFields: ["apiKey"],
     optionalFields: ["baseURL"],
-    envFallback: ["OPENAI_API_KEY"],
     models: [
       { id: "gpt-5.5", label: "ChatGPT 5.5", variants: [] },
       { id: "gpt-5.5-pro", label: "ChatGPT 5.5 Pro", variants: [] },
@@ -92,7 +87,6 @@ const CATALOG: ReadonlyArray<ProviderSpec> = [
     popular: false,
     requiredFields: ["apiKey"],
     optionalFields: ["baseURL"],
-    envFallback: ["DEEPSEEK_API_KEY"],
     models: [
       { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash", variants: [] },
       { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro", variants: [] },
@@ -109,7 +103,6 @@ const CATALOG: ReadonlyArray<ProviderSpec> = [
     popular: false,
     requiredFields: ["apiKey"],
     optionalFields: ["baseURL"],
-    envFallback: ["ZAI_API_KEY"],
     models: [{ id: "glm-5.2", label: "GLM 5.2", variants: [] }],
     build: (modelId, creds) =>
       ZAI.configure({
@@ -123,7 +116,6 @@ const CATALOG: ReadonlyArray<ProviderSpec> = [
     popular: false,
     requiredFields: ["accessToken", "accountId"],
     optionalFields: ["baseURL"],
-    envFallback: ["OPENAI_CODEX_ACCESS_TOKEN"],
     models: [
       {
         id: "gpt-5-codex",
@@ -148,7 +140,12 @@ const CATALOG: ReadonlyArray<ProviderSpec> = [
 
 const specById = (id: string): ProviderSpec | undefined => CATALOG.find((p) => p.id === id)
 
-const configuredViaConfig = (spec: ProviderSpec, config: TuiConfig): boolean => {
+/**
+ * A provider is configured only when the global config holds all its required
+ * credentials. Provider env vars are deliberately ignored by the TUI; they are
+ * reserved for standalone package smoke tests via the `llms` transport.
+ */
+const isConfigured = (spec: ProviderSpec, config: TuiConfig): boolean => {
   const stored = config.providers[spec.id]
   if (stored === undefined) return false
   return spec.requiredFields.every((field) => {
@@ -156,15 +153,6 @@ const configuredViaConfig = (spec: ProviderSpec, config: TuiConfig): boolean => 
     return typeof value === "string" && value.length > 0
   })
 }
-
-const configuredViaEnv = (spec: ProviderSpec, env: Env): boolean =>
-  spec.envFallback.some((name) => {
-    const value = env[name]
-    return value !== undefined && value !== ""
-  })
-
-const isConfigured = (spec: ProviderSpec, config: TuiConfig, env: Env): boolean =>
-  configuredViaConfig(spec, config) || configuredViaEnv(spec, env)
 
 export interface ProviderOption {
   readonly id: string
@@ -189,13 +177,13 @@ export interface ModelOption {
   readonly variants: ReadonlyArray<ModelVariantOption>
 }
 
-const toProviderOption = (spec: ProviderSpec, config: TuiConfig, env: Env): ProviderOption => {
+const toProviderOption = (spec: ProviderSpec, config: TuiConfig): ProviderOption => {
   const stored = config.providers[spec.id]
   return {
     id: spec.id,
     label: spec.label,
     popular: spec.popular,
-    configured: isConfigured(spec, config, env),
+    configured: isConfigured(spec, config),
     requiredFields: spec.requiredFields,
     optionalFields: spec.optionalFields,
     ...(stored?.apiKey !== undefined && { redactedKey: redactKey(stored.apiKey) }),
@@ -216,30 +204,20 @@ const toModelOptions = (spec: ProviderSpec): ReadonlyArray<ModelOption> =>
 /** Every static provider the TUI knows how to configure. */
 export const allProviders = (
   config: TuiConfig = { providers: {} },
-  env: Env = process.env,
-): ReadonlyArray<ProviderOption> => CATALOG.map((spec) => toProviderOption(spec, config, env))
+): ReadonlyArray<ProviderOption> => CATALOG.map((spec) => toProviderOption(spec, config))
 
 /** Every provider `/connect` should display; currently all static providers. */
 export const connectableProviders = (
   config: TuiConfig = { providers: {} },
-  env: Env = process.env,
-): ReadonlyArray<ProviderOption> => allProviders(config, env)
+): ReadonlyArray<ProviderOption> => allProviders(config)
 
-/** Providers usable from stored config or an accepted env fallback. */
-export const configuredProviders = (
-  config: TuiConfig,
-  env: Env = process.env,
-): ReadonlyArray<ProviderOption> =>
-  CATALOG.filter((spec) => isConfigured(spec, config, env)).map((spec) =>
-    toProviderOption(spec, config, env),
-  )
+/** Providers usable from stored config. */
+export const configuredProviders = (config: TuiConfig): ReadonlyArray<ProviderOption> =>
+  CATALOG.filter((spec) => isConfigured(spec, config)).map((spec) => toProviderOption(spec, config))
 
 /** Models shown by `/model`: configured providers, non-deprecated models. */
-export const availableModels = (
-  config: TuiConfig,
-  env: Env = process.env,
-): ReadonlyArray<ModelOption> =>
-  CATALOG.filter((spec) => isConfigured(spec, config, env)).flatMap(toModelOptions)
+export const availableModels = (config: TuiConfig): ReadonlyArray<ModelOption> =>
+  CATALOG.filter((spec) => isConfigured(spec, config)).flatMap(toModelOptions)
 
 export class ModelSelectionError extends Data.TaggedError("ModelSelectionError")<{
   readonly reason:
@@ -282,11 +260,10 @@ export const resolveModelSelection = (
   modelId: string,
   variant: string | undefined,
   config: TuiConfig,
-  env: Env = process.env,
 ): ResolveResult => {
   const spec = specById(provider)
   if (spec === undefined) return fail("unknown-provider", `Unknown provider "${provider}".`)
-  if (!isConfigured(spec, config, env)) {
+  if (!isConfigured(spec, config)) {
     return fail("provider-not-configured", `Provider "${provider}" is not configured.`)
   }
   const model = spec.models.find((m) => m.id === modelId)
