@@ -25,7 +25,6 @@ interface ProviderSpec {
   readonly label: string
   readonly popular: boolean
   readonly requiredFields: ReadonlyArray<CredentialField>
-  readonly optionalFields: ReadonlyArray<CredentialField>
   readonly models: ReadonlyArray<ModelSpec>
   readonly build: (modelId: string, creds: ProviderConfig | undefined) => Model
 }
@@ -42,7 +41,6 @@ const CATALOG: ReadonlyArray<ProviderSpec> = [
     label: "Anthropic",
     popular: true,
     requiredFields: ["apiKey"],
-    optionalFields: ["baseURL"],
     models: [
       { id: "claude-opus-4-8", label: "Claude Opus 4.8", variants: [] },
       {
@@ -68,7 +66,6 @@ const CATALOG: ReadonlyArray<ProviderSpec> = [
     label: "OpenAI",
     popular: true,
     requiredFields: ["apiKey"],
-    optionalFields: ["baseURL"],
     models: [
       { id: "gpt-5.5", label: "ChatGPT 5.5", variants: [] },
       { id: "gpt-5.5-pro", label: "ChatGPT 5.5 Pro", variants: [] },
@@ -86,7 +83,6 @@ const CATALOG: ReadonlyArray<ProviderSpec> = [
     label: "DeepSeek",
     popular: false,
     requiredFields: ["apiKey"],
-    optionalFields: ["baseURL"],
     models: [
       { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash", variants: [] },
       { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro", variants: [] },
@@ -102,7 +98,6 @@ const CATALOG: ReadonlyArray<ProviderSpec> = [
     label: "Z.AI",
     popular: false,
     requiredFields: ["apiKey"],
-    optionalFields: ["baseURL"],
     models: [{ id: "glm-5.2", label: "GLM 5.2", variants: [] }],
     build: (modelId, creds) =>
       ZAI.configure({
@@ -115,7 +110,6 @@ const CATALOG: ReadonlyArray<ProviderSpec> = [
     label: "OpenAI Codex",
     popular: false,
     requiredFields: ["accessToken", "accountId"],
-    optionalFields: ["baseURL"],
     models: [
       {
         id: "gpt-5-codex",
@@ -160,7 +154,6 @@ export interface ProviderOption {
   readonly popular: boolean
   readonly configured: boolean
   readonly requiredFields: ReadonlyArray<CredentialField>
-  readonly optionalFields: ReadonlyArray<CredentialField>
   readonly redactedKey?: string
 }
 
@@ -185,7 +178,6 @@ const toProviderOption = (spec: ProviderSpec, config: TuiConfig): ProviderOption
     popular: spec.popular,
     configured: isConfigured(spec, config),
     requiredFields: spec.requiredFields,
-    optionalFields: spec.optionalFields,
     ...(stored?.apiKey !== undefined && { redactedKey: redactKey(stored.apiKey) }),
   }
 }

@@ -29,10 +29,7 @@ const CredentialForm = ({
   readonly onSubmit: (creds: ProviderConfig) => void
   readonly onCancel: () => void
 }) => {
-  const fields: ReadonlyArray<CredentialField> = [
-    ...provider.requiredFields,
-    ...provider.optionalFields,
-  ]
+  const fields: ReadonlyArray<CredentialField> = provider.requiredFields
   const [values, setValues] = useState<Record<string, string>>({})
   const [active, setActive] = useState(0)
 
@@ -47,10 +44,9 @@ const CredentialForm = ({
 
   useInput((input, key) => {
     if (key.escape) return onCancel()
-    if (key.return) {
-      if (active < fields.length - 1) return setActive((a) => a + 1)
-      return onSubmit(build())
-    }
+    if (key.upArrow) return setActive((a) => Math.max(0, a - 1))
+    if (key.downArrow) return setActive((a) => Math.min(fields.length - 1, a + 1))
+    if (key.return) return onSubmit(build())
     if (key.backspace || key.delete) {
       const field = fields[active]
       if (field !== undefined) setValues((v) => ({ ...v, [field]: (v[field] ?? "").slice(0, -1) }))
@@ -66,20 +62,15 @@ const CredentialForm = ({
     <Box flexDirection="column" borderStyle="round" paddingX={1}>
       <Text bold>Connect {provider.label}</Text>
       {fields.map((field, i) => {
-        const required = provider.requiredFields.includes(field)
-        const raw = values[field] ?? ""
-        const masked = field === "apiKey" || field === "accessToken" ? "*".repeat(raw.length) : raw
+        const value = values[field] ?? ""
         return (
           <Text key={field} color={i === active ? "cyan" : undefined}>
             {i === active ? "› " : "  "}
-            {fieldLabel[field]}
-            {required ? "*" : ""}: {masked}
+            {fieldLabel[field]}: {value}
           </Text>
         )
       })}
-      <Text color={theme.muted}>
-        Enter to advance · Enter on the last field to save · Esc to cancel
-      </Text>
+      <Text color={theme.muted}>↑/↓ to move · Enter to save · Esc to cancel</Text>
     </Box>
   )
 }
