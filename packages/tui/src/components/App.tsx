@@ -85,6 +85,9 @@ export const App = ({ controller }: AppProps) => {
   const [dialog, setDialog] = useState<Dialog | undefined>(undefined)
   const [notice, setNotice] = useState<string | undefined>(undefined)
   const [showHelp, setShowHelp] = useState(false)
+  // First-run onboarding: after connecting a provider from an unconfigured
+  // state, chain the model picker (and then the variant picker) automatically.
+  const [setupFlow, setSetupFlow] = useState(false)
   const { rows, columns } = useTerminalSize()
 
   useEffect(
@@ -196,10 +199,15 @@ export const App = ({ controller }: AppProps) => {
     }
   }
 
+  const variantsFor = (
+    provider: string,
+    modelId: string,
+  ): ReadonlyArray<{ id: string; label: string }> =>
+    state.availableModels.find((m) => m.provider === provider && m.modelId === modelId)?.variants ??
+    []
+
   const variantsForActive = (): ReadonlyArray<{ id: string; label: string }> =>
-    state.availableModels.find(
-      (m) => m.provider === state.activeModel.provider && m.modelId === state.activeModel.modelId,
-    )?.variants ?? []
+    variantsFor(state.activeModel.provider, state.activeModel.modelId)
 
   const submit = async (): Promise<void> => {
     const text = inputRef.current.value
@@ -254,11 +262,20 @@ export const App = ({ controller }: AppProps) => {
   }
 
   const connect = async (provider: string, creds: ProviderConfig): Promise<void> => {
+    const wasUnconfigured = controller.getState().activeModel.provider === "none"
     const result = await controller.connectProvider(provider, creds)
+    if (!result.ok) {
+      setDialog(undefined)
+      return setNotice(`Failed to connect ${provider}: ${result.error}`)
+    }
+    setNotice(`Connected ${provider}.`)
+    // Continue first-run setup straight into model (then variant) selection so
+    // the user doesn't have to run /model and /variants by hand.
+    if (wasUnconfigured) {
+      setSetupFlow(true)
+      return setDialog({ kind: "model" })
+    }
     setDialog(undefined)
-    setNotice(
-      result.ok ? `Connected ${provider}.` : `Failed to connect ${provider}: ${result.error}`,
-    )
   }
 
   useInput(
@@ -406,9 +423,18 @@ export const App = ({ controller }: AppProps) => {
       active={state.activeModel}
       onSelect={(provider, modelId) => {
         void controller.selectModel(provider, modelId)
+        // During onboarding, advance to the variant picker when the chosen
+        // model offers variants; otherwise finish setup.
+        if (setupFlow && variantsFor(provider, modelId).length > 0) {
+          return setDialog({ kind: "variants" })
+        }
+        setSetupFlow(false)
         setDialog(undefined)
       }}
-      onCancel={() => setDialog(undefined)}
+      onCancel={() => {
+        setSetupFlow(false)
+        setDialog(undefined)
+      }}
     />
   ) : dialog?.kind === "variants" ? (
     <VariantPicker
@@ -416,9 +442,13 @@ export const App = ({ controller }: AppProps) => {
       current={state.activeModel.variant}
       onSelect={(variant) => {
         void controller.setVariant(variant)
+        setSetupFlow(false)
         setDialog(undefined)
       }}
-      onCancel={() => setDialog(undefined)}
+      onCancel={() => {
+        setSetupFlow(false)
+        setDialog(undefined)
+      }}
     />
   ) : dialog?.kind === "resume" ? (
     <ResumePicker

@@ -509,6 +509,39 @@ describe("App", () => {
     expect(c.getState().session.messages).toHaveLength(0)
   })
 
+  test("connecting from an unconfigured state chains into model then variant setup", async () => {
+    const c = makeController({
+      session: createSessionState({
+        workingDirectory: dir,
+        model: testModel,
+        permissionMode: "ask",
+        currentDate: "2026-07-05",
+      }),
+      activeModel: { provider: "none", modelId: "unconfigured" },
+      config: { providers: {} },
+      configPath: join(dir, "config.json"),
+      llmLayer: scripted([[]]),
+      persist: false,
+    })
+    built.push(c)
+    const { stdin, lastFrame } = render(<App controller={c} />)
+    stdin.write("/connect anthropic")
+    await flush()
+    stdin.write("\r") // open the Anthropic credential form
+    await flush()
+    stdin.write("sk-test-key")
+    await flush()
+    stdin.write("\r") // save credentials → auto-advance to the model picker
+    await flush()
+    expect(clean(lastFrame())).toContain("Select a model")
+    stdin.write("\x1b[B") // move to claude-sonnet-5, which offers a variant
+    await flush()
+    stdin.write("\r") // select it → auto-advance to the variant picker
+    await flush()
+    expect(clean(lastFrame())).toContain("Select a variant")
+    expect(clean(lastFrame())).toContain("extended thinking")
+  })
+
   test("Ctrl+C clears the input and arms exit instead of exiting on the first press", async () => {
     const { stdin, lastFrame } = render(<App controller={makeCtrl()} />)
     stdin.write("draft text")
