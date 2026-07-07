@@ -8,7 +8,6 @@ export interface StatusLineProps {
   readonly activeModel: ActiveModel
   readonly permissionMode: PermissionMode
   readonly usage: UsageSnapshot
-  readonly running: boolean
 }
 
 const MODE_COLOR: Record<PermissionMode, string> = {
@@ -17,7 +16,7 @@ const MODE_COLOR: Record<PermissionMode, string> = {
   plan: "cyan",
 }
 
-export const StatusLine = ({ activeModel, permissionMode, usage, running }: StatusLineProps) => (
+export const StatusLine = ({ activeModel, permissionMode, usage }: StatusLineProps) => (
   <Box>
     <Text color={theme.muted}>{activeModel.provider}/</Text>
     <Text>{activeModel.modelId}</Text>
@@ -30,6 +29,5 @@ export const StatusLine = ({ activeModel, permissionMode, usage, running }: Stat
       {" · "}
       {usage.totalTokens} tok ({usage.turns} turns)
     </Text>
-    {running ? <Text color="yellow"> · running…</Text> : null}
   </Box>
 )

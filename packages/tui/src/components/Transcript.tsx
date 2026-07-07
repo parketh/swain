@@ -1,11 +1,15 @@
 import type { AgentEvent } from "@swain/core"
 import type { Message } from "@swain/llms"
 import { Box, Text } from "ink"
+import type { ReactNode } from "react"
 import { theme } from "../theme"
+import { Markdown } from "./markdown"
+import { formatToolUse, summarizeResult } from "./toolFormat"
 
 export interface ToolRow {
   readonly toolCallId: string
   readonly name: string
+  readonly input: unknown
   readonly output: string
   readonly done: boolean
   readonly isError: boolean
@@ -45,6 +49,7 @@ export const foldEvent = (state: DraftState, event: AgentEvent): DraftState => {
           {
             toolCallId: String(event.toolCallId),
             name: event.name,
+            input: event.input,
             output: "",
             done: false,
             isError: false,
@@ -79,32 +84,77 @@ export const foldEvent = (state: DraftState, event: AgentEvent): DraftState => {
 export const foldEvents = (events: ReadonlyArray<AgentEvent>): DraftState =>
   events.reduce(foldEvent, emptyDraft)
 
-const preview = (value: unknown): string => {
-  const text = typeof value === "string" ? value : JSON.stringify(value)
-  return text.length > 200 ? `${text.slice(0, 200)}…` : text
+// A left gutter marker (`⏺` for a turn, blank for continuations) followed by
+// the block content, matching Claude Code's transcript layout.
+const Row = ({
+  marker,
+  color,
+  children,
+}: {
+  marker: string
+  color?: string
+  children: ReactNode
+}) => (
+  <Box flexDirection="row">
+    <Box minWidth={2} flexShrink={0}>
+      <Text color={color}>{marker}</Text>
+    </Box>
+    <Box flexDirection="column" flexGrow={1}>
+      {children}
+    </Box>
+  </Box>
+)
+
+// The `⎿` connector under a tool call, carrying its result summary.
+const ResultLine = ({ text, isError }: { text: string; isError: boolean }) => (
+  <Box flexDirection="row">
+    <Text color={theme.faint}>{"  ⎿ "}</Text>
+    <Text color={isError ? "red" : theme.muted}>{text}</Text>
+  </Box>
+)
+
+const ToolCall = ({ name, input }: { name: string; input: unknown }) => {
+  const args = formatToolUse(name, input)
+  return (
+    <Row marker="⏺" color={theme.primaryDim}>
+      <Text>
+        <Text bold>{name}</Text>
+        {args !== "" ? <Text color={theme.muted}>({args})</Text> : null}
+      </Text>
+    </Row>
+  )
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: opaque message content blocks
 const MessageRow = ({ message }: { message: any }) => (
   <Box flexDirection="column">
+    {/* biome-ignore lint/suspicious/noExplicitAny: opaque content block */}
     {message.content.map((block: any, i: number) => {
-      if (block.type === "text")
+      const key = i
+      if (block.type === "text") {
+        if (message.role === "assistant")
+          return (
+            <Row key={key} marker="⏺">
+              <Markdown>{block.text}</Markdown>
+            </Row>
+          )
         return (
-          <Text key={i} color={message.role === "assistant" ? undefined : "green"}>
-            {message.role === "assistant" ? block.text : `› ${block.text}`}
-          </Text>
+          <Row key={key} marker=">" color={theme.primary}>
+            <Text>{block.text}</Text>
+          </Row>
         )
+      }
+      // Reasoning is intentionally hidden; the live spinner stands in for it.
+      if (block.type === "reasoning") return null
       if (block.type === "tool-call")
-        return (
-          <Text key={i} color="blue">
-            ⚙ {block.name} {preview(block.input)}
-          </Text>
-        )
+        return <ToolCall key={key} name={block.name} input={block.input} />
       if (block.type === "tool-result")
         return (
-          <Text key={i} color={block.isError ? "red" : "gray"}>
-            {block.isError ? "✗" : "←"} {preview(block.result?.value)}
-          </Text>
+          <ResultLine
+            key={key}
+            isError={block.isError === true}
+            text={summarizeResult(block.name ?? "", block.result?.value, block.isError === true)}
+          />
         )
       return null
     })}
@@ -119,18 +169,33 @@ export interface TranscriptProps {
 export const Transcript = ({ messages, draft }: TranscriptProps) => (
   <Box flexDirection="column">
     {messages.map((message, i) => (
+      // biome-ignore lint/suspicious/noArrayIndexKey: append-only history
       <MessageRow key={i} message={message} />
     ))}
-    {draft.reasoning !== "" ? <Text color={theme.muted}>{draft.reasoning}</Text> : null}
     {draft.tools.map((row) => (
-      <Text key={row.toolCallId} color={row.isError ? "red" : "blue"}>
-        ⚙ {row.name}
-        {row.output !== "" ? `\n${row.output}` : ""}
-        {row.done ? "" : " …"}
-      </Text>
+      <Box key={row.toolCallId} flexDirection="column">
+        <ToolCall name={row.name} input={row.input} />
+        {row.output !== "" || row.done ? (
+          <ResultLine
+            isError={row.isError}
+            text={
+              row.done
+                ? summarizeResult(row.name, row.output, row.isError)
+                : `${summarizeResult(row.name, row.output, false)} …`
+            }
+          />
+        ) : (
+          <ResultLine isError={false} text="…" />
+        )}
+      </Box>
     ))}
-    {draft.assistant !== "" ? <Text>{draft.assistant}</Text> : null}
+    {draft.assistant !== "" ? (
+      <Row marker="⏺">
+        <Markdown>{draft.assistant}</Markdown>
+      </Row>
+    ) : null}
     {draft.errors.map((error, i) => (
+      // biome-ignore lint/suspicious/noArrayIndexKey: append-only errors
       <Text key={i} color="red">
         ⚠ {error}
       </Text>

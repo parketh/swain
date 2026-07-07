@@ -15,6 +15,7 @@ import { PermissionPrompt } from "./PermissionPrompt"
 import { nextWord, PromptInput, prevWord } from "./PromptInput"
 import { QuestionPrompt, type QuestionPromptAnswer } from "./QuestionPrompt"
 import { ResumePicker } from "./ResumePicker"
+import { Spinner } from "./Spinner"
 import { StatusLine } from "./StatusLine"
 import { type DraftState, emptyDraft, foldEvent, Transcript } from "./Transcript"
 import { useTerminalSize } from "./useTerminalSize"
@@ -521,6 +522,7 @@ export const App = ({ controller }: AppProps) => {
             {overlay}
           </Box>
         ) : null}
+        {state.running ? <Spinner /> : null}
         {notice !== undefined ? <Text color={theme.muted}>{notice}</Text> : null}
         {historyLabel !== undefined ? <HistoryRule label={historyLabel} width={columns} /> : null}
         <Box
@@ -536,7 +538,6 @@ export const App = ({ controller }: AppProps) => {
           activeModel={state.activeModel}
           permissionMode={state.permissionMode}
           usage={controller.getUsage()}
-          running={state.running}
         />
       </Box>
     </Box>
