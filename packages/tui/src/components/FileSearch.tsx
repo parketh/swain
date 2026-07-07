@@ -13,6 +13,7 @@ export const FileSearch = ({ matches, highlight, width }: FileSearchProps) => {
   if (matches.length === 0) return null
   return (
     <Box flexDirection="column">
+      <Text>{fillPad(0, width)}</Text>
       {matches.map((match, i) => {
         const prefix = i === highlight ? "› " : "  "
         const raw = `${match.path}${match.kind === "directory" ? "/" : ""}`

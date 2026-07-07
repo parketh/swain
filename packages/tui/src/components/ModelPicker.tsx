@@ -9,11 +9,12 @@ export interface ModelPickerProps {
   readonly active: ActiveModel
   readonly onSelect: (provider: string, modelId: string) => void
   readonly onCancel: () => void
+  readonly width: number
 }
 
 const keyOf = (provider: string, modelId: string): string => `${provider} ${modelId}`
 
-export const ModelPicker = ({ models, active, onSelect, onCancel }: ModelPickerProps) => {
+export const ModelPicker = ({ models, active, onSelect, onCancel, width }: ModelPickerProps) => {
   const [query, setQuery] = useState("")
   if (models.length === 0) {
     return (
@@ -40,6 +41,7 @@ export const ModelPicker = ({ models, active, onSelect, onCancel }: ModelPickerP
         if (provider !== undefined && modelId !== undefined) onSelect(provider, modelId)
       }}
       onCancel={onCancel}
+      width={width}
     />
   )
 }

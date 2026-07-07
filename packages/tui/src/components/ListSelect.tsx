@@ -1,6 +1,7 @@
 import { Box, Text, useInput } from "ink"
 import { useState } from "react"
 import { theme } from "../theme"
+import { clampCols, fillPad } from "./overlayFill"
 
 export interface ListSelectItem<Value> {
   readonly value: Value
@@ -18,6 +19,8 @@ export interface ListSelectProps<Value> {
   readonly onQueryChange: (query: string) => void
   readonly onSelect: (value: Value) => void
   readonly onCancel: () => void
+  /** Fills each row to this width so the floated menu occludes the transcript. */
+  readonly width?: number
 }
 
 export const filterItems = <Value,>(
@@ -42,6 +45,7 @@ export const ListSelect = <Value,>({
   onQueryChange,
   onSelect,
   onCancel,
+  width,
 }: ListSelectProps<Value>) => {
   const filtered = filterItems(items, query)
   const [highlight, setHighlight] = useState(0)
@@ -62,23 +66,38 @@ export const ListSelect = <Value,>({
 
   return (
     <Box flexDirection="column">
-      <Text bold>{title}</Text>
-      <Text color={theme.muted}>{`filter: ${query}`}</Text>
+      <Text>{fillPad(0, width)}</Text>
+      <Text bold>
+        {title}
+        {fillPad(title.length, width)}
+      </Text>
+      <Text color={theme.muted}>
+        {`filter: ${query}`}
+        {fillPad(`filter: ${query}`.length, width)}
+      </Text>
       {filtered.length === 0 ? (
-        <Text color={theme.muted}>no matches</Text>
+        <Text color={theme.muted}>
+          no matches
+          {fillPad("no matches".length, width)}
+        </Text>
       ) : (
         filtered.map((item, i) => {
           const active = i === index
           const isSelected = selected !== undefined && item.value === selected
+          const prefix = active ? "› " : "  "
+          const raw = `${item.label}${isSelected ? " (current)" : ""}${
+            item.description !== undefined ? ` — ${item.description}` : ""
+          }`
+          const body =
+            width === undefined ? raw : clampCols(raw, Math.max(0, width - prefix.length))
           return (
             <Text
               key={`${i}-${item.label}`}
               color={item.disabled ? "gray" : active ? "cyan" : undefined}
             >
-              {active ? "› " : "  "}
-              {item.label}
-              {isSelected ? " (current)" : ""}
-              {item.description !== undefined ? ` — ${item.description}` : ""}
+              {prefix}
+              {body}
+              {fillPad(prefix.length + body.length, width)}
             </Text>
           )
         })

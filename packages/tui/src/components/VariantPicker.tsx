@@ -9,9 +9,16 @@ export interface VariantPickerProps {
   readonly current?: string
   readonly onSelect: (variant?: string) => void
   readonly onCancel: () => void
+  readonly width: number
 }
 
-export const VariantPicker = ({ variants, current, onSelect, onCancel }: VariantPickerProps) => {
+export const VariantPicker = ({
+  variants,
+  current,
+  onSelect,
+  onCancel,
+  width,
+}: VariantPickerProps) => {
   const [query, setQuery] = useState("")
   const items: ReadonlyArray<ListSelectItem<string>> = [
     { value: DEFAULT, label: "default", description: "no reasoning override" },
@@ -26,6 +33,7 @@ export const VariantPicker = ({ variants, current, onSelect, onCancel }: Variant
       onQueryChange={setQuery}
       onSelect={(value) => onSelect(value === DEFAULT ? undefined : value)}
       onCancel={onCancel}
+      width={width}
     />
   )
 }

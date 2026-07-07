@@ -7,9 +7,10 @@ export interface ResumePickerProps {
   readonly sessions: ReadonlyArray<SavedSession>
   readonly onSelect: (sessionId: string) => void
   readonly onCancel: () => void
+  readonly width: number
 }
 
-export const ResumePicker = ({ sessions, onSelect, onCancel }: ResumePickerProps) => {
+export const ResumePicker = ({ sessions, onSelect, onCancel, width }: ResumePickerProps) => {
   const [query, setQuery] = useState("")
   if (sessions.length === 0) {
     return (
@@ -20,8 +21,8 @@ export const ResumePicker = ({ sessions, onSelect, onCancel }: ResumePickerProps
   }
   const items: ReadonlyArray<ListSelectItem<string>> = sessions.map((saved) => ({
     value: saved.sessionId,
-    label: saved.sessionId.slice(0, 8),
-    description: new Date(saved.modifiedMs).toISOString(),
+    label: saved.summary ?? saved.firstPrompt ?? saved.sessionId.slice(0, 8),
+    description: `${saved.sessionId.slice(0, 8)} · ${new Date(saved.modifiedMs).toISOString()}`,
   }))
   return (
     <ListSelect
@@ -31,6 +32,7 @@ export const ResumePicker = ({ sessions, onSelect, onCancel }: ResumePickerProps
       onQueryChange={setQuery}
       onSelect={onSelect}
       onCancel={onCancel}
+      width={width}
     />
   )
 }

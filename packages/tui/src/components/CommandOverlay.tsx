@@ -28,6 +28,7 @@ export const CommandOverlay = ({ query, highlight, width }: CommandOverlayProps)
   if (matches.length === 0) return null
   return (
     <Box flexDirection="column">
+      <Text>{fillPad(0, width)}</Text>
       {matches.map((command, i) => {
         const left = `${i === highlight ? "› " : "  "}/${command.name} `
         const summary =

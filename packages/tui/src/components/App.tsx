@@ -269,7 +269,9 @@ export const App = ({ controller }: AppProps) => {
         return setDialog({ kind: "connect", provider: args === "" ? undefined : args })
       }
       case "resume":
-        return args === "" ? setDialog({ kind: "resume" }) : void controller.resumeSession(args)
+        if (args !== "") return void controller.resumeSession(args)
+        void controller.ensureSummaries()
+        return setDialog({ kind: "resume" })
       default:
         setDraft(emptyDraft)
         await controller.executeCommand(parsed)
@@ -464,6 +466,7 @@ export const App = ({ controller }: AppProps) => {
         setSetupFlow(false)
         setDialog(undefined)
       }}
+      width={columns}
     />
   ) : dialog?.kind === "variants" ? (
     <VariantPicker
@@ -478,6 +481,7 @@ export const App = ({ controller }: AppProps) => {
         setSetupFlow(false)
         setDialog(undefined)
       }}
+      width={columns}
     />
   ) : dialog?.kind === "resume" ? (
     <ResumePicker
@@ -487,6 +491,7 @@ export const App = ({ controller }: AppProps) => {
         setDialog(undefined)
       }}
       onCancel={() => setDialog(undefined)}
+      width={columns}
     />
   ) : dialog?.kind === "connect" ? (
     <ConnectDialog
