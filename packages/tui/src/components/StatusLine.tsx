@@ -27,7 +27,8 @@ export const StatusLine = ({ activeModel, permissionMode, usage }: StatusLinePro
     <Text color={MODE_COLOR[permissionMode]}>{permissionMode}</Text>
     <Text color={theme.muted}>
       {" · "}
-      {usage.costUsd !== undefined ? formatCost(usage.costUsd) : `${usage.totalTokens} tok`}
+      {usage.totalTokens} tok
+      {usage.costUsd !== undefined ? ` (${formatCost(usage.costUsd)})` : ""}
     </Text>
   </Box>
 )
