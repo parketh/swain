@@ -24,6 +24,7 @@ import {
   sessionsDir,
   type TuiConfig,
 } from "./config"
+import { appendHistory, historyPath, saveHistory } from "./history"
 import {
   availableModels,
   connectableProviders,
@@ -73,6 +74,8 @@ export interface ControllerDeps {
   readonly activeModel: ActiveModel
   readonly config: TuiConfig
   readonly configPath: string
+  /** Global prompt history, most recent last; loaded once at startup. */
+  readonly history?: ReadonlyArray<string>
   readonly requestOptions?: RequestOptions
   readonly llmLayer?: Layer.Layer<LLMClientService>
   readonly httpLayer?: Layer.Layer<HttpClient.HttpClient>
@@ -98,6 +101,10 @@ export interface Controller {
   resolveApproval(id: number, decision: PermissionDecision): void
   submitPrompt(text: string): Promise<void>
   executeCommand(result: CommandParseResult): Promise<void>
+  /** Global prompt history, most recent last. */
+  getHistory(): ReadonlyArray<string>
+  /** Records a submitted prompt to global history and persists it. */
+  recordPrompt(text: string): void
   cyclePermissionMode(): void
   selectModel(provider: string, modelId: string, variant?: string): Promise<void>
   setVariant(variant?: string): Promise<void>
@@ -129,6 +136,7 @@ export const makeController = (deps: ControllerDeps): Controller => {
   let activeModel = deps.activeModel
   let config = deps.config
   let requestOptions: RequestOptions = deps.requestOptions ?? {}
+  let history = deps.history ?? []
   let running = false
 
   let availableCache = availableModels(config)
@@ -191,6 +199,20 @@ export const makeController = (deps: ControllerDeps): Controller => {
 
   const sessionsDirFor = (s: SessionState): string =>
     sessionsDir(deps.configPath, s.workingDirectory)
+
+  const historyFile = historyPath(deps.configPath)
+  // Serialize writes so overlapping records can't land out of order and persist
+  // a stale snapshot; each queued write re-reads the latest `history`.
+  let historyWrite: Promise<void> = Promise.resolve()
+  const recordPrompt = (text: string): void => {
+    const next = appendHistory(history, text)
+    if (next === history) return
+    history = next
+    if (!persist) return
+    historyWrite = historyWrite.then(() =>
+      runtime.runPromise(saveHistory(historyFile, history)).catch(() => {}),
+    )
+  }
 
   let currentAbort: AbortController | undefined
   let currentFiber: Fiber.RuntimeFiber<void, unknown> | undefined
@@ -338,6 +360,8 @@ export const makeController = (deps: ControllerDeps): Controller => {
     }),
     getRequestOptions: () => requestOptions,
     getUsage: () => usageSnapshot(session, activeModel),
+    getHistory: () => history,
+    recordPrompt,
 
     subscribe: (listener) => {
       stateListeners.add(listener)

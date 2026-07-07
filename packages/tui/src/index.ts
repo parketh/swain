@@ -12,6 +12,7 @@ import {
   type TuiConfig,
 } from "./config"
 import { makeController, type RequestOptions } from "./controller"
+import { historyPath, loadHistory } from "./history"
 import { availableModels, resolveModelSelection } from "./models"
 
 export { App, type StartOptions, startApp } from "./app"
@@ -72,6 +73,9 @@ export const run = async (options: RunOptions = {}): Promise<void> => {
   const configPath = defaultConfigPath(env)
   const config = await Effect.runPromise(
     loadConfig(configPath).pipe(Effect.provide(BunContext.layer)),
+  )
+  const history = await Effect.runPromise(
+    loadHistory(historyPath(configPath)).pipe(Effect.provide(BunContext.layer)),
   )
 
   const models = availableModels(config)
@@ -138,6 +142,7 @@ export const run = async (options: RunOptions = {}): Promise<void> => {
     activeModel,
     config: effectiveConfig,
     configPath,
+    history,
     requestOptions,
   })
 

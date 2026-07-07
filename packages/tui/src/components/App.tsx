@@ -33,6 +33,19 @@ export interface AppProps {
 
 const isCommandToken = (value: string): boolean => value.startsWith("/") && !/\s/.test(value)
 
+// A titled horizontal rule (e.g. "── History 3/100 ────") that replaces the
+// prompt's top border while the user is scrolling through prompt history.
+const HistoryRule = ({ label, width }: { readonly label: string; readonly width: number }) => {
+  const fill = Math.max(0, width - label.length - 4)
+  return (
+    <Text color="gray">
+      {"── "}
+      <Text color={theme.muted}>{label}</Text>
+      {` ${"─".repeat(fill)}`}
+    </Text>
+  )
+}
+
 // Opt-in raw key logging for diagnosing terminal escape sequences: set
 // SWAIN_DEBUG_KEYS=1, reproduce, and inspect /tmp/swain-keys.log.
 const debugKey = (input: string, key: Record<string, unknown>): void => {
@@ -56,11 +69,10 @@ export const App = ({ controller }: AppProps) => {
   const [value, setValue] = useState("")
   const [cursor, setCursor] = useState(0)
   const inputRef = useRef({ value: "", cursor: 0 })
-  // Shell-style prompt history: submitted prompts oldest→newest, a cursor into
-  // them (`=== length` means the live draft), and the in-progress draft stashed
-  // when the user scrolls back so scrolling forward restores it.
-  const historyRef = useRef<string[]>([])
-  const historyPos = useRef(0)
+  // Shell-style prompt history lives in the controller (global, cross-session).
+  // Here we hold only a cursor into it (`=== length` means the live draft) and
+  // the in-progress draft, stashed when scrolling back so forward restores it.
+  const historyPos = useRef(controller.getHistory().length)
   const draftStash = useRef("")
   // Ctrl+C is a two-step exit: the first press clears the input and arms this
   // flag (with a timeout to disarm); a second press while armed exits.
@@ -136,7 +148,7 @@ export const App = ({ controller }: AppProps) => {
   }
 
   const recallPrev = (): void => {
-    const h = historyRef.current
+    const h = controller.getHistory()
     if (h.length === 0) return
     if (historyPos.current === h.length) draftStash.current = inputRef.current.value
     if (historyPos.current > 0) {
@@ -146,7 +158,7 @@ export const App = ({ controller }: AppProps) => {
     }
   }
   const recallNext = (): void => {
-    const h = historyRef.current
+    const h = controller.getHistory()
     if (historyPos.current >= h.length) return
     historyPos.current += 1
     const text =
@@ -195,10 +207,8 @@ export const App = ({ controller }: AppProps) => {
     setNotice(undefined)
     if (text.trim() === "") return
     const parsed = parseCommand(text)
-    if (parsed.type === "prompt" && historyRef.current[historyRef.current.length - 1] !== text) {
-      historyRef.current.push(text)
-    }
-    historyPos.current = historyRef.current.length
+    if (parsed.type === "prompt") controller.recordPrompt(text)
+    historyPos.current = controller.getHistory().length
     draftStash.current = ""
     if (parsed.type === "prompt" && controller.getState().activeModel.provider === "none") {
       setNotice("Connect a provider to send a prompt.")
@@ -442,6 +452,14 @@ export const App = ({ controller }: AppProps) => {
     draft.tools.length === 0 &&
     draft.errors.length === 0
 
+  // While scrolling back through history, label the prompt with its position;
+  // at the live draft (cursor at the end) there is no label.
+  const historyTotal = controller.getHistory().length
+  const historyLabel =
+    historyPos.current < historyTotal
+      ? `History ${historyPos.current + 1}/${historyTotal}`
+      : undefined
+
   return (
     <Box flexDirection="column" height={rows} width={columns}>
       {/* Scrollback region: fills all space above the prompt, clips the oldest
@@ -474,7 +492,14 @@ export const App = ({ controller }: AppProps) => {
           </Box>
         ) : null}
         {notice !== undefined ? <Text color={theme.muted}>{notice}</Text> : null}
-        <Box borderStyle="single" borderLeft={false} borderRight={false} borderColor="gray">
+        {historyLabel !== undefined ? <HistoryRule label={historyLabel} width={columns} /> : null}
+        <Box
+          borderStyle="single"
+          borderTop={historyLabel === undefined}
+          borderLeft={false}
+          borderRight={false}
+          borderColor="gray"
+        >
           <PromptInput value={value} cursor={cursor} />
         </Box>
         <StatusLine

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { mkdtempSync, rmSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { BunContext } from "@effect/platform-bun"
@@ -263,6 +263,35 @@ describe("controller command actions", () => {
     c.onEvent((event) => events.push(event))
     await c.selectModel("anthropic", "no-such-model")
     expect(events.some((e) => e.type === "agent-error")).toBe(true)
+  })
+
+  test("recordPrompt appends to history, dedupes, and persists beside config", async () => {
+    const c = build({ providers: { anthropic: { apiKey: "sk-1" } } })
+    c.recordPrompt("first")
+    c.recordPrompt("first") // consecutive duplicate is ignored
+    c.recordPrompt("second")
+    expect(c.getHistory()).toEqual(["first", "second"])
+    await new Promise((resolve) => setTimeout(resolve, 25))
+    const historyFile = join(dir, "history.json")
+    expect(existsSync(historyFile)).toBe(true)
+    expect(JSON.parse(readFileSync(historyFile, "utf8"))).toEqual(["first", "second"])
+  })
+
+  test("seeded history is exposed and survives a new controller", () => {
+    const c = makeController({
+      session: createSessionState({
+        workingDirectory: dir,
+        model: testModel,
+        currentDate: "2026-07-05",
+      }),
+      activeModel: { provider: "anthropic", modelId: "claude-sonnet-5" },
+      config: { providers: {} },
+      configPath: join(dir, "config.json"),
+      history: ["earlier"],
+      llmLayer: scripted([textTurn("ok")]).layer,
+      persist: false,
+    })
+    expect(c.getHistory()).toEqual(["earlier"])
   })
 
   test("resume loads a saved session and rehydrates counters", async () => {

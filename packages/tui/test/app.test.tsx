@@ -469,17 +469,20 @@ describe("App", () => {
     stdin.write("\x1b[A") // Up → most recent prompt
     await flush()
     // The draft was never submitted, so its disappearance proves the prompt box
-    // (not just the transcript) now holds the recalled entry.
+    // (not just the transcript) now holds the recalled entry; the label is
+    // rendered only over the prompt, so it is an unambiguous position signal.
     expect(clean(lastFrame())).not.toContain("draft in progress")
+    expect(clean(lastFrame())).toContain("History 2/2")
     stdin.write("\x1b[A") // Up → older prompt
     await flush()
-    expect(clean(lastFrame())).toContain("first prompt")
+    expect(clean(lastFrame())).toContain("History 1/2")
     stdin.write("\x1b[B") // Down → back to more recent
     await flush()
-    expect(clean(lastFrame())).toContain("second prompt")
+    expect(clean(lastFrame())).toContain("History 2/2")
     stdin.write("\x1b[B") // Down → restore the stashed draft
     await flush()
     expect(clean(lastFrame())).toContain("draft in progress")
+    expect(clean(lastFrame())).not.toContain("History")
   })
 
   test("submitting a prompt with no provider configured redirects to connect", async () => {
