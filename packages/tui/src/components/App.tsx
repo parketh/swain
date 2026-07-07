@@ -1,5 +1,5 @@
 import { appendFileSync } from "node:fs"
-import { Box, Text, useApp, useInput } from "ink"
+import { Box, type DOMElement, measureElement, Text, useApp, useInput } from "ink"
 import { useEffect, useReducer, useRef, useState } from "react"
 import { parseCommand } from "../commands"
 import type { ProviderConfig } from "../config"
@@ -80,6 +80,11 @@ export const App = ({ controller }: AppProps) => {
   const ctrlCArmed = useRef(false)
   const ctrlCTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const [draft, setDraft] = useState<DraftState>(emptyDraft)
+  // Rows the transcript is scrolled up from the live bottom (0 = following the
+  // tail). Driven by the mouse wheel; clamped against measured content height.
+  const [scrollBack, setScrollBack] = useState(0)
+  const viewportRef = useRef<DOMElement | null>(null)
+  const transcriptRef = useRef<DOMElement | null>(null)
   const [overlayIndex, setOverlayIndex] = useState(0)
   const [question, setQuestion] = useState<PendingQuestion | undefined>(undefined)
   const [approval, setApproval] = useState<PendingApproval | undefined>(undefined)
@@ -170,6 +175,15 @@ export const App = ({ controller }: AppProps) => {
     setInput(text, text.length)
   }
 
+  // Scroll the transcript by `rows` (positive = back toward older content),
+  // clamped so it can't scroll past the top or below the live tail.
+  const scrollBy = (rows: number): void => {
+    const content = transcriptRef.current ? measureElement(transcriptRef.current).height : 0
+    const viewport = viewportRef.current ? measureElement(viewportRef.current).height : 0
+    const max = Math.max(0, content - viewport)
+    setScrollBack((s) => Math.max(0, Math.min(max, s + rows)))
+  }
+
   const disarmCtrlC = (): void => {
     if (!ctrlCArmed.current) return
     ctrlCArmed.current = false
@@ -214,6 +228,7 @@ export const App = ({ controller }: AppProps) => {
     const text = inputRef.current.value
     setInput("", 0)
     setNotice(undefined)
+    setScrollBack(0)
     if (text.trim() === "") return
     const parsed = parseCommand(text)
     if (parsed.type === "prompt") controller.recordPrompt(text)
@@ -282,6 +297,19 @@ export const App = ({ controller }: AppProps) => {
   useInput(
     (input, key) => {
       debugKey(input, key as unknown as Record<string, unknown>)
+      // Mouse events (SGR-encoded `[<b;x;y[Mm]`, ESC already stripped by Ink):
+      // scroll the transcript on wheel and swallow the rest so no sequence leaks
+      // into the prompt. Button bit 64 marks a wheel event; low bit is direction.
+      const wheel = [...input.matchAll(/\[<(\d+);\d+;\d+[Mm]/g)]
+      if (wheel.length > 0) {
+        let delta = 0
+        for (const m of wheel) {
+          const b = Number(m[1])
+          if (b & 64) delta += (b & 1) === 0 ? 1 : -1
+        }
+        if (delta !== 0) scrollBy(delta * 3)
+        return
+      }
       // Any key other than Ctrl+C cancels a pending exit.
       if (!(key.ctrl && input === "c")) disarmCtrlC()
       if (showHelp) {
@@ -496,12 +524,14 @@ export const App = ({ controller }: AppProps) => {
       {/* Scrollback region: fills all space above the prompt, clips the oldest
           content, and anchors the newest turn just above the prompt. */}
       <Box
+        ref={viewportRef}
         flexGrow={1}
         flexShrink={1}
         flexDirection="column"
         justifyContent={isNewSession ? "center" : "flex-end"}
         alignItems={isNewSession ? "center" : "flex-start"}
         overflow="hidden"
+        position="relative"
       >
         {isNewSession ? (
           <WelcomeScreen
@@ -510,7 +540,19 @@ export const App = ({ controller }: AppProps) => {
             permissionMode={state.permissionMode}
           />
         ) : (
-          <Transcript messages={state.session.messages} draft={draft} />
+          // Absolutely anchored to the bottom (bottom={0} matches flex-end); a
+          // negative bottom lifts the newest content off-screen to reveal older
+          // turns clipped above. Height is intrinsic, so the wheel can scroll it.
+          <Box
+            ref={transcriptRef}
+            position="absolute"
+            left={0}
+            right={0}
+            bottom={-scrollBack}
+            flexDirection="column"
+          >
+            <Transcript messages={state.session.messages} draft={draft} />
+          </Box>
         )}
       </Box>
       {/* Pinned bottom: the prompt + status stay in flow, while any overlay is

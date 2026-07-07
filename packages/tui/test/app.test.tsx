@@ -485,6 +485,24 @@ describe("App", () => {
     expect(clean(lastFrame())).not.toContain("History")
   })
 
+  test("mouse wheel scrolls the transcript instead of recalling history", async () => {
+    const c = makeCtrl([[]])
+    const { stdin, lastFrame } = render(<App controller={c} />)
+    stdin.write("first prompt")
+    await flush()
+    stdin.write("\r")
+    await flush()
+    stdin.write("draft in progress")
+    await flush()
+    stdin.write("\x1b[<64;10;5M") // wheel up
+    await flush()
+    // The wheel must not recall the prior prompt (no History label, draft kept)
+    // nor leak the escape sequence into the prompt box.
+    expect(clean(lastFrame())).not.toContain("History")
+    expect(clean(lastFrame())).toContain("draft in progress")
+    expect(clean(lastFrame())).not.toContain("[<64")
+  })
+
   test("submitting a prompt with no provider configured redirects to connect", async () => {
     const c = makeController({
       session: createSessionState({
