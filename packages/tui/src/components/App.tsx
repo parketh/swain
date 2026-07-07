@@ -56,6 +56,12 @@ export const App = ({ controller }: AppProps) => {
   const [value, setValue] = useState("")
   const [cursor, setCursor] = useState(0)
   const inputRef = useRef({ value: "", cursor: 0 })
+  // Shell-style prompt history: submitted prompts oldest→newest, a cursor into
+  // them (`=== length` means the live draft), and the in-progress draft stashed
+  // when the user scrolls back so scrolling forward restores it.
+  const historyRef = useRef<string[]>([])
+  const historyPos = useRef(0)
+  const draftStash = useRef("")
   // Ctrl+C is a two-step exit: the first press clears the input and arms this
   // flag (with a timeout to disarm); a second press while armed exits.
   const ctrlCArmed = useRef(false)
@@ -129,6 +135,25 @@ export const App = ({ controller }: AppProps) => {
     setInput(v.slice(0, start) + v.slice(c), start)
   }
 
+  const recallPrev = (): void => {
+    const h = historyRef.current
+    if (h.length === 0) return
+    if (historyPos.current === h.length) draftStash.current = inputRef.current.value
+    if (historyPos.current > 0) {
+      historyPos.current -= 1
+      const text = h[historyPos.current] ?? ""
+      setInput(text, text.length)
+    }
+  }
+  const recallNext = (): void => {
+    const h = historyRef.current
+    if (historyPos.current >= h.length) return
+    historyPos.current += 1
+    const text =
+      historyPos.current === h.length ? draftStash.current : (h[historyPos.current] ?? "")
+    setInput(text, text.length)
+  }
+
   const disarmCtrlC = (): void => {
     if (!ctrlCArmed.current) return
     ctrlCArmed.current = false
@@ -170,6 +195,11 @@ export const App = ({ controller }: AppProps) => {
     setNotice(undefined)
     if (text.trim() === "") return
     const parsed = parseCommand(text)
+    if (parsed.type === "prompt" && historyRef.current[historyRef.current.length - 1] !== text) {
+      historyRef.current.push(text)
+    }
+    historyPos.current = historyRef.current.length
+    draftStash.current = ""
     if (parsed.type === "prompt" && controller.getState().activeModel.provider === "none") {
       setNotice("Connect a provider to send a prompt.")
       return setDialog({ kind: "connect" })
@@ -278,9 +308,15 @@ export const App = ({ controller }: AppProps) => {
       if ((key.meta && (key.backspace || key.delete)) || (key.ctrl && input === "w"))
         return deleteWordBefore()
 
-      if (key.upArrow) return setOverlayIndex((i) => Math.max(0, i - 1))
-      if (key.downArrow)
-        return setOverlayIndex((i) => Math.min(Math.max(0, overlayCount - 1), i + 1))
+      if (key.upArrow) {
+        if (overlayCount > 0) return setOverlayIndex((i) => Math.max(0, i - 1))
+        return recallPrev()
+      }
+      if (key.downArrow) {
+        if (overlayCount > 0)
+          return setOverlayIndex((i) => Math.min(Math.max(0, overlayCount - 1), i + 1))
+        return recallNext()
+      }
 
       if (key.leftArrow) return moveCursor(cur - 1)
       if (key.rightArrow) {

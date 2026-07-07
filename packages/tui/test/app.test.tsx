@@ -453,6 +453,35 @@ describe("App", () => {
     expect(lastFrame()).toContain("DeepSeek")
   })
 
+  test("Up/Down recall prior prompts and restore the in-progress draft", async () => {
+    const c = makeCtrl([[], []])
+    const { stdin, lastFrame } = render(<App controller={c} />)
+    stdin.write("first prompt")
+    await flush()
+    stdin.write("\r")
+    await flush()
+    stdin.write("second prompt")
+    await flush()
+    stdin.write("\r")
+    await flush()
+    stdin.write("draft in progress")
+    await flush()
+    stdin.write("\x1b[A") // Up → most recent prompt
+    await flush()
+    // The draft was never submitted, so its disappearance proves the prompt box
+    // (not just the transcript) now holds the recalled entry.
+    expect(clean(lastFrame())).not.toContain("draft in progress")
+    stdin.write("\x1b[A") // Up → older prompt
+    await flush()
+    expect(clean(lastFrame())).toContain("first prompt")
+    stdin.write("\x1b[B") // Down → back to more recent
+    await flush()
+    expect(clean(lastFrame())).toContain("second prompt")
+    stdin.write("\x1b[B") // Down → restore the stashed draft
+    await flush()
+    expect(clean(lastFrame())).toContain("draft in progress")
+  })
+
   test("submitting a prompt with no provider configured redirects to connect", async () => {
     const c = makeController({
       session: createSessionState({
