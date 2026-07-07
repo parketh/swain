@@ -1,4 +1,4 @@
-import { readdirSync, statSync } from "node:fs"
+import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs"
 import { join as pathJoin } from "node:path"
 import type { HttpClient } from "@effect/platform"
 import {
@@ -15,6 +15,7 @@ import {
 } from "@swain/core"
 import type { AskHandler, AskInput, AskResult } from "@swain/core/tools"
 import type { GenerationOptions, ProviderOptions } from "@swain/llms"
+import { LLMClient } from "@swain/llms/client"
 import { Effect, Fiber, type Layer } from "effect"
 import { authPath, saveAuth } from "./auth"
 import type { CommandParseResult } from "./commands"
@@ -29,6 +30,7 @@ import { appendHistory, historyPath, saveHistory } from "./history"
 import {
   availableModels,
   connectableProviders,
+  freeModel,
   type ModelOption,
   type ProviderOption,
   resolveModelSelection,
@@ -68,6 +70,10 @@ export interface ConnectResult {
 export interface SavedSession {
   readonly sessionId: string
   readonly modifiedMs: number
+  /** Cached one-line summary of the conversation, if one has been generated. */
+  readonly summary?: string
+  /** First user prompt, used as a label before/without a summary. */
+  readonly firstPrompt?: string
 }
 
 export interface ControllerDeps {
@@ -114,6 +120,12 @@ export interface Controller {
   clearConversation(): void
   resumeSession(sessionId: string): Promise<void>
   listSessions(): ReadonlyArray<SavedSession>
+  /**
+   * Generates and caches one-line summaries for any saved sessions that lack
+   * one, using a free keyless model. Best-effort and idempotent; notifies
+   * subscribers as each summary lands. Safe to call when unconfigured.
+   */
+  ensureSummaries(): Promise<void>
   interrupt(): void
   /**
    * Cancels the running turn and retracts it: the in-flight prompt and any
@@ -200,6 +212,129 @@ export const makeController = (deps: ControllerDeps): Controller => {
 
   const sessionsDirFor = (s: SessionState): string =>
     sessionsDir(deps.configPath, s.workingDirectory)
+
+  // --- Session summaries (resume picker labels) ---------------------------
+
+  // biome-ignore lint/suspicious/noExplicitAny: persisted messages are opaque here
+  const textOf = (message: any): string =>
+    Array.isArray(message?.content)
+      ? message.content
+          // biome-ignore lint/suspicious/noExplicitAny: opaque content block
+          .filter((b: any) => b?.type === "text" && typeof b.text === "string")
+          // biome-ignore lint/suspicious/noExplicitAny: opaque content block
+          .map((b: any) => b.text as string)
+          .join(" ")
+          .trim()
+      : ""
+
+  const readMessageLines = (dir: string): ReadonlyArray<string> => {
+    try {
+      return readFileSync(pathJoin(dir, "messages.jsonl"), "utf8")
+        .split("\n")
+        .filter((line) => line.length > 0)
+    } catch {
+      return []
+    }
+  }
+
+  const readFirstPrompt = (dir: string): string | undefined => {
+    for (const line of readMessageLines(dir)) {
+      try {
+        const message = JSON.parse(line)
+        if (message.role === "user") {
+          const text = textOf(message)
+          if (text !== "") return text.replace(/\s+/g, " ").slice(0, 120)
+        }
+      } catch {}
+    }
+    return undefined
+  }
+
+  const readSummary = (dir: string): string | undefined => {
+    try {
+      const text = readFileSync(pathJoin(dir, "summary.txt"), "utf8").trim()
+      return text.length > 0 ? text : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  const listSessions = (): ReadonlyArray<SavedSession> => {
+    const dir = sessionsDirFor(session)
+    try {
+      return readdirSync(dir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => {
+          const sdir = pathJoin(dir, entry.name)
+          const modifiedMs = statSync(pathJoin(sdir, "session.json")).mtimeMs
+          const summary = readSummary(sdir)
+          const firstPrompt = readFirstPrompt(sdir)
+          return {
+            sessionId: entry.name,
+            modifiedMs,
+            ...(summary !== undefined && { summary }),
+            ...(firstPrompt !== undefined && { firstPrompt }),
+          }
+        })
+        .sort((a, b) => b.modifiedMs - a.modifiedMs)
+    } catch {
+      return []
+    }
+  }
+
+  const SUMMARY_SYSTEM =
+    "Write a terse title of at most 8 words describing what this conversation is about. " +
+    "Output only the title — no quotes, no trailing punctuation, no preamble."
+
+  // A short transcript excerpt (leading turns) is enough to title a session.
+  const summaryExcerpt = (dir: string): string => {
+    const parts: Array<string> = []
+    for (const line of readMessageLines(dir)) {
+      let message: unknown
+      try {
+        message = JSON.parse(line)
+      } catch {
+        continue
+      }
+      // biome-ignore lint/suspicious/noExplicitAny: opaque persisted message
+      const text = textOf(message as any)
+      if (text === "") continue
+      // biome-ignore lint/suspicious/noExplicitAny: opaque persisted message
+      const role = (message as any).role === "user" ? "User" : "Assistant"
+      parts.push(`${role}: ${text}`)
+      if (parts.join("\n").length > 1500) break
+    }
+    return parts.join("\n").slice(0, 2000)
+  }
+
+  let summarizing = false
+  // Summaries always use the free keyless model: cheap, and never spends the
+  // user's paid tokens on a background chore.
+  const generateSummary = async (dir: string): Promise<void> => {
+    const excerpt = summaryExcerpt(dir)
+    if (excerpt === "") return
+    const request = LLMClient.request({
+      model: freeModel(),
+      system: SUMMARY_SYSTEM,
+      prompt: excerpt,
+      generation: { maxTokens: 32 },
+    })
+    try {
+      const response = await runtime.runPromise(LLMClient.generateTurn(request))
+      const text = response.events
+        .map((event) => (event.type === "text-delta" ? event.text : ""))
+        .join("")
+        .trim()
+      const line = text
+        .split("\n")[0]
+        ?.trim()
+        .replace(/^["']|["']$/g, "")
+        .slice(0, 80)
+      if (line !== undefined && line !== "") writeFileSync(pathJoin(dir, "summary.txt"), line)
+    } catch {
+      // Best-effort: leave the first-prompt fallback label in place.
+    }
+  }
 
   const historyFile = historyPath(deps.configPath)
   // Serialize writes so overlapping records can't land out of order and persist
@@ -437,18 +572,20 @@ export const makeController = (deps: ControllerDeps): Controller => {
       notify()
     },
 
-    listSessions: () => {
-      const dir = sessionsDirFor(session)
+    listSessions,
+
+    ensureSummaries: async () => {
+      if (summarizing) return
+      summarizing = true
       try {
-        return readdirSync(dir, { withFileTypes: true })
-          .filter((entry) => entry.isDirectory())
-          .map((entry) => {
-            const modifiedMs = statSync(pathJoin(dir, entry.name, "session.json")).mtimeMs
-            return { sessionId: entry.name, modifiedMs }
-          })
-          .sort((a, b) => b.modifiedMs - a.modifiedMs)
-      } catch {
-        return []
+        const dir = sessionsDirFor(session)
+        for (const saved of listSessions()) {
+          if (saved.summary !== undefined) continue
+          await generateSummary(pathJoin(dir, saved.sessionId))
+          notify()
+        }
+      } finally {
+        summarizing = false
       }
     },
 

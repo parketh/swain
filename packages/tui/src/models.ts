@@ -1,5 +1,5 @@
 import type { GenerationOptions, Model, ProviderOptions } from "@swain/llms"
-import { Anthropic, DeepSeek, OpenAI, OpenAICodex, ZAI } from "@swain/llms/providers"
+import { Anthropic, DeepSeek, OpenAI, OpenAICodex, Pollinations, ZAI } from "@swain/llms/providers"
 import { Data } from "effect"
 import type { ProviderConfig, TuiConfig } from "./config"
 import { redactKey } from "./config"
@@ -290,6 +290,12 @@ export const resolveModelSelection = (
 /** Default model id for a configured provider, used for startup fallback. */
 export const defaultModelId = (provider: string): string | undefined =>
   specById(provider)?.models.find((m) => m.deprecated !== true)?.id
+
+/**
+ * Keyless, free model for background chores (e.g. summarizing sessions) when the
+ * user has no provider configured. Backed by Pollinations; best-effort.
+ */
+export const freeModel = (): Model => Pollinations.model("openai-fast")
 
 // Published list prices per 1M tokens (USD), keyed by `${provider}/${modelId}`.
 // Standard tier, sourced from each provider's 2026-07 pricing docs. Prompt-cache
