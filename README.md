@@ -62,8 +62,11 @@ pick the active model, `/plan` switches to plan mode, `/usage` shows counters,
 `/clear` starts a fresh session, and `/resume` reopens a saved one. Shift-Tab
 cycles the permission mode (`ask → auto → plan`).
 
-Provider credentials are stored in a global config file at
-`${XDG_CONFIG_HOME:-~/.config}/swain/config.json` (mode `0600`). Use `/connect`
-inside the TUI to store them; after connecting, remove any real provider keys
-from a local `.env`. The `.env.example` variables remain for standalone package
-smoke tests and non-TUI callers that intentionally use provider env fallbacks.
+Provider credentials are stored (mode `0600`) in a global
+`${XDG_CONFIG_HOME:-~/.config}/swain/auth.json`, kept separate from the
+secret-free `config.json` (active model and settings) so the config file is safe
+to track in dotfiles. Use `/connect` inside the TUI to store them; legacy keys
+found in an older `config.json` are migrated into `auth.json` automatically on
+startup. After connecting, remove any real provider keys from a local `.env`.
+The `.env.example` variables remain for standalone package smoke tests and
+non-TUI callers that intentionally use provider env fallbacks.

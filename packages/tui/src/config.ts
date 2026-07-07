@@ -91,7 +91,9 @@ export const loadConfig = (
 /**
  * Persists config to `path`, creating the directory `0700` and the file `0600`
  * where the platform exposes modes. Any failure fails with a typed
- * `ConfigError` and leaves no partial file.
+ * `ConfigError` and leaves no partial file. Provider credentials are never
+ * written here — they live in `auth.json` (see `auth.ts`) — so `config.json`
+ * stays free of secrets and safe to share.
  */
 export const saveConfig = (
   path: string,
@@ -100,7 +102,10 @@ export const saveConfig = (
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
     const dir = NodePath.dirname(path)
-    const body = JSON.stringify(config, null, 2)
+    const nonSecret = {
+      ...(config.activeModel !== undefined && { activeModel: config.activeModel }),
+    }
+    const body = JSON.stringify(nonSecret, null, 2)
     yield* fs
       .makeDirectory(dir, { recursive: true, mode: DIR_MODE })
       .pipe(Effect.mapError((e) => new ConfigError({ reason: "write-failed", message: String(e) })))

@@ -4,6 +4,7 @@ import type { Model } from "@swain/llms"
 import { ModelId, ProviderId } from "@swain/llms"
 import { Effect, Stream } from "effect"
 import { startApp } from "./app"
+import { authPath, loadAuth, saveAuth } from "./auth"
 import {
   type ActiveModel,
   defaultConfigPath,
@@ -71,9 +72,26 @@ export const run = async (options: RunOptions = {}): Promise<void> => {
   const cwd = options.cwd ?? process.cwd()
   const flags = parseFlags(options.argv ?? process.argv.slice(2))
   const configPath = defaultConfigPath(env)
-  const config = await Effect.runPromise(
+  const stored = await Effect.runPromise(
     loadConfig(configPath).pipe(Effect.provide(BunContext.layer)),
   )
+  const auth = await Effect.runPromise(
+    loadAuth(authPath(configPath)).pipe(Effect.provide(BunContext.layer)),
+  )
+  // Credentials live in auth.json; auth.json wins over any legacy plaintext keys
+  // still sitting in config.json.
+  const providers = { ...stored.providers, ...auth }
+  const config: TuiConfig = { ...stored, providers }
+  // One-time migration: move legacy plaintext keys out of config.json and into
+  // auth.json (saveConfig strips providers, so this also cleans config.json).
+  if (Object.keys(stored.providers).length > 0) {
+    await Effect.runPromise(
+      saveAuth(authPath(configPath), providers).pipe(Effect.provide(BunContext.layer)),
+    ).catch(() => undefined)
+    await Effect.runPromise(
+      saveConfig(configPath, config).pipe(Effect.provide(BunContext.layer)),
+    ).catch(() => undefined)
+  }
   const history = await Effect.runPromise(
     loadHistory(historyPath(configPath)).pipe(Effect.provide(BunContext.layer)),
   )

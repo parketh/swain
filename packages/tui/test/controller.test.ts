@@ -232,6 +232,17 @@ describe("controller command actions", () => {
     expect(provider?.redactedKey).not.toBe("sk-secret-1234")
   })
 
+  test("connecting writes the key to auth.json and keeps config.json secret-free", async () => {
+    const c = build({ providers: {} })
+    await c.connectProvider("anthropic", { apiKey: "sk-secret-1234" })
+    const authFile = join(dir, "auth.json")
+    const configFile = join(dir, "config.json")
+    expect(existsSync(authFile)).toBe(true)
+    expect(JSON.parse(readFileSync(authFile, "utf8")).anthropic.apiKey).toBe("sk-secret-1234")
+    // config.json must never contain the credential.
+    if (existsSync(configFile)) expect(readFileSync(configFile, "utf8")).not.toContain("sk-secret")
+  })
+
   test("a failed config write reports an error and leaves the provider unconfigured", async () => {
     const c = build({ providers: {} })
     // Point the config at a path under a file so makeDirectory fails.

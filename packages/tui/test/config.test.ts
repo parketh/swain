@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { BunContext } from "@effect/platform-bun"
@@ -44,12 +44,19 @@ describe("config load/save", () => {
     expect(config).toEqual({ providers: {} })
   })
 
-  test("saving creates the directory and file at the configured path", async () => {
+  test("saving persists the active model but never provider secrets", async () => {
     const path = join(dir, "sub", "config.json")
-    const config: TuiConfig = { providers: { anthropic: { apiKey: "sk-abc" } } }
+    const config: TuiConfig = {
+      activeModel: { provider: "anthropic", modelId: "claude-sonnet-5" },
+      providers: { anthropic: { apiKey: "sk-abc" } },
+    }
     await withFs(saveConfig(path, config))
+    // config.json holds the active model...
     const reloaded = await withFs(loadConfig(path))
-    expect(reloaded.providers.anthropic?.apiKey).toBe("sk-abc")
+    expect(reloaded.activeModel?.modelId).toBe("claude-sonnet-5")
+    // ...but not the credentials, and the raw file contains no key.
+    expect(reloaded.providers).toEqual({})
+    expect(readFileSync(path, "utf8")).not.toContain("sk-abc")
   })
 
   test("saved file is owner read/write only where modes are exposed", async () => {

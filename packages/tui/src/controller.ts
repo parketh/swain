@@ -16,6 +16,7 @@ import {
 import type { AskHandler, AskInput, AskResult } from "@swain/core/tools"
 import type { GenerationOptions, ProviderOptions } from "@swain/llms"
 import { Effect, Fiber, type Layer } from "effect"
+import { authPath, saveAuth } from "./auth"
 import type { CommandParseResult } from "./commands"
 import {
   type ActiveModel,
@@ -263,6 +264,7 @@ export const makeController = (deps: ControllerDeps): Controller => {
     }
     try {
       await runtime.runPromise(saveConfig(deps.configPath, next))
+      await runtime.runPromise(saveAuth(authPath(deps.configPath), next.providers))
       config = next
       refreshDerived()
       return { ok: true }
