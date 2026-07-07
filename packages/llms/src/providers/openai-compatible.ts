@@ -13,6 +13,9 @@ export interface OpenAICompatibleConfig {
   readonly headers?: Record<string, string>
   /** Set false for deployments that reject `stream_options`. */
   readonly includeUsage?: boolean
+  /** Auth scheme. `"none"` skips credentials entirely for keyless free
+   *  endpoints; defaults to bearer-token auth. */
+  readonly auth?: "bearer" | "none"
 }
 
 export interface OpenAICompatibleFacade {
@@ -50,18 +53,23 @@ const configure = (config: OpenAICompatibleConfig): OpenAICompatibleFacade => {
       streamTurn: (request) =>
         Stream.unwrap(
           Effect.gen(function* () {
-            const apiKey = yield* Auth.resolveSecret({
-              ...(config.apiKey !== undefined ? { value: config.apiKey } : {}),
-              ...(config.apiKeyEnv !== undefined ? { env: config.apiKeyEnv } : {}),
-              subject: config.providerId,
-            })
+            const auth =
+              config.auth === "none"
+                ? Auth.none
+                : Auth.bearer(
+                    yield* Auth.resolveSecret({
+                      ...(config.apiKey !== undefined ? { value: config.apiKey } : {}),
+                      ...(config.apiKeyEnv !== undefined ? { env: config.apiKeyEnv } : {}),
+                      subject: config.providerId,
+                    }),
+                  )
             const { path, body } = OpenAIChat.prepare(toProtocolRequest(modelId, request), {
               optionsKey: config.providerId,
               ...(config.includeUsage !== undefined ? { includeUsage: config.includeUsage } : {}),
             })
             const httpRequest = Http.prepareJson({
               url: `${baseURL}${path}`,
-              headers: Auth.mergeHeaders(Auth.toHeaders(Auth.bearer(apiKey)), config.headers),
+              headers: Auth.mergeHeaders(Auth.toHeaders(auth), config.headers),
               body,
             })
             return Http.streamSseJson(httpRequest).pipe(
