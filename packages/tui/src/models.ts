@@ -290,3 +290,37 @@ export const resolveModelSelection = (
 /** Default model id for a configured provider, used for startup fallback. */
 export const defaultModelId = (provider: string): string | undefined =>
   specById(provider)?.models.find((m) => m.deprecated !== true)?.id
+
+// Published list prices per 1M tokens (USD), keyed by `${provider}/${modelId}`.
+// Standard tier, sourced from each provider's 2026-07 pricing docs. Prompt-cache
+// and batch discounts aren't modelled — and swain doesn't track cache-hit
+// tokens — so a computed cost is an upper bound on the real bill.
+interface ModelPrice {
+  readonly input: number
+  readonly output: number
+}
+
+const PRICES: Record<string, ModelPrice> = {
+  "anthropic/claude-opus-4-8": { input: 5, output: 25 },
+  "anthropic/claude-sonnet-5": { input: 3, output: 15 },
+  "openai/gpt-5.5": { input: 5, output: 30 },
+  "openai/gpt-5.5-pro": { input: 30, output: 180 },
+  "openai/gpt-5.4-mini": { input: 0.75, output: 4.5 },
+  "openai/gpt-5.4-nano": { input: 0.2, output: 1.25 },
+  "deepseek/deepseek-v4-flash": { input: 0.14, output: 0.28 },
+  "deepseek/deepseek-v4-pro": { input: 0.44, output: 0.87 },
+  "zai/glm-5.2": { input: 1.4, output: 4.4 },
+  "openai-codex/gpt-5-codex": { input: 1.25, output: 10 },
+}
+
+/** Estimated USD cost for token usage, or undefined when the model is unpriced. */
+export const costUsd = (
+  provider: string,
+  modelId: string,
+  inputTokens: number,
+  outputTokens: number,
+): number | undefined => {
+  const price = PRICES[`${provider}/${modelId}`]
+  if (price === undefined) return undefined
+  return (inputTokens * price.input + outputTokens * price.output) / 1_000_000
+}

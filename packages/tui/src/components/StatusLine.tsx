@@ -27,7 +27,11 @@ export const StatusLine = ({ activeModel, permissionMode, usage }: StatusLinePro
     <Text color={MODE_COLOR[permissionMode]}>{permissionMode}</Text>
     <Text color={theme.muted}>
       {" · "}
-      {usage.totalTokens} tok ({usage.turns} turns)
+      {usage.costUsd !== undefined ? formatCost(usage.costUsd) : `${usage.totalTokens} tok`}
     </Text>
   </Box>
 )
+
+// Sub-cent costs need more precision than dollars; scale decimals to magnitude.
+const formatCost = (cost: number): string =>
+  cost >= 1 ? `$${cost.toFixed(2)}` : `$${cost.toFixed(4)}`
