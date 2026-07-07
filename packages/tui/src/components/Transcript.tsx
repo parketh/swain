@@ -125,9 +125,17 @@ const ToolCall = ({ name, input }: { name: string; input: unknown }) => {
   )
 }
 
+// A message carrying only tool results belongs to the preceding assistant's
+// tool calls, so it hugs them instead of opening a new spaced block.
+// biome-ignore lint/suspicious/noExplicitAny: opaque message content blocks
+const isToolResultOnly = (message: any): boolean =>
+  message.content.length > 0 &&
+  // biome-ignore lint/suspicious/noExplicitAny: opaque content block
+  message.content.every((block: any) => block.type === "tool-result")
+
 // biome-ignore lint/suspicious/noExplicitAny: opaque message content blocks
 const MessageRow = ({ message }: { message: any }) => (
-  <Box flexDirection="column">
+  <Box flexDirection="column" gap={1}>
     {/* biome-ignore lint/suspicious/noExplicitAny: opaque content block */}
     {message.content.map((block: any, i: number) => {
       const key = i
@@ -169,11 +177,17 @@ export interface TranscriptProps {
 export const Transcript = ({ messages, draft }: TranscriptProps) => (
   <Box flexDirection="column">
     {messages.map((message, i) => (
-      // biome-ignore lint/suspicious/noArrayIndexKey: append-only history
-      <MessageRow key={i} message={message} />
+      <Box
+        // biome-ignore lint/suspicious/noArrayIndexKey: append-only history
+        key={i}
+        flexDirection="column"
+        marginTop={i > 0 && !isToolResultOnly(message) ? 1 : 0}
+      >
+        <MessageRow message={message} />
+      </Box>
     ))}
     {draft.tools.map((row) => (
-      <Box key={row.toolCallId} flexDirection="column">
+      <Box key={row.toolCallId} flexDirection="column" marginTop={1}>
         <ToolCall name={row.name} input={row.input} />
         {row.output !== "" || row.done ? (
           <ResultLine
@@ -190,15 +204,20 @@ export const Transcript = ({ messages, draft }: TranscriptProps) => (
       </Box>
     ))}
     {draft.assistant !== "" ? (
-      <Row marker="⏺">
-        <Markdown>{draft.assistant}</Markdown>
-      </Row>
+      <Box marginTop={1}>
+        <Row marker="⏺">
+          <Markdown>{draft.assistant}</Markdown>
+        </Row>
+      </Box>
     ) : null}
     {draft.errors.map((error, i) => (
-      // biome-ignore lint/suspicious/noArrayIndexKey: append-only errors
-      <Text key={i} color="red">
-        ⚠ {error}
-      </Text>
+      <Box
+        // biome-ignore lint/suspicious/noArrayIndexKey: append-only errors
+        key={i}
+        marginTop={1}
+      >
+        <Text color="red">⚠ {error}</Text>
+      </Box>
     ))}
   </Box>
 )
