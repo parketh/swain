@@ -1,0 +1,34 @@
+{
+  "name": "@swain/tui",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "swain": "./bin/swain.tsx"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@effect/platform": "0.96.2",
+    "@effect/platform-bun": "0.90.0",
+    "@swain/core": "workspace:*",
+    "@swain/llms": "workspace:*",
+    "effect": "3.21.4",
+    "ink": "7.1.0",
+    "react": "19.2.7"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "format": "biome check --write .",
+    "format:check": "biome check .",
+    "test": "bun test test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.2",
+    "@tsconfig/bun": "1.0.10",
+    "@types/bun": "1.3.14",
+    "@types/react": "19.2.17",
+    "ink-testing-library": "4.0.0",
+    "typescript": "6.0.3"
+  }
+}

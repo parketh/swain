@@ -20,21 +20,22 @@ const SessionMetadata = Schema.Struct({
 })
 type SessionMetadata = typeof SessionMetadata.Type
 
-const sessionDir = (root: string, sessionId: string): string =>
-  NodePath.join(root, ".swain", "sessions", sessionId)
+const sessionPath = (sessionsDir: string, sessionId: string): string =>
+  NodePath.join(sessionsDir, sessionId)
 
 /**
- * Persists session metadata and transcript under `.swain/sessions/<id>/`. The
+ * Persists session metadata and transcript under `<sessionsDir>/<id>/`. The
+ * caller owns the location policy (project-local vs global). The
  * `FileStateCache`, locks, and pending approvals are runtime-only and are never
  * written; after a restart edits require fresh reads.
  */
 export const saveSession = (
   session: SessionState,
-  rootDir: string = session.workingDirectory,
+  sessionsDir: string,
 ): Effect.Effect<void, PlatformError, FileSystem.FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
-    const dir = sessionDir(rootDir, session.sessionId)
+    const dir = sessionPath(sessionsDir, session.sessionId)
     yield* fs.makeDirectory(dir, { recursive: true })
 
     const metadata: SessionMetadata = {
@@ -60,7 +61,7 @@ export const saveSession = (
 export interface LoadSessionInput {
   readonly sessionId: string
   readonly model: Model
-  readonly rootDir: string
+  readonly sessionsDir: string
 }
 
 /**
@@ -72,7 +73,7 @@ export const loadSession = (
 ): Effect.Effect<SessionState, PlatformError | ParseResult.ParseError, FileSystem.FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
-    const dir = sessionDir(input.rootDir, input.sessionId)
+    const dir = sessionPath(input.sessionsDir, input.sessionId)
 
     const metadata = yield* fs
       .readFileString(NodePath.join(dir, "session.json"))

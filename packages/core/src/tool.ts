@@ -47,6 +47,22 @@ export class ToolContext extends Context.Tag("@swain/core/ToolContext")<
   ToolContextValue
 >() {}
 
+export interface ToolProgressValue {
+  readonly emit: (delta: string) => Effect.Effect<void>
+}
+
+/**
+ * Per-call advisory progress channel for long-running tools (e.g. `Bash`
+ * stdout). Provided by `callTool` around each `tool.call`, keyed to the active
+ * `ToolCall`; observer-less turns and one-shot tools see a no-op emitter.
+ * Progress deltas are never persisted — the final `ToolResultContent` remains
+ * authoritative.
+ */
+export class ToolProgress extends Context.Tag("@swain/core/ToolProgress")<
+  ToolProgress,
+  ToolProgressValue
+>() {}
+
 /**
  * Adapts a callable core `Tool` into a non-callable `@swain/llms` tool
  * definition, deriving JSON Schema for the model-facing invocation contract.
@@ -70,6 +86,7 @@ const format = (error: ParseResult.ParseError): string =>
  */
 export const callTool = (
   toolCall: ToolCall,
+  onProgress?: (delta: string) => Effect.Effect<void>,
 ): Effect.Effect<ToolResultContent, never, ToolContext | ToolRegistry> => {
   const run = Effect.gen(function* () {
     const registry = yield* ToolRegistry
@@ -98,7 +115,9 @@ export const callTool = (
       })
     }
 
-    const output = yield* tool.call(input)
+    const output = yield* tool
+      .call(input)
+      .pipe(Effect.provideService(ToolProgress, { emit: onProgress ?? (() => Effect.void) }))
 
     const validated = yield* Schema.validate(tool.outputSchema)(output).pipe(
       Effect.mapError(
