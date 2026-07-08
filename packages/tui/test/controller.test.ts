@@ -335,6 +335,25 @@ describe("controller command actions", () => {
     expect(c.getState().session.sessionId).toBe("s-resume")
     expect(c.getUsage()).toMatchObject({ turns: 3, inputTokens: 12, outputTokens: 8 })
   })
+
+  test("listSessions ignores task-only dirs and still lists saved sessions", async () => {
+    const c = build({ providers: { anthropic: { apiKey: "sk-1" } } })
+    const sdir = sessionsDir(join(dir, "config.json"), dir)
+    const saved = createSessionState({
+      sessionId: "s-real",
+      workingDirectory: dir,
+      model: testModel,
+      currentDate: "2026-07-05",
+    })
+    await Effect.runPromise(saveSession(saved, sdir).pipe(Effect.provide(BunContext.layer)))
+    // A session whose first turn hasn't saved yet: tasks.json exists, session.json does not.
+    mkdirSync(join(sdir, "s-tasks-only"), { recursive: true })
+    writeFileSync(join(sdir, "s-tasks-only", "tasks.json"), "[]")
+
+    const listed = c.listSessions()
+    expect(listed.some((s) => s.sessionId === "s-real")).toBe(true)
+    expect(listed.some((s) => s.sessionId === "s-tasks-only")).toBe(false)
+  })
 })
 
 const waitFor = async (predicate: () => boolean, ms = 2000): Promise<void> => {

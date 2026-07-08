@@ -427,25 +427,35 @@ export const makeController = (deps: ControllerDeps): Controller => {
 
   const listSessions = (): ReadonlyArray<SavedSession> => {
     const dir = sessionsDirFor(session)
+    let names: ReadonlyArray<string>
     try {
-      return readdirSync(dir, { withFileTypes: true })
+      names = readdirSync(dir, { withFileTypes: true })
         .filter((entry) => entry.isDirectory())
-        .map((entry) => {
-          const sdir = pathJoin(dir, entry.name)
-          const modifiedMs = statSync(pathJoin(sdir, "session.json")).mtimeMs
-          const summary = readSummary(sdir)
-          const firstPrompt = readFirstPrompt(sdir)
-          return {
-            sessionId: entry.name,
-            modifiedMs,
-            ...(summary !== undefined && { summary }),
-            ...(firstPrompt !== undefined && { firstPrompt }),
-          }
-        })
-        .sort((a, b) => b.modifiedMs - a.modifiedMs)
+        .map((entry) => entry.name)
     } catch {
       return []
     }
+    const sessions: Array<SavedSession> = []
+    for (const name of names) {
+      const sdir = pathJoin(dir, name)
+      let modifiedMs: number
+      try {
+        // A dir holding only tasks.json (a session whose first turn hasn't
+        // saved yet) has no session.json — skip it instead of failing the list.
+        modifiedMs = statSync(pathJoin(sdir, "session.json")).mtimeMs
+      } catch {
+        continue
+      }
+      const summary = readSummary(sdir)
+      const firstPrompt = readFirstPrompt(sdir)
+      sessions.push({
+        sessionId: name,
+        modifiedMs,
+        ...(summary !== undefined && { summary }),
+        ...(firstPrompt !== undefined && { firstPrompt }),
+      })
+    }
+    return sessions.sort((a, b) => b.modifiedMs - a.modifiedMs)
   }
 
   const SUMMARY_SYSTEM =
@@ -535,7 +545,18 @@ export const makeController = (deps: ControllerDeps): Controller => {
       abort.signal,
     )
     const effect = runTurn(session, {
-      onEvent: (event) => Effect.sync(() => emitEvent(event)),
+      onEvent: (event) =>
+        Effect.sync(() => {
+          emitEvent(event)
+          // Live-refresh the task panel when the model mutates its to-do list
+          // mid-turn, instead of waiting for the whole turn to finish.
+          if (
+            event.type === "tool-execution-end" &&
+            (event.name === "TaskCreate" || event.name === "TaskUpdate")
+          ) {
+            void refreshTasks()
+          }
+        }),
       ...requestOptions,
     }).pipe(Effect.provide(ctxLayer), Effect.provide(env.layers))
     const fiber = runtime.runFork(effect)

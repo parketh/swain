@@ -72,8 +72,12 @@ export const summarizeResult = (name: string, value: unknown, isError: boolean):
       return `Found ${count(a.matches.length, "match")}`
     if (name === "Glob" && Array.isArray(a.matches))
       return `Found ${count(a.matches.length, "file")}`
-    if (name === "Read" && typeof a.text === "string")
-      return count(a.text.split("\n").length, "line")
+    if (name === "Read") {
+      if (typeof a.totalLines === "number") return count(a.totalLines, "line")
+      if (a.supported === false) return `${str(a.kind) ?? "binary"} file`
+      if (typeof a.content === "string") return count(a.content.split("\n").length, "line")
+      return "Read"
+    }
     if (name === "Write" && typeof a.bytesWritten === "number")
       return `Wrote ${count(a.bytesWritten, "byte")}`
     if (name === "Bash" && typeof a.exitCode === "number") {
