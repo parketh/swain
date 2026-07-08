@@ -23,12 +23,20 @@ const RISKY: ReadonlyArray<RegExp> = [
   /\brm\b/,
   /\bsudo\b/,
   /\bmv\b/,
+  /\bcp\b/,
+  /\bln\b/,
+  /\btee\b/,
+  /\btouch\b/,
+  /\bmkdir\b/,
+  /\brmdir\b/,
+  /\btruncate\b/,
   /\bchmod\b/,
   /\bchown\b/,
   /\bkill\b/,
   /\bcurl\b/,
   /\bwget\b/,
-  /\bgit\s+push\b/,
+  /\bsed\s[^|;&\n]*-i\b/,
+  /\bgit\s+(push|add|commit|checkout|switch|restore|reset|rebase|merge|stash|clean|cherry-pick|revert|rm|mv|am|apply|tag)\b/,
   /\bnpm\s+(publish|install|i)\b/,
   /\bbun\s+(install|add|remove)\b/,
   />>?/,
@@ -38,6 +46,78 @@ export const isHardDenied = (command: string): boolean =>
   HARD_DENY.some((pattern) => pattern.test(command))
 
 export const isRisky = (command: string): boolean => RISKY.some((pattern) => pattern.test(command))
+
+/** Commands a read-only subagent may run as a pipeline/chain segment head. */
+const READ_ONLY_COMMANDS: ReadonlySet<string> = new Set([
+  "ls",
+  "pwd",
+  "find",
+  "grep",
+  "rg",
+  "cat",
+  "head",
+  "tail",
+  "wc",
+  "echo",
+  "printf",
+  "stat",
+  "file",
+  "which",
+  "tree",
+  "sort",
+  "uniq",
+  "cut",
+  "basename",
+  "dirname",
+  "realpath",
+  "date",
+  "du",
+  "env",
+])
+
+const READ_ONLY_GIT: ReadonlySet<string> = new Set([
+  "status",
+  "log",
+  "diff",
+  "show",
+  "rev-parse",
+  "rev-list",
+  "ls-files",
+  "blame",
+  "shortlog",
+  "describe",
+  "grep",
+])
+
+/** Constructs that can smuggle a write past a per-command allowlist. */
+const READ_ONLY_REJECT: ReadonlyArray<RegExp> = [
+  />/,
+  /<</,
+  /\$\(/,
+  /`/,
+  /\bfind\b[^|;&\n]*\s-(delete|exec|execdir|ok|okdir)\b/,
+]
+
+/**
+ * Conservative allowlist classifier for read-only subagent Bash: every segment
+ * of a pipeline/chain must start with an allowlisted inspection command (or a
+ * read-only git subcommand), and write-smuggling shell constructs (redirection,
+ * heredocs, substitution, `find -exec`) are rejected outright. Anything
+ * unrecognized is rejected; false positives are acceptable.
+ */
+export const isReadOnlyCommand = (command: string): boolean => {
+  if (READ_ONLY_REJECT.some((pattern) => pattern.test(command))) return false
+  const segments = command
+    .split(/[|&;\n]/)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0)
+  if (segments.length === 0) return false
+  return segments.every((segment) => {
+    const [head, sub] = segment.split(/\s+/)
+    if (head === "git") return sub !== undefined && READ_ONLY_GIT.has(sub)
+    return head !== undefined && READ_ONLY_COMMANDS.has(head)
+  })
+}
 
 export const BashInput = Schema.Struct({
   command: Schema.String,

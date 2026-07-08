@@ -9,7 +9,15 @@ import { Effect, Layer, Schema, Stream } from "effect"
 import { type AgentEvent, runTurn, submitPrompt } from "../src/agent"
 import { autoApproval, makePermissions } from "../src/permission"
 import { createSessionState } from "../src/state"
-import { Bash, callTool, defineTool, ToolContext, toolRegistryLayer } from "../src/tools"
+import {
+  Bash,
+  callTool,
+  defineTool,
+  isReadOnlyCommand,
+  isRisky,
+  ToolContext,
+  toolRegistryLayer,
+} from "../src/tools"
 import { textTurn, toolCallTurn } from "./utils/fixtures"
 import { scriptedLLMClient } from "./utils/harness"
 
@@ -18,6 +26,70 @@ const model: Model = {
   provider: ProviderId.make("test"),
   streamTurn: () => Stream.empty,
 }
+
+describe("command classifiers", () => {
+  test("isRisky flags file mutators and mutating git subcommands", () => {
+    const risky = [
+      "touch marker.txt",
+      "mkdir -p build",
+      "cp a.txt b.txt",
+      "ln -s a b",
+      "tee out.log",
+      "truncate -s 0 f",
+      "sed -i '' 's/a/b/' f.txt",
+      "git add .",
+      "git commit -m x",
+      "git checkout main",
+      "git reset --hard HEAD~1",
+      "echo hi > f.txt",
+      "rm -rf build",
+    ]
+    for (const command of risky)
+      expect({ command, risky: isRisky(command) }).toEqual({ command, risky: true })
+    const safe = [
+      "ls -la",
+      "git log --oneline -5",
+      "git diff",
+      "grep -r foo src",
+      "sed 's/a/b/' f.txt",
+    ]
+    for (const command of safe)
+      expect({ command, risky: isRisky(command) }).toEqual({ command, risky: false })
+  })
+
+  test("isReadOnlyCommand allows only allowlisted inspection commands", () => {
+    const allowed = [
+      "ls -la",
+      "pwd",
+      "cat package.json",
+      "grep -rn foo src | head -20",
+      "find . -name '*.ts'",
+      "git log --oneline -5",
+      "git status && git diff",
+      "wc -l src/index.ts",
+    ]
+    for (const command of allowed)
+      expect({ command, ok: isReadOnlyCommand(command) }).toEqual({ command, ok: true })
+    const rejected = [
+      "touch marker.txt",
+      "mkdir d",
+      "cp a b",
+      "git commit -m x",
+      "git stash",
+      "echo hi > f.txt",
+      "cat f >> g",
+      "cat $(rm x)",
+      "cat `rm x`",
+      "find . -name '*.tmp' -delete",
+      "find . -name '*.ts' -exec rm {} \\;",
+      "grep foo src | xargs rm",
+      "npm install",
+      "",
+    ]
+    for (const command of rejected)
+      expect({ command, ok: isReadOnlyCommand(command) }).toEqual({ command, ok: false })
+  })
+})
 
 describe("Bash streaming progress", () => {
   let dir: string

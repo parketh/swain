@@ -2,7 +2,7 @@ import { Effect } from "effect"
 import { ToolError } from "../errors"
 import type { AgentType } from "../tasks"
 import { type AnyTool, defineTool } from "../tool"
-import { isHardDenied, isRisky } from "../tools/bash"
+import { isReadOnlyCommand } from "../tools/bash"
 import { getSubagentDefinition } from "./definitions"
 
 /** Tools no child agent may ever receive: prevents recursion, direct user prompts, and parent task mutation. */
@@ -30,18 +30,20 @@ export interface ChildRegistryOptions {
 const readOnlyBash = (bash: AnyTool): AnyTool =>
   defineTool({
     name: bash.name,
-    description: `${bash.description} Read-only subset: mutating commands are rejected.`,
+    description: `${bash.description} Read-only subset: only allowlisted inspection commands (ls, grep, cat, git log/diff/status, …) are permitted.`,
     inputSchema: bash.inputSchema,
     outputSchema: bash.outputSchema,
     readOnly: true,
     call: (input) =>
       Effect.gen(function* () {
         const command = (input as { command: string }).command
-        if (isHardDenied(command) || isRisky(command)) {
+        // Allowlist, not the RISKY denylist: a read-only child must never mutate
+        // the parent worktree, so anything unrecognized is rejected.
+        if (!isReadOnlyCommand(command)) {
           return yield* new ToolError({
             tool: bash.name,
             reason: "denied",
-            message: `Read-only subagent cannot run mutating command: ${command}`,
+            message: `Read-only subagent can only run allowlisted inspection commands, not: ${command}`,
           })
         }
         return yield* bash.call(input)

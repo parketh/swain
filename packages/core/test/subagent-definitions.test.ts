@@ -61,18 +61,28 @@ describe("makeChildToolRegistry", () => {
     }
   })
 
-  test("read-only Bash denies a mutating command", async () => {
+  test("read-only Bash denies mutating commands, including non-risky-listed ones", async () => {
     const registry = makeChildToolRegistry("Explore", parentTools)
     const bash = registry.get("Bash")!
-    const effect = bash
-      .call({ command: "rm -rf build" })
-      .pipe(Effect.flip, Effect.provide(contextLayer)) as unknown as Effect.Effect<
-      { reason: string },
-      unknown,
-      never
-    >
-    const result = await Effect.runPromise(effect)
-    expect(result.reason).toBe("denied")
+    const mutating = [
+      "rm -rf build",
+      "touch marker.txt",
+      "mkdir -p d",
+      "cp a.txt b.txt",
+      "git commit -m x",
+      "echo hi > f.txt",
+    ]
+    for (const command of mutating) {
+      const effect = bash
+        .call({ command })
+        .pipe(Effect.flip, Effect.provide(contextLayer)) as unknown as Effect.Effect<
+        { reason: string },
+        unknown,
+        never
+      >
+      const result = await Effect.runPromise(effect)
+      expect({ command, reason: result.reason }).toEqual({ command, reason: "denied" })
+    }
   })
 
   test("GeneralPurpose gets mutating tools only with worktree isolation", () => {
