@@ -2,6 +2,7 @@ import { Box, Text, useInput } from "ink"
 import { useState } from "react"
 import type { ProviderConfig } from "../config"
 import type { CredentialField, ProviderOption } from "../models"
+import { isMouseEvent } from "../mouse"
 import { theme } from "../theme"
 import { ListSelect, type ListSelectItem } from "./ListSelect"
 
@@ -43,6 +44,7 @@ const CredentialForm = ({
   }
 
   useInput((input, key) => {
+    if (isMouseEvent(input)) return
     if (key.escape) return onCancel()
     if (key.upArrow) return setActive((a) => Math.max(0, a - 1))
     if (key.downArrow) return setActive((a) => Math.min(fields.length - 1, a + 1))
