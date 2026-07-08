@@ -36,6 +36,8 @@ export const formatToolUse = (name: string, input: unknown): string => {
       return str(a.path) ? displayPath(str(a.path) as string) : ""
     case "Bash":
       return truncate(str(a.command) ?? "", 80)
+    case "Agent":
+      return truncate(join([str(a.subagentType), str(a.description)]), 80)
     case "WebFetch":
       return str(a.url) ?? ""
     case "WebSearch":
@@ -78,8 +80,24 @@ export const summarizeResult = (name: string, value: unknown, isError: boolean):
       if (typeof a.content === "string") return count(a.content.split("\n").length, "line")
       return "Read"
     }
+    if (name === "Edit") {
+      const diffs = Array.isArray(a.diffs) ? a.diffs : []
+      let adds = 0
+      let dels = 0
+      for (const diff of diffs) {
+        const text = str((diff as Record<string, unknown>)?.text) ?? ""
+        for (const line of text.split("\n")) {
+          if (line.startsWith("+") && !line.startsWith("+++")) adds += 1
+          else if (line.startsWith("-") && !line.startsWith("---")) dels += 1
+        }
+      }
+      if (adds > 0 || dels > 0) return `+${adds} -${dels}`
+      return count(typeof a.replacements === "number" ? a.replacements : 1, "replacement")
+    }
     if (name === "Write" && typeof a.bytesWritten === "number")
       return `Wrote ${count(a.bytesWritten, "byte")}`
+    if (name === "Agent" && a.status === "spawned")
+      return `Spawned ${str(a.agentType) ?? "subagent"}`
     if (name === "Bash" && typeof a.exitCode === "number") {
       const first = str(a.stdout)
         ?.split("\n")
