@@ -20,6 +20,7 @@ import type { Permissions } from "../src/permission"
 import { assembleSystemPrompt } from "../src/prompt"
 import { createSessionState, loadSession, type SessionState, saveSession } from "../src/state"
 import {
+  AGENT_DESCRIPTION,
   Ask,
   AskService,
   callTool,
@@ -104,6 +105,39 @@ describe("assembleSystemPrompt", () => {
     expect(assembleSystemPrompt(baseInput)).not.toBe(
       assembleSystemPrompt({ ...baseInput, tools: [baseInput.tools[0]!] }),
     )
+  })
+
+  test("includes task to-do guidance and the Agent reminder only when those tools are present", () => {
+    const withTaskAndAgent = assembleSystemPrompt({
+      ...baseInput,
+      tools: [
+        { name: "TaskCreate", description: "add a task" },
+        { name: "Agent", description: "spawn a subagent" },
+      ],
+    })
+    expect(withTaskAndAgent).toContain("task list")
+    expect(withTaskAndAgent).toContain("to-do list")
+    expect(withTaskAndAgent).toContain("Use Agent for independent exploration")
+
+    // A child registry (no Agent, no Task* tools) must not carry that guidance.
+    const childPrompt = assembleSystemPrompt({
+      ...baseInput,
+      tools: [
+        { name: "Read", description: "read a file" },
+        { name: "Grep", description: "search" },
+      ],
+    })
+    expect(childPrompt).not.toContain("Use Agent for independent exploration")
+    expect(childPrompt).not.toContain("to-do list")
+  })
+
+  test("Agent tool description carries the detailed subagent usage guidance", () => {
+    expect(AGENT_DESCRIPTION).toContain("Available subagent types")
+    expect(AGENT_DESCRIPTION).toContain("Explore")
+    expect(AGENT_DESCRIPTION).toContain("GeneralPurpose")
+    expect(AGENT_DESCRIPTION).toContain('isolation: "worktree"')
+    expect(AGENT_DESCRIPTION).toContain("does not inherit the parent conversation")
+    expect(AGENT_DESCRIPTION).toContain("Wait for the task notification")
   })
 })
 

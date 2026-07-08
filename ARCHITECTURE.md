@@ -51,10 +51,11 @@ The core agent harness. It runs the "LLM turn → tool results → next turn" lo
 - **Effect-native tools:** each `Tool` carries Effect Schema input/output schemas and a `call()` returning an Effect; dependencies (`FileSystem`, `CommandExecutor`, `HttpClient`, `ToolContext`) are requirements provided by layers. `@effect/platform-bun`'s `BunContext` provides live `FileSystem`/`CommandExecutor` at runtime; tests swap stubs.
 - **Permissions:** `plan | ask | auto`. `plan` denies mutating tools, `ask` (default) prompts before edits/writes/risky shell, `auto` runs validation and hard-deny checks without interactive approval.
 - **File safety:** an in-memory `FileStateCache` enforces read-before-write, staleness detection (mtime + digest), and per-path write serialization. It is never persisted; restarts force fresh reads.
-- **Built-in tools:** `Read`, `Write`, `Edit`, `Glob`, `Grep`, `Bash`, `WebFetch`, `WebSearch` (Exa-backed, provider-neutral), `Ask`. Search shells out to ripgrep.
-- **Persistence:** session metadata and transcript persist under `.swain/sessions/<id>/`; runtime cache, locks, and pending approvals do not.
+- **Built-in tools:** `Read`, `Write`, `Edit`, `Glob`, `Grep`, `Bash`, `WebFetch`, `WebSearch` (Exa-backed, provider-neutral), `Ask`, the task tools (`TaskCreate`, `TaskList`, `TaskGet`, `TaskUpdate`), and `Agent`. Search shells out to ripgrep.
+- **Persistence:** session metadata, transcript, and the task graph (`tasks.json`) persist under `<sessionsDir>/<id>/` (the TUI resolves this to `${XDG_CONFIG_HOME:-~/.config}/swain/sessions/<project-slug>/`); runtime cache, locks, and pending approvals do not.
+- **Tasks & subagents:** `TaskStore` is a per-session persisted task graph the main loop uses directly as a to-do list. `Agent` claims a task and forks a detached subagent (`Explore`, `Plan`, `GeneralPurpose`) via the `Orchestrator`; children run a fresh brief with a restricted tool registry (never `Agent`/`Ask`/`Task*`) and report only their final result. Completion is durable-before-visible: the child writes its result to the task, then rings a contentless wake-up queue; the TUI drains completions between parent turns as synthetic `<task-notification>` user messages. V1 subagents must not mutate the parent worktree — `Explore`/`Plan` are read-only, and write-capable `GeneralPurpose` runs in an isolated git worktree under `<git-root>/.swain/worktrees/<agent-id>`.
 
-Full design record: `specs/0002-core-agent-loop.md`.
+Full design records: `specs/0002-core-agent-loop.md`, `specs/0004-subagents-tasks.md`.
 
 ## packages/tui
 

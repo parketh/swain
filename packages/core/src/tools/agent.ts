@@ -38,6 +38,10 @@ Do not use Agent when:
 - The question can be answered by one or two direct tool calls.
 - You need immediate user input inside the delegated work.
 
+Choosing a type:
+- Default to GeneralPurpose when no specialized type fits.
+- Use Explore for search and code reading; use Plan for implementation strategy.
+
 Prompting rules:
 - Set description to a short 3-5 word summary of what the agent will do.
 - Provide a complete brief in the prompt. Fresh subagents do not know what the parent has tried unless you include it.
