@@ -13,4 +13,11 @@ export const theme = {
   primary: "#7dd3ff",
   /** Dimmer variant of the accent, for de-emphasized accent text. */
   primaryDim: "#66a6cc",
+  /**
+   * Opaque backdrop for floating overlays. Ink composites absolute-positioned
+   * boxes per-glyph, so an overlay without a filled background lets long
+   * transcript lines bleed through its empty cells. A solid panel color makes
+   * the overlay opaque.
+   */
+  overlay: "#12141c",
 } as const

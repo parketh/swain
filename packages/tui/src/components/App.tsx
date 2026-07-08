@@ -119,6 +119,11 @@ export const App = ({ controller }: AppProps) => {
 
   const state = controller.getState()
   const tasks = controller.getTasks()
+  // Show the task panel only while there is outstanding work; once everything is
+  // completed/failed it collapses (tasks stay persisted for resume/history).
+  const hasOutstandingTasks = tasks.some(
+    (t) => t.status === "pending" || t.status === "in_progress",
+  )
   const cwd = state.session.workingDirectory
   const commandMode = isCommandToken(value)
   const commandMatches = commandMode ? filterCommands(value.slice(1)) : []
@@ -568,11 +573,19 @@ export const App = ({ controller }: AppProps) => {
           line between the conversation and the status/prompt cluster. */}
       <Box flexDirection="column" flexShrink={0} marginTop={1}>
         {overlay !== null ? (
-          <Box position="absolute" bottom="100%" width={columns} flexDirection="column">
+          <Box
+            position="absolute"
+            bottom="100%"
+            width={columns}
+            flexDirection="column"
+            // Opaque backdrop: without it, Ink leaves the overlay's empty cells
+            // transparent and the transcript behind bleeds through.
+            backgroundColor={theme.overlay}
+          >
             {overlay}
           </Box>
         ) : null}
-        {tasks.length > 0 ? (
+        {hasOutstandingTasks ? (
           <Box marginBottom={1}>
             <TaskList tasks={tasks} />
           </Box>
