@@ -109,7 +109,7 @@ const CATALOG: ReadonlyArray<ProviderSpec> = [
     id: "openai-codex",
     label: "OpenAI Codex",
     popular: false,
-    requiredFields: ["accessToken", "accountId"],
+    requiredFields: ["accessToken"],
     models: [
       {
         id: "gpt-5-codex",
@@ -119,11 +119,11 @@ const CATALOG: ReadonlyArray<ProviderSpec> = [
     ],
     build: (modelId, creds) =>
       OpenAICodex.configure({
-        ...(creds?.accessToken !== undefined && creds.accountId !== undefined
+        ...(creds?.accessToken !== undefined
           ? {
               credentialResolver: () => ({
                 accessToken: creds.accessToken!,
-                accountId: creds.accountId!,
+                ...(creds.accountId !== undefined && { accountId: creds.accountId }),
               }),
             }
           : {}),

@@ -234,6 +234,19 @@ describe("provider facades", () => {
     expect(captured.headers?.accept).toBe("text/event-stream")
   })
 
+  test("codex resolver without account id derives it from the JWT claim", async () => {
+    const token = codexJwt({
+      "https://api.openai.com/auth": { chatgpt_account_id: "acct-resolver-jwt" },
+    })
+    const model = OpenAICodex.configure({
+      credentialResolver: () => ({ accessToken: token }),
+    }).model("gpt-5.3-codex")
+    const captured: Captured = {}
+    await runTurn(model, captured, undefined, codexChunks)
+    expect(captured.headers?.authorization).toBe(`Bearer ${token}`)
+    expect(captured.headers?.["chatgpt-account-id"]).toBe("acct-resolver-jwt")
+  })
+
   test("codex env fallback derives account id from the JWT claim", async () => {
     const token = codexJwt({
       "https://api.openai.com/auth": { chatgpt_account_id: "acct-jwt" },

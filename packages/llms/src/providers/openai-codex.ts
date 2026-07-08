@@ -16,7 +16,8 @@ export type { OpenAICodexOptions }
 
 export interface OpenAICodexCredentials {
   readonly accessToken: string
-  readonly accountId: string
+  /** Derived from the token's `chatgpt_account_id` claim when omitted. */
+  readonly accountId?: string
 }
 
 export type OpenAICodexCredentialResolver =
@@ -59,10 +60,26 @@ const accountIdFromToken = (token: string): string | undefined => {
   }
 }
 
-/**
- * Env fallback: `OPENAI_CODEX_ACCESS_TOKEN` is usable only when the account
- * id is derivable from the token's `chatgpt_account_id` JWT claim.
- */
+interface ResolvedCredentials {
+  readonly accessToken: string
+  readonly accountId: string
+}
+
+/** Fills a missing account id from the token's `chatgpt_account_id` JWT claim. */
+const normalizeCredentials = (
+  credentials: OpenAICodexCredentials,
+): Effect.Effect<ResolvedCredentials, LLMError> => {
+  const accountId = credentials.accountId ?? accountIdFromToken(credentials.accessToken)
+  if (accountId === undefined) {
+    return Effect.fail(
+      authFailed(
+        "Missing account id: none supplied and the access token carries no chatgpt_account_id claim",
+      ),
+    )
+  }
+  return Effect.succeed({ accessToken: credentials.accessToken, accountId })
+}
+
 const envCredentials = (): Effect.Effect<OpenAICodexCredentials, LLMError> =>
   Effect.suspend(() => {
     const token = process.env[OPENAI_CODEX_TOKEN_ENV]
@@ -73,28 +90,22 @@ const envCredentials = (): Effect.Effect<OpenAICodexCredentials, LLMError> =>
         ),
       )
     }
-    const accountId = accountIdFromToken(token)
-    if (accountId === undefined) {
-      return Effect.fail(
-        authFailed(`${OPENAI_CODEX_TOKEN_ENV} does not carry a chatgpt_account_id claim`),
-      )
-    }
-    return Effect.succeed({ accessToken: token, accountId })
+    return Effect.succeed({ accessToken: token })
   })
 
 const resolveCredentials = (
   resolver: OpenAICodexCredentialResolver | undefined,
-): Effect.Effect<OpenAICodexCredentials, LLMError> => {
-  if (resolver === undefined) {
-    return envCredentials()
-  }
-  if (Effect.isEffect(resolver)) {
-    return resolver
-  }
-  return Effect.tryPromise({
-    try: async () => await resolver(),
-    catch: (cause) => authFailed(`credential resolver failed: ${String(cause)}`),
-  })
+): Effect.Effect<ResolvedCredentials, LLMError> => {
+  const raw =
+    resolver === undefined
+      ? envCredentials()
+      : Effect.isEffect(resolver)
+        ? resolver
+        : Effect.tryPromise({
+            try: async () => await resolver(),
+            catch: (cause) => authFailed(`credential resolver failed: ${String(cause)}`),
+          })
+  return Effect.flatMap(raw, normalizeCredentials)
 }
 
 const toProtocolRequest = (modelId: string, request: LLMRequest): OpenAICodexRequest => ({
