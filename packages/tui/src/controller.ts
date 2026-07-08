@@ -6,6 +6,7 @@ import {
   type Approval,
   submitPrompt as coreSubmitPrompt,
   createSessionState,
+  listTasks,
   loadSession,
   loadTaskStore,
   makeOrchestrator,
@@ -117,6 +118,8 @@ export interface Controller {
   getState(): TuiState
   getRequestOptions(): RequestOptions
   getUsage(): UsageSnapshot
+  /** Current session task list, refreshed after turns and subagent lifecycle. */
+  getTasks(): ReadonlyArray<Task>
   subscribe(listener: () => void): () => void
   onEvent(listener: (event: AgentEvent) => void): () => void
   onQuestion(listener: (request: PendingQuestion) => void): () => void
@@ -254,10 +257,19 @@ export const makeController = (deps: ControllerDeps): Controller => {
   let drainPending = false
   let draining = false
   let disposed = false
+  let currentTasks: ReadonlyArray<Task> = []
 
   const buildSessionEnv = async (s: SessionState): Promise<SessionEnv> => {
     const taskStore = await runtime.runPromise(loadTaskStore(sessionDirFor(s)))
-    const orchestrator = await runtime.runPromise(makeOrchestrator())
+    const orchestrator = await runtime.runPromise(
+      makeOrchestrator({
+        onEvent: (event) =>
+          Effect.sync(() => {
+            emitEvent(event)
+            void refreshTasks()
+          }),
+      }),
+    )
     const layers = Layer.merge(
       Layer.succeed(TaskStore, taskStore),
       Layer.succeed(OrchestratorService, orchestrator),
@@ -288,6 +300,7 @@ export const makeController = (deps: ControllerDeps): Controller => {
     const env = sessionEnv
     sessionEnv = undefined
     sessionEnvPromise = undefined
+    currentTasks = []
     if (env === undefined) return
     await runtime.runPromise(env.orchestrator.interruptAll).catch(() => {})
     await runtime.runPromise(Fiber.interrupt(env.listener)).catch(() => {})
@@ -338,6 +351,19 @@ export const makeController = (deps: ControllerDeps): Controller => {
     if (injected && !disposed) await runTurnNow()
   }
 
+  const refreshTasks = async (): Promise<void> => {
+    if (disposed) return
+    try {
+      const env = await ensureSessionEnv()
+      const tasks = await runtime.runPromise(listTasks().pipe(Effect.provide(env.layers)))
+      currentTasks = tasks
+      emitEvent({ type: "task-updated", tasks })
+      notify()
+    } catch {
+      // Store unavailable (disposed/transient): keep the last known task list.
+    }
+  }
+
   const startSession = async (): Promise<void> => {
     if (disposed) return
     try {
@@ -349,6 +375,7 @@ export const makeController = (deps: ControllerDeps): Controller => {
     } catch {
       // Recovery is best-effort; a dangling task stays reset for the next start.
     }
+    await refreshTasks()
     await maybeDrainCompletions()
   }
 
@@ -524,6 +551,8 @@ export const makeController = (deps: ControllerDeps): Controller => {
       currentAbort = undefined
       currentFiber = undefined
       notify()
+      // The turn may have created or updated tasks (its own to-do list).
+      void refreshTasks()
       // A subagent that completed mid-turn deferred its drain; flush it now.
       if (drainPending) {
         drainPending = false
@@ -643,6 +672,7 @@ export const makeController = (deps: ControllerDeps): Controller => {
     }),
     getRequestOptions: () => requestOptions,
     getUsage: () => usageSnapshot(session, activeModel),
+    getTasks: () => currentTasks,
     getHistory: () => history,
     recordPrompt,
 

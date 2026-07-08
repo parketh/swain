@@ -13,6 +13,7 @@ import { Context, Effect, Stream } from "effect"
 import { AgentError } from "./errors"
 import { assembleSystemPrompt } from "./prompt"
 import type { SessionState } from "./state"
+import type { AgentType, Task } from "./tasks"
 import type { ToolContext, ToolRegistry } from "./tools"
 import { callTool, ToolRegistry as ToolRegistryTag, toLLMTool } from "./tools"
 
@@ -60,6 +61,34 @@ export type AgentEvent =
       readonly source: "llm" | "agent" | "tool"
       readonly message: string
       readonly recoverable?: boolean
+    }
+  | { readonly type: "task-updated"; readonly tasks: ReadonlyArray<Task> }
+  | {
+      readonly type: "subagent-start"
+      readonly agentId: string
+      readonly taskId: string
+      readonly agentType: AgentType
+      readonly description: string
+    }
+  | {
+      readonly type: "subagent-progress"
+      readonly agentId: string
+      readonly taskId: string
+      readonly lastTool?: string
+      readonly toolUseCount: number
+    }
+  | {
+      readonly type: "subagent-complete"
+      readonly agentId: string
+      readonly taskId: string
+      readonly result: string
+      readonly worktreePath?: string
+    }
+  | {
+      readonly type: "subagent-failed"
+      readonly agentId: string
+      readonly taskId: string
+      readonly error: string
     }
 
 export interface RunTurnOptions {

@@ -17,6 +17,7 @@ import { QuestionPrompt, type QuestionPromptAnswer } from "./QuestionPrompt"
 import { ResumePicker } from "./ResumePicker"
 import { Spinner } from "./Spinner"
 import { StatusLine } from "./StatusLine"
+import { TaskList } from "./TaskList"
 import { type DraftState, emptyDraft, foldEvent, Transcript } from "./Transcript"
 import { useTerminalSize } from "./useTerminalSize"
 import { VariantPicker } from "./VariantPicker"
@@ -117,6 +118,7 @@ export const App = ({ controller }: AppProps) => {
   }, [controller])
 
   const state = controller.getState()
+  const tasks = controller.getTasks()
   const cwd = state.session.workingDirectory
   const commandMode = isCommandToken(value)
   const commandMatches = commandMode ? filterCommands(value.slice(1)) : []
@@ -567,6 +569,11 @@ export const App = ({ controller }: AppProps) => {
         {overlay !== null ? (
           <Box position="absolute" bottom="100%" width={columns} flexDirection="column">
             {overlay}
+          </Box>
+        ) : null}
+        {tasks.length > 0 ? (
+          <Box marginBottom={1}>
+            <TaskList tasks={tasks} />
           </Box>
         ) : null}
         {state.running ? <Spinner /> : null}

@@ -30,6 +30,18 @@ export const emptyDraft: DraftState = { assistant: "", reasoning: "", tools: [],
  * provider/agent errors. This is display-only; authoritative history stays in
  * `session.messages`.
  */
+// Task tool calls are reflected in the dedicated task panel, so they are kept
+// out of the transcript to avoid duplicating that state as tool-call noise.
+const HIDDEN_TOOLS: ReadonlySet<string> = new Set([
+  "TaskCreate",
+  "TaskList",
+  "TaskGet",
+  "TaskUpdate",
+])
+
+export const isHiddenTool = (name: string | undefined): boolean =>
+  name !== undefined && HIDDEN_TOOLS.has(name)
+
 export const foldEvent = (state: DraftState, event: AgentEvent): DraftState => {
   switch (event.type) {
     case "llm-event": {
@@ -42,6 +54,7 @@ export const foldEvent = (state: DraftState, event: AgentEvent): DraftState => {
       return state
     }
     case "tool-execution-start":
+      if (isHiddenTool(event.name)) return state
       return {
         ...state,
         tools: [
@@ -154,9 +167,12 @@ const MessageRow = ({ message }: { message: any }) => (
       }
       // Reasoning is intentionally hidden; the live spinner stands in for it.
       if (block.type === "reasoning") return null
-      if (block.type === "tool-call")
+      if (block.type === "tool-call") {
+        if (isHiddenTool(block.name)) return null
         return <ToolCall key={key} name={block.name} input={block.input} />
-      if (block.type === "tool-result")
+      }
+      if (block.type === "tool-result") {
+        if (isHiddenTool(block.name)) return null
         return (
           <ResultLine
             key={key}
@@ -164,6 +180,7 @@ const MessageRow = ({ message }: { message: any }) => (
             text={summarizeResult(block.name ?? "", block.result?.value, block.isError === true)}
           />
         )
+      }
       return null
     })}
   </Box>

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { type AgentEvent, createSessionState } from "@swain/core"
@@ -13,8 +13,10 @@ import { CommandOverlay, filterCommands } from "../src/components/CommandOverlay
 import { ListSelect } from "../src/components/ListSelect"
 import { nextWord, PromptInput, prevWord, promptSegments } from "../src/components/PromptInput"
 import { QuestionPrompt } from "../src/components/QuestionPrompt"
-import { foldEvents } from "../src/components/Transcript"
+import { TaskList } from "../src/components/TaskList"
+import { foldEvents, isHiddenTool } from "../src/components/Transcript"
 import type { TuiConfig } from "../src/config"
+import { sessionsDir } from "../src/config"
 import { type Controller, makeController } from "../src/controller"
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 25))
@@ -108,6 +110,32 @@ describe("components", () => {
     // to collapse, hiding second/subsequent Shift+Enter newlines).
     const gapped = clean(render(<PromptInput value={"a\n\nb"} cursor={3} />).lastFrame())
     expect(gapped.split("\n").length).toBe(3)
+  })
+
+  test("TaskList summarizes counts and lists prioritized tasks with agent type", () => {
+    const base = { description: "d", blockedBy: [], createdAt: "t", updatedAt: "t" }
+    const { lastFrame } = render(
+      <TaskList
+        tasks={[
+          { ...base, id: "1", subject: "running one", status: "in_progress", agentType: "Explore" },
+          { ...base, id: "2", subject: "todo one", status: "pending" },
+          { ...base, id: "3", subject: "done one", status: "completed" },
+        ]}
+      />,
+    )
+    const frame = lastFrame() ?? ""
+    expect(frame).toContain("1 running")
+    expect(frame).toContain("1 pending")
+    expect(frame).toContain("1 done")
+    expect(frame).toContain("running one")
+    expect(frame).toContain("[Explore]")
+  })
+
+  test("isHiddenTool hides task tools but not others", () => {
+    expect(isHiddenTool("TaskCreate")).toBe(true)
+    expect(isHiddenTool("TaskUpdate")).toBe(true)
+    expect(isHiddenTool("Bash")).toBe(false)
+    expect(isHiddenTool(undefined)).toBe(false)
   })
 
   test("ListSelect filters by query and selects the highlighted item on Enter", () => {
@@ -238,6 +266,45 @@ describe("App", () => {
     built.push(controller)
     return controller
   }
+
+  test("renders the task panel from the loaded task store", async () => {
+    const session = createSessionState({
+      workingDirectory: dir,
+      model: testModel,
+      permissionMode: "ask",
+      currentDate: "2026-07-05",
+    })
+    const tdir = join(sessionsDir(join(dir, "config.json"), dir), session.sessionId)
+    mkdirSync(tdir, { recursive: true })
+    writeFileSync(
+      join(tdir, "tasks.json"),
+      JSON.stringify([
+        {
+          id: "t1",
+          subject: "investigate the bug",
+          description: "d",
+          status: "in_progress",
+          agentType: "Explore",
+          blockedBy: [],
+          createdAt: "2026-07-08T00:00:00.000Z",
+          updatedAt: "2026-07-08T00:00:00.000Z",
+        },
+      ]),
+    )
+    const c = makeController({
+      session,
+      activeModel: { provider: "anthropic", modelId: "claude-sonnet-5" },
+      config,
+      configPath: join(dir, "config.json"),
+      llmLayer: scripted([[]]),
+      persist: false,
+    })
+    built.push(c)
+    const { lastFrame } = render(<App controller={c} />)
+    await flush()
+    await flush()
+    expect(clean(lastFrame() ?? "")).toContain("investigate the bug")
+  })
 
   test("renders the status line and an empty prompt", () => {
     const { lastFrame } = render(<App controller={makeCtrl()} />)
