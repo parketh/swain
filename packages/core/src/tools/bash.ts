@@ -35,7 +35,7 @@ const RISKY: ReadonlyArray<RegExp> = [
   /\bkill\b/,
   /\bcurl\b/,
   /\bwget\b/,
-  /\bsed\s[^|;&\n]*-i\b/,
+  /\bsed\s[^|;&\n]*(-i\b|--in-place)/,
   /\bgit\s+(push|add|commit|checkout|switch|restore|reset|rebase|merge|stash|clean|cherry-pick|revert|rm|mv|am|apply|tag)\b/,
   /\bnpm\s+(publish|install|i)\b/,
   /\bbun\s+(install|add|remove)\b/,

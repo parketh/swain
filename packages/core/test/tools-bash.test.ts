@@ -37,6 +37,8 @@ describe("command classifiers", () => {
       "tee out.log",
       "truncate -s 0 f",
       "sed -i '' 's/a/b/' f.txt",
+      "sed --in-place 's/a/b/' f.txt",
+      "sed --in-place=.bak 's/a/b/' f.txt",
       "git add .",
       "git commit -m x",
       "git checkout main",
