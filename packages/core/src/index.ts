@@ -44,6 +44,7 @@ export {
   getSubagentDefinition,
   makeChildToolRegistry,
   PLAN,
+  removeTaskWorktrees,
   type SubagentDefinition,
   subagentDefinitions,
 } from "./subagents"

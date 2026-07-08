@@ -8,7 +8,12 @@ import type { Permissions } from "./permission"
 import { createSessionState, type SessionState } from "./state"
 import { getSubagentDefinition, type SubagentDefinition } from "./subagents/definitions"
 import { makeChildToolRegistry } from "./subagents/tools"
-import { type AgentWorktree, cleanupAgentWorktree, createAgentWorktree } from "./subagents/worktree"
+import {
+  type AgentWorktree,
+  cleanupAgentWorktree,
+  createAgentWorktree,
+  removeTaskWorktrees,
+} from "./subagents/worktree"
 import {
   type AgentType,
   claimTask,
@@ -191,6 +196,10 @@ export const makeOrchestrator = (config: OrchestratorConfig = {}): Effect.Effect
           agentType: input.agentType,
           subject: input.description,
           description: input.prompt,
+          ...(worktree !== undefined && {
+            worktreePath: worktree.path,
+            worktreeBranch: worktree.branch,
+          }),
           ...(input.taskId !== undefined && { taskId: input.taskId }),
         }).pipe(
           Effect.mapError((error) => toToolError("Agent", error)),
@@ -296,6 +305,8 @@ export const makeOrchestrator = (config: OrchestratorConfig = {}): Effect.Effect
         const reset = yield* resetDanglingTasks().pipe(
           Effect.mapError((error) => toToolError("Agent", error)),
         )
+        // Discard the dead subagents' orphaned worktrees before re-delegating.
+        yield* removeTaskWorktrees(parent.session.workingDirectory, reset)
         const results: Array<SpawnResult> = []
         for (const task of reset) {
           if (task.agentType === undefined) continue

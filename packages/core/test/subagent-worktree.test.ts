@@ -9,6 +9,7 @@ import {
   type AgentWorktree,
   cleanupAgentWorktree,
   createAgentWorktree,
+  removeTaskWorktrees,
 } from "../src/subagents/worktree"
 
 // biome-ignore lint/suspicious/noExplicitAny: git effects require CommandExecutor from BunContext
@@ -78,6 +79,32 @@ describe("agent worktree", () => {
       ),
     )
     expect(result.retained).toBe(true)
+  })
+
+  test("removeTaskWorktrees force-removes recorded worktrees and prunes", async () => {
+    const result = await run(
+      provide(
+        Effect.gen(function* () {
+          const wt = yield* createAgentWorktree(repo, "dangling01")
+          // Leave uncommitted work so a normal cleanup would retain it — recovery
+          // must remove it regardless.
+          yield* Effect.sync(() => writeFileSync(join(wt.path, "new.txt"), "dirty\n"))
+          const existedBefore = existsSync(wt.path)
+          yield* removeTaskWorktrees(repo, [
+            { worktreePath: wt.path, worktreeBranch: wt.branch },
+          ])
+          return { wt, existedBefore }
+        }),
+      ),
+    )
+    expect(result.existedBefore).toBe(true)
+    expect(existsSync(result.wt.path)).toBe(false)
+    const branches = execSync("git branch --list swain-agent-dangling01", { cwd: repo }).toString()
+    expect(branches.trim()).toBe("")
+  })
+
+  test("removeTaskWorktrees ignores tasks with no recorded worktree", async () => {
+    await run(provide(removeTaskWorktrees(repo, [{}, { worktreePath: undefined }])))
   })
 
   test("fails with a recoverable tool error outside a git repository", async () => {

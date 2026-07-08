@@ -7,3 +7,4 @@ export {
   subagentDefinitions,
 } from "./definitions"
 export { type ChildRegistryOptions, makeChildToolRegistry } from "./tools"
+export { removeTaskWorktrees } from "./worktree"

@@ -216,6 +216,8 @@ export interface ClaimTaskInput {
   readonly agentType: AgentType
   readonly subject?: string
   readonly description?: string
+  readonly worktreePath?: string
+  readonly worktreeBranch?: string
 }
 
 /**
@@ -238,6 +240,8 @@ export const claimTask = (
         owner: input.owner,
         agentType: input.agentType,
         blockedBy: [],
+        ...(input.worktreePath !== undefined && { worktreePath: input.worktreePath }),
+        ...(input.worktreeBranch !== undefined && { worktreeBranch: input.worktreeBranch }),
         createdAt: ts,
         updatedAt: ts,
       }
@@ -274,6 +278,8 @@ export const claimTask = (
       status: "in_progress",
       owner: input.owner,
       agentType: input.agentType,
+      ...(input.worktreePath !== undefined && { worktreePath: input.worktreePath }),
+      ...(input.worktreeBranch !== undefined && { worktreeBranch: input.worktreeBranch }),
       updatedAt: now(),
     }
     yield* Ref.update(store.ref, (m) => new Map(m).set(claimed.id, claimed))
@@ -289,20 +295,27 @@ export interface FinishTaskInput {
 export const completeTask = (
   taskId: string,
   result: string,
-  input: FinishTaskInput = {},
+  worktree: FinishTaskInput = {},
 ): Effect.Effect<Task, TaskError | PlatformError, TaskStore | FileSystem.FileSystem> =>
-  finish(taskId, { status: "completed", result, ...definedOnly(input) })
+  finish(taskId, { status: "completed", result }, worktree)
 
 export const failTask = (
   taskId: string,
   error: string,
-  input: FinishTaskInput = {},
+  worktree: FinishTaskInput = {},
 ): Effect.Effect<Task, TaskError | PlatformError, TaskStore | FileSystem.FileSystem> =>
-  finish(taskId, { status: "failed", error, ...definedOnly(input) })
+  finish(taskId, { status: "failed", error }, worktree)
 
+/**
+ * Applies a terminal status plus the *authoritative* final worktree state: a
+ * retained worktree sets `worktreePath`/`worktreeBranch`, a cleaned one clears
+ * the values recorded at claim time (so a completed task never points at a
+ * worktree that was already removed).
+ */
 const finish = (
   taskId: string,
   patch: Partial<Task> & { readonly status: TaskStatus },
+  worktree: FinishTaskInput,
 ): Effect.Effect<Task, TaskError | PlatformError, TaskStore | FileSystem.FileSystem> =>
   Effect.gen(function* () {
     const store = yield* TaskStore
@@ -315,7 +328,13 @@ const finish = (
         taskId,
       })
     }
-    const updated: Task = { ...existing, ...patch, updatedAt: now() }
+    const updated: Task = {
+      ...existing,
+      ...patch,
+      worktreePath: worktree.worktreePath,
+      worktreeBranch: worktree.worktreeBranch,
+      updatedAt: now(),
+    }
     yield* Ref.update(store.ref, (m) => new Map(m).set(taskId, updated))
     yield* persist(store)
     return updated
@@ -364,9 +383,11 @@ export const markParentNotified = (
 
 /**
  * Resets tasks left `in_progress` with an `owner` (subagents that died with the
- * process) to `pending` with `owner` cleared, keeping `agentType`/`description`
- * so a replacement can be re-delegated. Completed tasks are left untouched.
- * Returns the reset tasks.
+ * process) to `pending`, clearing `owner` and the stale `worktreePath`/
+ * `worktreeBranch` (that worktree is being discarded), while keeping
+ * `agentType`/`description` so a replacement can be re-delegated. Completed
+ * tasks are left untouched. Returns the *original* dangling tasks — still
+ * carrying their worktree info — so the caller can remove the orphaned worktrees.
  */
 export const resetDanglingTasks = (): Effect.Effect<
   ReadonlyArray<Task>,
@@ -381,16 +402,14 @@ export const resetDanglingTasks = (): Effect.Effect<
     )
     if (dangling.length === 0) return []
     const ts = now()
-    const reset = dangling.map(({ owner: _owner, ...rest }) => ({
-      ...rest,
-      status: "pending" as const,
-      updatedAt: ts,
-    }))
     yield* Ref.update(store.ref, (m) => {
       const next = new Map(m)
-      for (const t of reset) next.set(t.id, t)
+      for (const t of dangling) {
+        const { owner: _owner, worktreePath: _wp, worktreeBranch: _wb, ...rest } = t
+        next.set(t.id, { ...rest, status: "pending", updatedAt: ts })
+      }
       return next
     })
     yield* persist(store)
-    return reset
+    return dangling
   })

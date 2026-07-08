@@ -133,6 +133,35 @@ describe("TaskStore", () => {
     expect(reloaded.subject).toBe("keep")
   })
 
+  test("claim records worktree info; reset clears it but returns it for cleanup", async () => {
+    const result = await runIn(
+      dir,
+      Effect.gen(function* () {
+        const claimed = yield* claimTask({
+          owner: "agent-1",
+          agentType: "GeneralPurpose",
+          subject: "s",
+          description: "d",
+          worktreePath: "/tmp/wt/agent-1",
+          worktreeBranch: "swain-agent-1",
+        })
+        const reset = yield* resetDanglingTasks()
+        const stored = yield* getTask(claimed.id)
+        return { claimed, reset, stored }
+      }),
+    )
+    expect(result.claimed.worktreePath).toBe("/tmp/wt/agent-1")
+    // The returned dangling task still carries the worktree for the caller to remove.
+    expect(result.reset).toHaveLength(1)
+    expect(result.reset[0]?.worktreePath).toBe("/tmp/wt/agent-1")
+    expect(result.reset[0]?.worktreeBranch).toBe("swain-agent-1")
+    // The stored task is cleaned for re-delegation.
+    expect(result.stored.status).toBe("pending")
+    expect(result.stored.owner).toBeUndefined()
+    expect(result.stored.worktreePath).toBeUndefined()
+    expect(result.stored.worktreeBranch).toBeUndefined()
+  })
+
   test("concurrent completions all reach disk (no lost update)", async () => {
     await runIn(
       dir,

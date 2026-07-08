@@ -111,3 +111,31 @@ export const cleanupAgentWorktree = (
     )
     return { retained: false }
   })
+
+/**
+ * Force-removes the worktrees and branches recorded on dangling tasks recovered
+ * on session start — their owning subagent died, so any uncommitted child work
+ * is discarded rather than leaked. Best-effort and never fails; a single
+ * `worktree prune` sweeps leftover admin entries when anything was removed.
+ */
+export const removeTaskWorktrees = (
+  gitCwd: string,
+  tasks: ReadonlyArray<{ readonly worktreePath?: string; readonly worktreeBranch?: string }>,
+): Effect.Effect<void, never, CommandExecutor.CommandExecutor> =>
+  Effect.gen(function* () {
+    let removedAny = false
+    for (const task of tasks) {
+      if (task.worktreePath === undefined || task.worktreeBranch === undefined) continue
+      yield* gitExit(gitCwd, ["worktree", "remove", "--force", task.worktreePath]).pipe(
+        Effect.catchAll(() => Effect.succeed(1)),
+      )
+      yield* gitExit(gitCwd, ["branch", "-D", task.worktreeBranch]).pipe(
+        Effect.catchAll(() => Effect.succeed(0)),
+      )
+      yield* Effect.log(`Removed orphaned subagent worktree ${task.worktreePath}`)
+      removedAny = true
+    }
+    if (removedAny) {
+      yield* gitExit(gitCwd, ["worktree", "prune"]).pipe(Effect.catchAll(() => Effect.succeed(0)))
+    }
+  })
