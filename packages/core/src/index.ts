@@ -26,6 +26,16 @@ export {
   saveSession,
 } from "./state"
 export {
+  type ChildRegistryOptions,
+  EXPLORE,
+  GENERAL_PURPOSE,
+  getSubagentDefinition,
+  makeChildToolRegistry,
+  PLAN,
+  type SubagentDefinition,
+  subagentDefinitions,
+} from "./subagents"
+export {
   type AgentType,
   blockingDeps,
   type ClaimTaskInput,
