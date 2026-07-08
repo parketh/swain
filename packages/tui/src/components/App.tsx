@@ -564,8 +564,9 @@ export const App = ({ controller }: AppProps) => {
       </Box>
       {/* Pinned bottom: the prompt + status stay in flow, while any overlay is
           absolutely positioned to float directly above them — drawn on top of
-          the conversation instead of pushing it up. */}
-      <Box flexDirection="column" flexShrink={0}>
+          the conversation instead of pushing it up. `marginTop` keeps one blank
+          line between the conversation and the status/prompt cluster. */}
+      <Box flexDirection="column" flexShrink={0} marginTop={1}>
         {overlay !== null ? (
           <Box position="absolute" bottom="100%" width={columns} flexDirection="column">
             {overlay}
