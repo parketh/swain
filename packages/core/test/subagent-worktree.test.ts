@@ -90,9 +90,7 @@ describe("agent worktree", () => {
           // must remove it regardless.
           yield* Effect.sync(() => writeFileSync(join(wt.path, "new.txt"), "dirty\n"))
           const existedBefore = existsSync(wt.path)
-          yield* removeTaskWorktrees(repo, [
-            { worktreePath: wt.path, worktreeBranch: wt.branch },
-          ])
+          yield* removeTaskWorktrees(repo, [{ worktreePath: wt.path, worktreeBranch: wt.branch }])
           return { wt, existedBefore }
         }),
       ),

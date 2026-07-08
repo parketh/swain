@@ -419,9 +419,7 @@ export const makeController = (deps: ControllerDeps): Controller => {
     try {
       const env = await ensureSessionEnv()
       if (disposed) return
-      const reset = await runtime.runPromise(
-        resetDanglingTasks().pipe(Effect.provide(env.layers)),
-      )
+      const reset = await runtime.runPromise(resetDanglingTasks().pipe(Effect.provide(env.layers)))
       // Remove the orphaned worktrees of subagents that died while closed. No
       // re-spawn here (resume must not auto-run agents); just reclaim the disk.
       await runtime.runPromise(
