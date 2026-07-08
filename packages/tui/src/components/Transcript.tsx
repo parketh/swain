@@ -109,13 +109,15 @@ export const foldEvents = (events: ReadonlyArray<AgentEvent>): DraftState =>
 const Row = ({
   marker,
   color,
+  backgroundColor,
   children,
 }: {
   marker: string
   color?: string
+  backgroundColor?: string
   children: ReactNode
 }) => (
-  <Box flexDirection="row">
+  <Box flexDirection="row" backgroundColor={backgroundColor}>
     <Box minWidth={2} flexShrink={0}>
       <Text color={color}>{marker}</Text>
     </Box>
@@ -340,7 +342,7 @@ const NodeRow = ({ node }: { node: Node }) => {
         <Markdown>{node.text}</Markdown>
       </Row>
     ) : (
-      <Row marker=">" color={theme.primary}>
+      <Row marker=">" color={theme.primary} backgroundColor={theme.promptBg}>
         <Text>{node.text}</Text>
       </Row>
     )
