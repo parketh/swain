@@ -14,7 +14,13 @@ import { ListSelect } from "../src/components/ListSelect"
 import { nextWord, PromptInput, prevWord, promptSegments } from "../src/components/PromptInput"
 import { QuestionPrompt } from "../src/components/QuestionPrompt"
 import { TaskList } from "../src/components/TaskList"
-import { foldEvents, isHiddenTool } from "../src/components/Transcript"
+import {
+  buildItems,
+  collapseItems,
+  foldEvents,
+  groupSummary,
+  isHiddenTool,
+} from "../src/components/Transcript"
 import type { TuiConfig } from "../src/config"
 import { sessionsDir } from "../src/config"
 import { type Controller, makeController } from "../src/controller"
@@ -91,6 +97,88 @@ describe("pure helpers", () => {
       { type: "tool-execution-end", name: "Bash", toolCallId: id, isError: false },
     ])
     expect(done.tools[0]?.done).toBe(true)
+  })
+
+  test("groupSummary renders tense-aware read/search roll-ups", () => {
+    expect(groupSummary(3, 0, false)).toBe("Read 3 files")
+    expect(groupSummary(0, 1, false)).toBe("Searched for 1 pattern")
+    expect(groupSummary(2, 2, false)).toBe("Searched for 2 patterns, read 2 files")
+    expect(groupSummary(1, 0, true)).toBe("Reading 1 file…")
+  })
+
+  test("collapseItems folds consecutive read/search tools but keeps singles and other tools", () => {
+    const draft = { assistant: "", reasoning: "", tools: [], errors: [] }
+    const messages = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool-call", toolCallId: "1", name: "Grep", input: {} },
+          { type: "tool-call", toolCallId: "2", name: "Read", input: {} },
+          { type: "tool-call", toolCallId: "3", name: "Read", input: {} },
+          { type: "tool-call", toolCallId: "4", name: "Bash", input: { command: "ls" } },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "1",
+            name: "Grep",
+            result: { value: { matches: [] } },
+          },
+          {
+            type: "tool-result",
+            toolCallId: "2",
+            name: "Read",
+            result: { value: { totalLines: 5 } },
+          },
+          {
+            type: "tool-result",
+            toolCallId: "3",
+            name: "Read",
+            result: { value: { totalLines: 9 } },
+          },
+          {
+            type: "tool-result",
+            toolCallId: "4",
+            name: "Bash",
+            result: { value: { exitCode: 0, stdout: "x" } },
+          },
+        ],
+      },
+      // biome-ignore lint/suspicious/noExplicitAny: opaque message fixtures
+    ] as any
+    const nodes = collapseItems(buildItems(messages, draft))
+    expect(nodes.map((n) => n.kind)).toEqual(["text", "group", "tool"])
+    const group = nodes[1]
+    expect(group?.kind === "group" && group.reads).toBe(2)
+    expect(group?.kind === "group" && group.searches).toBe(1)
+    expect(group?.kind === "group" && group.active).toBe(false)
+  })
+
+  test("buildItems hides task tools; a group with an in-flight draft read is active", () => {
+    const draft = {
+      assistant: "",
+      reasoning: "",
+      tools: [
+        { toolCallId: "a", name: "Read", input: {}, output: "", done: true, isError: false },
+        { toolCallId: "b", name: "Read", input: {}, output: "", done: false, isError: false },
+      ],
+      errors: [],
+    }
+    const messages = [
+      {
+        role: "assistant",
+        content: [{ type: "tool-call", toolCallId: "t", name: "TaskUpdate", input: {} }],
+      },
+      // biome-ignore lint/suspicious/noExplicitAny: opaque message fixtures
+    ] as any
+    const items = buildItems(messages, draft)
+    expect(items.some((i) => i.kind === "tool" && i.name === "TaskUpdate")).toBe(false)
+    const group = collapseItems(items).find((n) => n.kind === "group")
+    expect(group?.kind === "group" && group.active).toBe(true)
   })
 })
 

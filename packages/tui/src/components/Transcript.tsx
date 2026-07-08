@@ -138,103 +138,216 @@ const ToolCall = ({ name, input }: { name: string; input: unknown }) => {
   )
 }
 
-// A message carrying only tool results belongs to the preceding assistant's
-// tool calls, so it hugs them instead of opening a new spaced block.
-// biome-ignore lint/suspicious/noExplicitAny: opaque message content blocks
-const isToolResultOnly = (message: any): boolean =>
-  message.content.length > 0 &&
-  // biome-ignore lint/suspicious/noExplicitAny: opaque content block
-  message.content.every((block: any) => block.type === "tool-result")
+// --- Transcript model -----------------------------------------------------
+// Flatten messages + live draft into one linear item list, then collapse runs
+// of consecutive read/search tool calls into a single summary line — the way
+// Claude Code shows a burst of Reads/Greps as "Read 3 files" instead of six
+// separate rows.
 
-// biome-ignore lint/suspicious/noExplicitAny: opaque message content blocks
-const MessageRow = ({ message }: { message: any }) => (
-  <Box flexDirection="column" gap={1}>
-    {/* biome-ignore lint/suspicious/noExplicitAny: opaque content block */}
-    {message.content.map((block: any, i: number) => {
-      const key = i
-      if (block.type === "text") {
-        if (message.role === "assistant")
-          return (
-            <Row key={key} marker="⏺">
-              <Markdown>{block.text}</Markdown>
-            </Row>
-          )
-        return (
-          <Row key={key} marker=">" color={theme.primary}>
-            <Text>{block.text}</Text>
-          </Row>
-        )
-      }
-      // Reasoning is intentionally hidden; the live spinner stands in for it.
-      if (block.type === "reasoning") return null
-      if (block.type === "tool-call") {
-        if (isHiddenTool(block.name)) return null
-        return <ToolCall key={key} name={block.name} input={block.input} />
-      }
+const SEARCH_TOOLS: ReadonlySet<string> = new Set(["Grep", "Glob"])
+const READ_TOOLS: ReadonlySet<string> = new Set(["Read"])
+const isCollapsibleTool = (name: string): boolean => SEARCH_TOOLS.has(name) || READ_TOOLS.has(name)
+
+/** Tense-aware roll-up for a run of read/search tools, e.g. "Searched for 2 patterns, read 3 files". */
+export const groupSummary = (reads: number, searches: number, active: boolean): string => {
+  const parts: Array<string> = []
+  if (searches > 0) {
+    const verb = active
+      ? parts.length === 0
+        ? "Searching for"
+        : "searching for"
+      : parts.length === 0
+        ? "Searched for"
+        : "searched for"
+    parts.push(`${verb} ${searches} ${searches === 1 ? "pattern" : "patterns"}`)
+  }
+  if (reads > 0) {
+    const verb = active
+      ? parts.length === 0
+        ? "Reading"
+        : "reading"
+      : parts.length === 0
+        ? "Read"
+        : "read"
+    parts.push(`${verb} ${reads} ${reads === 1 ? "file" : "files"}`)
+  }
+  const text = parts.join(", ")
+  return active ? `${text}…` : text
+}
+
+interface TextItem {
+  readonly kind: "text"
+  readonly role: "user" | "assistant"
+  readonly text: string
+}
+interface ToolItem {
+  readonly kind: "tool"
+  readonly name: string
+  readonly input: unknown
+  readonly summary: string
+  readonly isError: boolean
+  readonly done: boolean
+}
+interface ErrorItem {
+  readonly kind: "error"
+  readonly text: string
+}
+type Item = TextItem | ToolItem | ErrorItem
+interface GroupNode {
+  readonly kind: "group"
+  readonly reads: number
+  readonly searches: number
+  readonly active: boolean
+}
+type Node = Item | GroupNode
+
+// biome-ignore lint/suspicious/noExplicitAny: opaque persisted content blocks
+const resultsById = (
+  messages: ReadonlyArray<any>,
+): Map<string, { value: unknown; isError: boolean }> => {
+  const map = new Map<string, { value: unknown; isError: boolean }>()
+  for (const message of messages) {
+    for (const block of message.content ?? []) {
       if (block.type === "tool-result") {
-        if (isHiddenTool(block.name)) return null
-        return (
-          <ResultLine
-            key={key}
-            isError={block.isError === true}
-            text={summarizeResult(block.name ?? "", block.result?.value, block.isError === true)}
-          />
-        )
+        map.set(String(block.toolCallId), {
+          value: block.result?.value,
+          isError: block.isError === true,
+        })
       }
-      return null
-    })}
-  </Box>
+    }
+  }
+  return map
+}
+
+/** Linearize persisted messages + the live draft into display items in order. */
+export const buildItems = (
+  messages: ReadonlyArray<Message>,
+  draft: DraftState,
+): ReadonlyArray<Item> => {
+  const items: Array<Item> = []
+  // biome-ignore lint/suspicious/noExplicitAny: opaque persisted content blocks
+  const list = messages as ReadonlyArray<any>
+  const results = resultsById(list)
+  for (const message of list) {
+    for (const block of message.content ?? []) {
+      if (block.type === "text") {
+        items.push({ kind: "text", role: message.role, text: block.text })
+      } else if (block.type === "tool-call" && !isHiddenTool(block.name)) {
+        const result = results.get(String(block.toolCallId))
+        items.push({
+          kind: "tool",
+          name: block.name,
+          input: block.input,
+          summary:
+            result !== undefined
+              ? summarizeResult(block.name ?? "", result.value, result.isError)
+              : "…",
+          isError: result?.isError === true,
+          done: result !== undefined,
+        })
+      }
+      // reasoning is intentionally hidden; tool-result blocks are consumed above.
+    }
+  }
+  for (const row of draft.tools) {
+    if (isHiddenTool(row.name)) continue
+    items.push({
+      kind: "tool",
+      name: row.name,
+      input: row.input,
+      summary: row.done
+        ? summarizeResult(row.name, row.output, row.isError)
+        : row.output !== ""
+          ? `${summarizeResult(row.name, row.output, false)} …`
+          : "…",
+      isError: row.isError,
+      done: row.done,
+    })
+  }
+  if (draft.assistant !== "") items.push({ kind: "text", role: "assistant", text: draft.assistant })
+  for (const error of draft.errors) items.push({ kind: "error", text: error })
+  return items
+}
+
+/** Collapse runs of 2+ consecutive read/search tools into one summary node. */
+export const collapseItems = (items: ReadonlyArray<Item>): ReadonlyArray<Node> => {
+  const nodes: Array<Node> = []
+  let run: Array<ToolItem> = []
+  const flush = (): void => {
+    if (run.length === 0) return
+    if (run.length === 1) {
+      nodes.push(run[0]!)
+    } else {
+      nodes.push({
+        kind: "group",
+        reads: run.filter((t) => READ_TOOLS.has(t.name)).length,
+        searches: run.filter((t) => SEARCH_TOOLS.has(t.name)).length,
+        active: run.some((t) => !t.done),
+      })
+    }
+    run = []
+  }
+  for (const item of items) {
+    if (item.kind === "tool" && isCollapsibleTool(item.name)) {
+      run.push(item)
+    } else {
+      flush()
+      nodes.push(item)
+    }
+  }
+  flush()
+  return nodes
+}
+
+const ToolResultRow = ({ item }: { item: ToolItem }) => (
+  <>
+    <ToolCall name={item.name} input={item.input} />
+    <ResultLine isError={item.isError} text={item.summary} />
+  </>
 )
+
+const NodeRow = ({ node }: { node: Node }) => {
+  if (node.kind === "text") {
+    return node.role === "assistant" ? (
+      <Row marker="⏺">
+        <Markdown>{node.text}</Markdown>
+      </Row>
+    ) : (
+      <Row marker=">" color={theme.primary}>
+        <Text>{node.text}</Text>
+      </Row>
+    )
+  }
+  if (node.kind === "error") return <Text color="red">⚠ {node.text}</Text>
+  if (node.kind === "group") {
+    return (
+      <Row marker="⏺" color={theme.primaryDim}>
+        <Text color={theme.muted}>{groupSummary(node.reads, node.searches, node.active)}</Text>
+      </Row>
+    )
+  }
+  return <ToolResultRow item={node} />
+}
 
 export interface TranscriptProps {
   readonly messages: ReadonlyArray<Message>
   readonly draft: DraftState
 }
 
-export const Transcript = ({ messages, draft }: TranscriptProps) => (
-  <Box flexDirection="column">
-    {messages.map((message, i) => (
-      <Box
-        // biome-ignore lint/suspicious/noArrayIndexKey: append-only history
-        key={i}
-        flexDirection="column"
-        marginTop={i > 0 && !isToolResultOnly(message) ? 1 : 0}
-      >
-        <MessageRow message={message} />
-      </Box>
-    ))}
-    {draft.tools.map((row) => (
-      <Box key={row.toolCallId} flexDirection="column" marginTop={1}>
-        <ToolCall name={row.name} input={row.input} />
-        {row.output !== "" || row.done ? (
-          <ResultLine
-            isError={row.isError}
-            text={
-              row.done
-                ? summarizeResult(row.name, row.output, row.isError)
-                : `${summarizeResult(row.name, row.output, false)} …`
-            }
-          />
-        ) : (
-          <ResultLine isError={false} text="…" />
-        )}
-      </Box>
-    ))}
-    {draft.assistant !== "" ? (
-      <Box marginTop={1}>
-        <Row marker="⏺">
-          <Markdown>{draft.assistant}</Markdown>
-        </Row>
-      </Box>
-    ) : null}
-    {draft.errors.map((error, i) => (
-      <Box
-        // biome-ignore lint/suspicious/noArrayIndexKey: append-only errors
-        key={i}
-        marginTop={1}
-      >
-        <Text color="red">⚠ {error}</Text>
-      </Box>
-    ))}
-  </Box>
-)
+export const Transcript = ({ messages, draft }: TranscriptProps) => {
+  const nodes = collapseItems(buildItems(messages, draft))
+  return (
+    <Box flexDirection="column">
+      {nodes.map((node, i) => (
+        <Box
+          // biome-ignore lint/suspicious/noArrayIndexKey: append-only transcript
+          key={i}
+          flexDirection="column"
+          marginTop={i > 0 ? 1 : 0}
+        >
+          <NodeRow node={node} />
+        </Box>
+      ))}
+    </Box>
+  )
+}
