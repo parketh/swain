@@ -37,7 +37,7 @@ export class TaskError extends Data.TaggedError("TaskError")<{
   readonly taskId?: string
 }> {}
 
-const TaskSchema = Schema.Struct({
+export const TaskSchema = Schema.Struct({
   id: Schema.String,
   subject: Schema.String,
   description: Schema.String,

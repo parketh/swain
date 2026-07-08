@@ -28,6 +28,11 @@ export { Glob, GlobInput, GlobResult } from "./glob"
 export { Grep, GrepInput, GrepResult } from "./grep"
 export { Read, ReadInput, ReadResult } from "./read"
 export { errorResult, successResult } from "./results"
+export { TaskCreate, TaskCreateInput, TaskCreateResult } from "./task-create"
+export { TaskGet, TaskGetInput, TaskGetResult } from "./task-get"
+export { TaskList, TaskListInput, TaskListResult } from "./task-list"
+export { toToolError } from "./task-support"
+export { TaskUpdate, TaskUpdateInput, TaskUpdateResult } from "./task-update"
 export { WebFetch, WebFetchInput, WebFetchResult } from "./web-fetch"
 export {
   ExaSearchProvider,
@@ -48,6 +53,10 @@ import { Edit } from "./edit"
 import { Glob } from "./glob"
 import { Grep } from "./grep"
 import { Read } from "./read"
+import { TaskCreate } from "./task-create"
+import { TaskGet } from "./task-get"
+import { TaskList } from "./task-list"
+import { TaskUpdate } from "./task-update"
 import { WebFetch } from "./web-fetch"
 import { WebSearch } from "./web-search"
 import { Write } from "./write"
@@ -63,4 +72,8 @@ export const builtinTools: ReadonlyArray<AnyTool> = [
   WebSearch,
   WebFetch,
   Ask,
+  TaskCreate,
+  TaskList,
+  TaskGet,
+  TaskUpdate,
 ]
