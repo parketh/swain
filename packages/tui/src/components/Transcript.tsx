@@ -44,6 +44,13 @@ export const isHiddenTool = (name: string | undefined): boolean =>
 
 export const foldEvent = (state: DraftState, event: AgentEvent): DraftState => {
   switch (event.type) {
+    // Each iteration's assistant text and tool rows are persisted to
+    // `session.messages` before the next one starts, so clear the transient
+    // draft at the boundary — otherwise it accumulates every iteration's text
+    // into one run-on blob duplicating the messages above. Errors are kept:
+    // they are not persisted and should stay visible for the whole turn.
+    case "step-start":
+      return { ...state, assistant: "", reasoning: "", tools: [] }
     case "llm-event": {
       const inner = event.event
       if (inner.type === "text-delta") return { ...state, assistant: state.assistant + inner.text }

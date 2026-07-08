@@ -99,6 +99,16 @@ describe("pure helpers", () => {
     expect(done.tools[0]?.done).toBe(true)
   })
 
+  test("foldEvents resets the draft at each step boundary so iterations don't concatenate", () => {
+    const state = foldEvents([
+      { type: "step-start", iteration: 0 },
+      { type: "llm-event", event: { type: "text-delta", contentId, text: "first" } },
+      { type: "step-start", iteration: 1 },
+      { type: "llm-event", event: { type: "text-delta", contentId, text: "second" } },
+    ])
+    expect(state.assistant).toBe("second")
+  })
+
   test("groupSummary renders tense-aware read/search roll-ups", () => {
     expect(groupSummary(3, 0, false)).toBe("Read 3 files")
     expect(groupSummary(0, 1, false)).toBe("Searched for 1 pattern")
