@@ -434,7 +434,7 @@ describe("controller subagent drain", () => {
     return { controller, session }
   }
 
-  test("uses sessionsDir(configPath, workingDirectory) and drains a completed task when idle", async () => {
+  test("injects a completed subagent result on load without auto-running a turn", async () => {
     const { controller: c } = buildWith(scripted([textTurn("ack")]).layer, [
       completedTask({ id: "t1", subject: "probe", result: "found the bug" }),
     ])
@@ -444,7 +444,8 @@ describe("controller subagent drain", () => {
       .session.messages.find((m) => m.role === "user" && m.content.some((b) => b.type === "text"))
     const text = notification?.content.find((b) => b.type === "text")
     expect(text && "text" in text ? text.text : "").toContain("found the bug")
-    expect(c.getState().session.messages.at(-1)).toMatchObject({ role: "assistant" })
+    // Load must not auto-run: the result is surfaced but no assistant turn fires.
+    expect(c.getState().session.messages.some((m) => m.role === "assistant")).toBe(false)
   })
 
   test("batches multiple completed tasks into one synthetic notification", async () => {
@@ -467,7 +468,7 @@ describe("controller subagent drain", () => {
     expect(value).toContain("found B")
   })
 
-  test("re-delegates a dangling in_progress task on session load", async () => {
+  test("resets a dangling in_progress task on load without re-running it", async () => {
     const dangling = {
       id: "d1",
       subject: "resume me",
@@ -479,19 +480,22 @@ describe("controller subagent drain", () => {
       createdAt: "2026-07-08T00:00:00.000Z",
       updatedAt: "2026-07-08T00:00:00.000Z",
     }
-    const { controller: c, session } = buildWith(
-      scripted([textTurn("recovered work"), textTurn("parent ack")]).layer,
-      [dangling],
-    )
+    const { controller: c, session } = buildWith(scripted([textTurn("should not run")]).layer, [
+      dangling,
+    ])
     const tdir = sessionTaskDir(session)
     const readTask = () => {
       const tasks = JSON.parse(readFileSync(join(tdir, "tasks.json"), "utf8"))
       return tasks.find((t: { id: string }) => t.id === "d1")
     }
-    await waitFor(() => readTask()?.status === "completed")
+    // Reset to pending with the owner cleared — never re-spawned or completed.
+    await waitFor(() => readTask()?.status === "pending")
     const task = readTask()
-    expect(task.owner).not.toBe("dead-agent")
-    expect(task.result).toBe("recovered work")
+    expect(task.owner).toBeUndefined()
+    expect(task.agentType).toBe("Explore")
+    // No parent turn ran on resume: no assistant messages, no active subagents.
+    expect(c.getState().session.messages.some((m) => m.role === "assistant")).toBe(false)
+    expect(c.getSubagents()).toHaveLength(0)
   })
 
   test("defers the drain while a parent turn runs, then flushes it after", async () => {

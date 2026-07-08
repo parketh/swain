@@ -11,14 +11,13 @@ import {
   loadSession,
   loadTaskStore,
   makeOrchestrator,
-  makePermissions,
   markParentNotified,
   type Orchestrator,
   OrchestratorService,
-  type ParentRunContext,
   type PermissionDecision,
   type PermissionMode,
   pendingParentNotifications,
+  resetDanglingTasks,
   runTurn,
   type SessionState,
   type SubagentEvent,
@@ -27,13 +26,7 @@ import {
   TaskStore,
   type TaskStoreService,
 } from "@swain/core"
-import {
-  type AskHandler,
-  type AskInput,
-  type AskResult,
-  builtinTools,
-  makeToolRegistry,
-} from "@swain/core/tools"
+import type { AskHandler, AskInput, AskResult } from "@swain/core/tools"
 import type { GenerationOptions, ProviderOptions } from "@swain/llms"
 import { LLMClient } from "@swain/llms/client"
 import { Effect, Fiber, Layer, Queue } from "effect"
@@ -252,14 +245,6 @@ export const makeController = (deps: ControllerDeps): Controller => {
 
   const sessionDirFor = (s: SessionState): string => pathJoin(sessionsDirFor(s), s.sessionId)
 
-  const parentTools = makeToolRegistry(builtinTools)
-
-  const parentRunContext = (): ParentRunContext => ({
-    session,
-    tools: parentTools,
-    permission: makePermissions(session.systemContext.permissionMode, approval),
-  })
-
   interface SessionEnv {
     readonly taskStore: TaskStoreService
     readonly orchestrator: Orchestrator
@@ -371,6 +356,25 @@ export const makeController = (deps: ControllerDeps): Controller => {
 
   // Decides drain-or-defer right now (not a scheduled timer): the payload is
   // always re-read from the durable TaskStore, never the wake-up queue.
+  // Appends finished subagent results as one synthetic `<task-notification>`
+  // user message and marks them notified. Injection only — the caller decides
+  // whether to run a parent turn. Returns true if anything was injected.
+  const injectPendingNotifications = async (): Promise<boolean> => {
+    const env = await ensureSessionEnv()
+    if (disposed) return false
+    const pending = await runtime.runPromise(
+      pendingParentNotifications().pipe(Effect.provide(env.layers)),
+    )
+    if (pending.length === 0 || disposed) return false
+    const block = pending.map(renderNotification).join("\n\n")
+    coreSubmitPrompt(session, `<task-notification>\n${block}\n</task-notification>`)
+    await runtime.runPromise(
+      markParentNotified(pending.map((t) => t.id)).pipe(Effect.provide(env.layers)),
+    )
+    notify()
+    return true
+  }
+
   const maybeDrainCompletions = async (): Promise<void> => {
     if (running || draining || disposed) {
       if (!disposed) drainPending = true
@@ -379,19 +383,7 @@ export const makeController = (deps: ControllerDeps): Controller => {
     draining = true
     let injected = false
     try {
-      const env = await ensureSessionEnv()
-      if (disposed) return
-      const pending = await runtime.runPromise(
-        pendingParentNotifications().pipe(Effect.provide(env.layers)),
-      )
-      if (pending.length === 0 || disposed) return
-      const block = pending.map(renderNotification).join("\n\n")
-      coreSubmitPrompt(session, `<task-notification>\n${block}\n</task-notification>`)
-      await runtime.runPromise(
-        markParentNotified(pending.map((t) => t.id)).pipe(Effect.provide(env.layers)),
-      )
-      notify()
-      injected = true
+      injected = await injectPendingNotifications()
     } catch {
       // Runtime disposed or a transient store error: drop this drain attempt.
     } finally {
@@ -413,19 +405,21 @@ export const makeController = (deps: ControllerDeps): Controller => {
     }
   }
 
+  // On session load (initial/resume/clear): make the session inert. Reset
+  // dangling subagent tasks to pending WITHOUT re-spawning — resuming must never
+  // auto-run agents; the user (or the next prompt) decides. Surface any results
+  // that completed while closed as a notification, but do not run a parent turn.
   const startSession = async (): Promise<void> => {
     if (disposed) return
     try {
       const env = await ensureSessionEnv()
       if (disposed) return
-      await runtime.runPromise(
-        env.orchestrator.recoverDangling(parentRunContext()).pipe(Effect.provide(env.layers)),
-      )
+      await runtime.runPromise(resetDanglingTasks().pipe(Effect.provide(env.layers)))
+      await injectPendingNotifications()
     } catch {
-      // Recovery is best-effort; a dangling task stays reset for the next start.
+      // Best-effort: a dangling task simply stays for the next start.
     }
     await refreshTasks()
-    await maybeDrainCompletions()
   }
 
   // --- Session summaries (resume picker labels) ---------------------------
