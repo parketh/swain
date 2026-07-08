@@ -17,6 +17,7 @@ import { QuestionPrompt, type QuestionPromptAnswer } from "./QuestionPrompt"
 import { ResumePicker } from "./ResumePicker"
 import { Spinner } from "./Spinner"
 import { StatusLine } from "./StatusLine"
+import { SubagentMonitor } from "./SubagentMonitor"
 import { TaskList } from "./TaskList"
 import { type DraftState, emptyDraft, foldEvent, Transcript } from "./Transcript"
 import { useTerminalSize } from "./useTerminalSize"
@@ -117,8 +118,20 @@ export const App = ({ controller }: AppProps) => {
     }
   }, [controller])
 
+  // While subagents run, tick once a second so their elapsed-time display stays
+  // live even though no events are arriving.
+  const runningAgents = controller.getSubagents().length
+  useEffect(() => {
+    if (runningAgents === 0) return
+    const id = setInterval(forceRender, 1000)
+    return () => clearInterval(id)
+  }, [runningAgents])
+
   const state = controller.getState()
-  const tasks = controller.getTasks()
+  // The task panel shows only the parent's own to-do items; delegated tasks
+  // (owner set) belong to a subagent and appear in the subagent monitor instead.
+  const tasks = controller.getTasks().filter((t) => t.owner === undefined)
+  const subagents = controller.getSubagents()
   // Show the task panel only while there is outstanding work; once everything is
   // completed/failed it collapses (tasks stay persisted for resume/history).
   const hasOutstandingTasks = tasks.some(
@@ -583,6 +596,11 @@ export const App = ({ controller }: AppProps) => {
             backgroundColor={theme.overlay}
           >
             {overlay}
+          </Box>
+        ) : null}
+        {subagents.length > 0 ? (
+          <Box marginBottom={1}>
+            <SubagentMonitor agents={subagents} now={Date.now()} />
           </Box>
         ) : null}
         {hasOutstandingTasks ? (

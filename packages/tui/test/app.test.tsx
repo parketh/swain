@@ -13,6 +13,7 @@ import { CommandOverlay, filterCommands } from "../src/components/CommandOverlay
 import { ListSelect } from "../src/components/ListSelect"
 import { nextWord, PromptInput, prevWord, promptSegments } from "../src/components/PromptInput"
 import { QuestionPrompt } from "../src/components/QuestionPrompt"
+import { SubagentMonitor } from "../src/components/SubagentMonitor"
 import { TaskList } from "../src/components/TaskList"
 import {
   buildItems,
@@ -107,6 +108,29 @@ describe("pure helpers", () => {
       { type: "llm-event", event: { type: "text-delta", contentId, text: "second" } },
     ])
     expect(state.assistant).toBe("second")
+  })
+
+  test("buildItems renders a <task-notification> user message as a system notification", () => {
+    const draft = { assistant: "", reasoning: "", tools: [], errors: [] }
+    const messages = [
+      { role: "user", content: [{ type: "text", text: "hi" }] },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: '<task-notification>\nSubagent "Find X" [Explore] completed:\nthe report\n</task-notification>',
+          },
+        ],
+      },
+      // biome-ignore lint/suspicious/noExplicitAny: opaque message fixtures
+    ] as any
+    const items = buildItems(messages, draft)
+    expect(items[0]).toMatchObject({ kind: "text", role: "user" })
+    expect(items[1]?.kind).toBe("notification")
+    const note = items[1]
+    expect(note?.kind === "notification" && note.text).toContain("the report")
+    expect(note?.kind === "notification" && note.text).not.toContain("<task-notification>")
   })
 
   test("groupSummary renders tense-aware read/search roll-ups", () => {
@@ -227,6 +251,38 @@ describe("components", () => {
     expect(frame).toContain("1 done")
     expect(frame).toContain("running one")
     expect(frame).toContain("[Explore]")
+  })
+
+  test("SubagentMonitor lists running agents with elapsed time and last tool", () => {
+    const { lastFrame } = render(
+      <SubagentMonitor
+        now={10_000}
+        agents={[
+          {
+            agentId: "d2d540df1234",
+            agentType: "Explore",
+            description: "find X",
+            startedAt: 4000,
+            toolUseCount: 3,
+            lastTool: "Grep",
+          },
+          {
+            agentId: "7b42a0f5abcd",
+            agentType: "Plan",
+            description: "plan Y",
+            startedAt: 9000,
+            toolUseCount: 0,
+          },
+        ]}
+      />,
+    )
+    const frame = lastFrame() ?? ""
+    expect(frame).toContain("Subagents: 2 running")
+    expect(frame).toContain("Explore")
+    expect(frame).toContain("(d2d540df)")
+    expect(frame).toContain("6s")
+    expect(frame).toContain("Grep")
+    expect(frame).toContain("Plan")
   })
 
   test("isHiddenTool hides task tools but not others", () => {

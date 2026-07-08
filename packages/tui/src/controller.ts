@@ -3,6 +3,7 @@ import { join as pathJoin } from "node:path"
 import type { HttpClient } from "@effect/platform"
 import {
   type AgentEvent,
+  type AgentType,
   type Approval,
   submitPrompt as coreSubmitPrompt,
   createSessionState,
@@ -20,6 +21,7 @@ import {
   pendingParentNotifications,
   runTurn,
   type SessionState,
+  type SubagentEvent,
   saveSession,
   type Task,
   TaskStore,
@@ -85,6 +87,17 @@ export interface ConnectResult {
   readonly error?: string
 }
 
+/** A live, still-running subagent, surfaced in the subagent monitor panel. */
+export interface SubagentStatus {
+  readonly agentId: string
+  readonly agentType: AgentType
+  readonly description: string
+  /** Epoch ms when the spawn event was observed, for the elapsed-time display. */
+  readonly startedAt: number
+  readonly lastTool?: string
+  readonly toolUseCount: number
+}
+
 export interface SavedSession {
   readonly sessionId: string
   readonly modifiedMs: number
@@ -120,6 +133,8 @@ export interface Controller {
   getUsage(): UsageSnapshot
   /** Current session task list, refreshed after turns and subagent lifecycle. */
   getTasks(): ReadonlyArray<Task>
+  /** Currently running subagents, for the live monitor panel. */
+  getSubagents(): ReadonlyArray<SubagentStatus>
   subscribe(listener: () => void): () => void
   onEvent(listener: (event: AgentEvent) => void): () => void
   onQuestion(listener: (request: PendingQuestion) => void): () => void
@@ -258,6 +273,36 @@ export const makeController = (deps: ControllerDeps): Controller => {
   let draining = false
   let disposed = false
   let currentTasks: ReadonlyArray<Task> = []
+  const subagentMap = new Map<string, SubagentStatus>()
+  let currentSubagents: ReadonlyArray<SubagentStatus> = []
+
+  // Maintains the live subagent monitor from orchestrator lifecycle events. A
+  // finished agent is dropped immediately; its result surfaces via the task
+  // notification drain, not this panel.
+  const updateSubagents = (event: SubagentEvent): void => {
+    if (event.type === "subagent-start") {
+      subagentMap.set(event.agentId, {
+        agentId: event.agentId,
+        agentType: event.agentType,
+        description: event.description,
+        startedAt: Date.now(),
+        toolUseCount: 0,
+      })
+    } else if (event.type === "subagent-progress") {
+      const current = subagentMap.get(event.agentId)
+      if (current !== undefined) {
+        subagentMap.set(event.agentId, {
+          ...current,
+          ...(event.lastTool !== undefined && { lastTool: event.lastTool }),
+          toolUseCount: event.toolUseCount,
+        })
+      }
+    } else {
+      subagentMap.delete(event.agentId)
+    }
+    currentSubagents = Array.from(subagentMap.values())
+    notify()
+  }
 
   const buildSessionEnv = async (s: SessionState): Promise<SessionEnv> => {
     const taskStore = await runtime.runPromise(loadTaskStore(sessionDirFor(s)))
@@ -266,7 +311,9 @@ export const makeController = (deps: ControllerDeps): Controller => {
         onEvent: (event) =>
           Effect.sync(() => {
             emitEvent(event)
-            void refreshTasks()
+            updateSubagents(event)
+            // Progress events don't change task state; only lifecycle edges do.
+            if (event.type !== "subagent-progress") void refreshTasks()
           }),
       }),
     )
@@ -301,6 +348,8 @@ export const makeController = (deps: ControllerDeps): Controller => {
     sessionEnv = undefined
     sessionEnvPromise = undefined
     currentTasks = []
+    subagentMap.clear()
+    currentSubagents = []
     if (env === undefined) return
     await runtime.runPromise(env.orchestrator.interruptAll).catch(() => {})
     await runtime.runPromise(Fiber.interrupt(env.listener)).catch(() => {})
@@ -694,6 +743,7 @@ export const makeController = (deps: ControllerDeps): Controller => {
     getRequestOptions: () => requestOptions,
     getUsage: () => usageSnapshot(session, activeModel),
     getTasks: () => currentTasks,
+    getSubagents: () => currentSubagents,
     getHistory: () => history,
     recordPrompt,
 

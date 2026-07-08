@@ -199,7 +199,23 @@ interface ErrorItem {
   readonly kind: "error"
   readonly text: string
 }
-type Item = TextItem | ToolItem | ErrorItem
+interface NotificationItem {
+  readonly kind: "notification"
+  readonly text: string
+}
+type Item = TextItem | ToolItem | ErrorItem | NotificationItem
+
+// Subagent completions are injected as `<task-notification>` user messages so
+// the model sees them, but they are not something the user typed — strip the
+// wrapper and render them as a system notification, not a user prompt.
+const NOTIFICATION_OPEN = "<task-notification>"
+const isNotification = (role: string, text: string): boolean =>
+  role === "user" && text.trimStart().startsWith(NOTIFICATION_OPEN)
+const stripNotification = (text: string): string =>
+  text
+    .replace(/^\s*<task-notification>\n?/, "")
+    .replace(/\n?<\/task-notification>\s*$/, "")
+    .trim()
 interface GroupNode {
   readonly kind: "group"
   readonly reads: number
@@ -238,7 +254,11 @@ export const buildItems = (
   for (const message of list) {
     for (const block of message.content ?? []) {
       if (block.type === "text") {
-        items.push({ kind: "text", role: message.role, text: block.text })
+        items.push(
+          isNotification(message.role, block.text)
+            ? { kind: "notification", text: stripNotification(block.text) }
+            : { kind: "text", role: message.role, text: block.text },
+        )
       } else if (block.type === "tool-call" && !isHiddenTool(block.name)) {
         const result = results.get(String(block.toolCallId))
         items.push({
@@ -326,6 +346,16 @@ const NodeRow = ({ node }: { node: Node }) => {
     )
   }
   if (node.kind === "error") return <Text color="red">⚠ {node.text}</Text>
+  if (node.kind === "notification") {
+    return (
+      <Row marker="⚑" color={theme.primaryDim}>
+        <Box flexDirection="column">
+          <Text color={theme.muted}>Subagent update</Text>
+          <Markdown>{node.text}</Markdown>
+        </Box>
+      </Row>
+    )
+  }
   if (node.kind === "group") {
     return (
       <Row marker="⏺" color={theme.primaryDim}>

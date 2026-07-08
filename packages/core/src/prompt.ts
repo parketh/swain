@@ -22,7 +22,9 @@ Keep the list moving in real time — this is how the user sees progress:
 - Only mark a task completed when it is fully done. If you hit a blocker, leave it in_progress and add a new task describing what is needed.
 - After finishing one task, immediately move to the next pending task in the same turn until the list is done.`
 
-const AGENT_REMINDER = `Use Agent for independent exploration, planning, or isolated implementation work. Subagents are useful for parallel work and for keeping broad search or implementation noise out of the main context. Do not delegate work that can be handled with one or two direct tool calls. After launching a subagent, wait for its completion notification before using its result.`
+const AGENT_REMINDER = `Use Agent for independent exploration, planning, or isolated implementation work. Subagents are useful for parallel work and for keeping broad search or implementation noise out of the main context. Do not delegate work that can be handled with one or two direct tool calls. After launching a subagent, wait for its completion notification before using its result.
+
+Agent creates and tracks a task for each subagent automatically, and the UI shows running subagents in a live monitor. Do NOT create separate tracking tasks for subagents you delegate — that duplicates them. Only use TaskCreate for your own (non-delegated) work.`
 
 export const assembleSystemPrompt = (input: SystemPromptInput): string => {
   const toolList = input.tools.map((tool) => ({
