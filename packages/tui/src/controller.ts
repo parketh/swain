@@ -370,7 +370,9 @@ export const makeController = (deps: ControllerDeps): Controller => {
     )
     if (pending.length === 0 || disposed) return false
     const block = pending.map(renderNotification).join("\n\n")
-    coreSubmitPrompt(session, `<task-notification>\n${block}\n</task-notification>`)
+    // The `<task-notification>` wrapper is payload for the model; the isMeta flag
+    // is the typed marker every consumer uses to tell this from real user input.
+    coreSubmitPrompt(session, `<task-notification>\n${block}\n</task-notification>`, true)
     await runtime.runPromise(
       markParentNotified(pending.map((t) => t.id)).pipe(Effect.provide(env.layers)),
     )

@@ -21,8 +21,8 @@ type LLMClientService = Context.Tag.Identifier<typeof LLMClient.Service>
 
 const DEFAULT_MAX_ITERATIONS = 20
 
-export const submitPrompt = (session: SessionState, prompt: string): void => {
-  session.messages.push(Message.user(prompt))
+export const submitPrompt = (session: SessionState, prompt: string, isMeta = false): void => {
+  session.messages.push(Message.user(prompt, isMeta))
 }
 
 /**

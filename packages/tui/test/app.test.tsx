@@ -161,12 +161,13 @@ describe("pure helpers", () => {
     )
   })
 
-  test("buildItems renders a <task-notification> user message as a system notification", () => {
+  test("buildItems renders an isMeta task-notification message as a system notification", () => {
     const draft = { assistant: "", reasoning: "", tools: [], errors: [] }
     const messages = [
       { role: "user", content: [{ type: "text", text: "hi" }] },
       {
         role: "user",
+        isMeta: true,
         content: [
           {
             type: "text",
@@ -182,6 +183,20 @@ describe("pure helpers", () => {
     const note = items[1]
     expect(note?.kind === "notification" && note.text).toContain("the report")
     expect(note?.kind === "notification" && note.text).not.toContain("<task-notification>")
+  })
+
+  test("buildItems does not misclassify a user-typed message starting with the tag", () => {
+    const draft = { assistant: "", reasoning: "", tools: [], errors: [] }
+    // Same content prefix, but no isMeta — this is genuine user input.
+    const messages = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "<task-notification> is the tag I mean" }],
+      },
+      // biome-ignore lint/suspicious/noExplicitAny: opaque message fixtures
+    ] as any
+    const items = buildItems(messages, draft)
+    expect(items[0]).toMatchObject({ kind: "text", role: "user" })
   })
 
   test("groupSummary renders tense-aware read/search roll-ups", () => {

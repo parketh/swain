@@ -216,11 +216,12 @@ interface NotificationItem {
 type Item = TextItem | ToolItem | ErrorItem | NotificationItem
 
 // Subagent completions are injected as `<task-notification>` user messages so
-// the model sees them, but they are not something the user typed — strip the
-// wrapper and render them as a system notification, not a user prompt.
-const NOTIFICATION_OPEN = "<task-notification>"
-const isNotification = (role: string, text: string): boolean =>
-  role === "user" && text.trimStart().startsWith(NOTIFICATION_OPEN)
+// the model sees them, but they are not something the user typed. They carry a
+// typed `isMeta` marker — classify on that, never on the content prefix (a user
+// prompt could legitimately start with the tag) — strip the wrapper and render
+// them as a system notification, not a user prompt.
+const isNotification = (message: { readonly role: string; readonly isMeta?: boolean }): boolean =>
+  message.role === "user" && message.isMeta === true
 const stripNotification = (text: string): string =>
   text
     .replace(/^\s*<task-notification>\n?/, "")
@@ -270,7 +271,7 @@ export const buildItems = (
     for (const block of message.content ?? []) {
       if (block.type === "text") {
         items.push(
-          isNotification(message.role, block.text)
+          isNotification(message)
             ? { kind: "notification", text: stripNotification(block.text) }
             : { kind: "text", role: message.role, text: block.text },
         )

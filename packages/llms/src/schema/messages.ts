@@ -54,6 +54,9 @@ export type AssistantContent = typeof AssistantContent.Type
 export const UserMessage = Schema.Struct({
   role: Schema.Literal("user"),
   content: Schema.Array(UserContent),
+  /** Harness-injected (e.g. a subagent task notification) rather than user-typed.
+   * Model-visible, but consumers must not treat it as genuine user input. */
+  isMeta: Schema.optional(Schema.Boolean),
 })
 export type UserMessage = typeof UserMessage.Type
 
@@ -68,10 +71,11 @@ const text = (value: string): TextContent => TextContent.make({ type: "text", te
 const MessageSchema = Schema.Union(UserMessage, AssistantMessage)
 
 export const Message = Object.assign(MessageSchema, {
-  user: (input: string | ReadonlyArray<UserContent>): UserMessage =>
+  user: (input: string | ReadonlyArray<UserContent>, isMeta = false): UserMessage =>
     UserMessage.make({
       role: "user",
       content: typeof input === "string" ? [text(input)] : input,
+      ...(isMeta && { isMeta: true }),
     }),
   assistant: (input: string | ReadonlyArray<AssistantContent>): AssistantMessage =>
     AssistantMessage.make({
