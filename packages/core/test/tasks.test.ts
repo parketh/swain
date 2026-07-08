@@ -132,4 +132,31 @@ describe("TaskStore", () => {
     const reloaded = await runIn(dir, getTask(created.id))
     expect(reloaded.subject).toBe("keep")
   })
+
+  test("concurrent completions all reach disk (no lost update)", async () => {
+    await runIn(
+      dir,
+      Effect.gen(function* () {
+        const tasks = yield* Effect.all(
+          Array.from({ length: 8 }, (_, i) =>
+            claimTask({
+              owner: `agent-${i}`,
+              agentType: "GeneralPurpose",
+              subject: `s${i}`,
+              description: "d",
+            }),
+          ),
+        )
+        yield* Effect.all(
+          tasks.map((t) => completeTask(t.id, `done-${t.id}`)),
+          { concurrency: "unbounded" },
+        )
+      }),
+    )
+    const onDisk = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8")) as Array<{
+      status: string
+    }>
+    expect(onDisk).toHaveLength(8)
+    expect(onDisk.every((t) => t.status === "completed")).toBe(true)
+  })
 })

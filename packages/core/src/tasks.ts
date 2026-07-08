@@ -58,6 +58,9 @@ const TasksFile = Schema.Array(TaskSchema)
 export interface TaskStoreService {
   readonly ref: Ref.Ref<ReadonlyMap<string, Task>>
   readonly dir: string
+  /** Serializes `persist` so concurrent subagent completions never interleave a
+   * stale snapshot's write over a newer one. */
+  readonly persistLock: Effect.Semaphore
 }
 
 export class TaskStore extends Context.Tag("@swain/core/TaskStore")<
@@ -90,7 +93,8 @@ export const loadTaskStore = (
           .pipe(Effect.flatMap(Schema.decode(Schema.parseJson(TasksFile))))
       : []
     const ref = yield* Ref.make<ReadonlyMap<string, Task>>(new Map(tasks.map((t) => [t.id, t])))
-    return { ref, dir }
+    const persistLock = yield* Effect.makeSemaphore(1)
+    return { ref, dir, persistLock }
   })
 
 export const taskStoreLayer = (
@@ -98,19 +102,26 @@ export const taskStoreLayer = (
 ): Layer.Layer<TaskStore, PlatformError | ParseResult.ParseError, FileSystem.FileSystem> =>
   Layer.effect(TaskStore, loadTaskStore(dir))
 
-/** Atomic-ish write: serialize to a temp sibling, then rename over `tasks.json`. */
+/**
+ * Atomic-ish write: serialize to a temp sibling, then rename over `tasks.json`.
+ * Held under `persistLock` so the snapshot and its write form one critical
+ * section — the last serialized writer always reflects every prior `Ref.update`,
+ * so concurrent completions can never drop a task with a stale snapshot.
+ */
 const persist = (
   store: TaskStoreService,
 ): Effect.Effect<void, PlatformError, FileSystem.FileSystem> =>
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem
-    const tasks = yield* Ref.get(store.ref)
-    yield* fs.makeDirectory(store.dir, { recursive: true })
-    const body = JSON.stringify(Array.from(tasks.values()), null, 2)
-    const tmp = `${tasksPath(store.dir)}.${crypto.randomUUID()}.tmp`
-    yield* fs.writeFileString(tmp, body)
-    yield* fs.rename(tmp, tasksPath(store.dir))
-  })
+  store.persistLock.withPermits(1)(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const tasks = yield* Ref.get(store.ref)
+      yield* fs.makeDirectory(store.dir, { recursive: true })
+      const body = JSON.stringify(Array.from(tasks.values()), null, 2)
+      const tmp = `${tasksPath(store.dir)}.${crypto.randomUUID()}.tmp`
+      yield* fs.writeFileString(tmp, body)
+      yield* fs.rename(tmp, tasksPath(store.dir))
+    }),
+  )
 
 /** Deps that are not yet completed; a task is claimable only when this is empty. */
 export const blockingDeps = (task: Task, tasks: ReadonlyMap<string, Task>): ReadonlyArray<string> =>
