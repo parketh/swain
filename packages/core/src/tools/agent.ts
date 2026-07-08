@@ -10,7 +10,6 @@ export const AgentInput = Schema.Struct({
   prompt: Schema.String,
   subagentType: Schema.optional(Schema.Literal("Explore", "Plan", "GeneralPurpose")),
   taskId: Schema.optional(Schema.String),
-  isolation: Schema.optional(Schema.Literal("worktree")),
 })
 
 export const AgentResult = Schema.Struct({
@@ -30,7 +29,7 @@ Available subagent types:
 Use Agent when:
 - The task is independent enough to run in parallel.
 - The work would require broad search or reading many files, so would benefit from running in its own context to avoid cluttering the main context window.
-- Multiple agents need to carry out mutating work in parallel; use isolated worktrees so their changes do not race in the same working copy.
+- Multiple agents need to carry out mutating work in parallel; use GeneralPurpose subagents, which isolate their changes in a per-agent worktree so they do not race in the same working copy.
 - The intermediate search output is not worth keeping in the parent context.
 
 Do not use Agent when:
@@ -47,7 +46,7 @@ Prompting rules:
 - Provide a complete brief in the prompt. Fresh subagents do not know what the parent has tried unless you include it.
 - Include relevant file paths, constraints, and expected output shape.
 - Provide the child everything it needs in the prompt; it does not inherit the parent conversation.
-- Use isolation: "worktree" for write-capable GeneralPurpose work; this is also the default for GeneralPurpose.
+- GeneralPurpose subagents are write-capable and always run in an isolated worktree; Explore and Plan are read-only.
 - If launching multiple independent agents, issue the Agent tool calls in the same model step where possible.
 - Do not predict or fabricate subagent results. Wait for the task notification.
 - When a notification arrives, summarize the result to the user or act on it in the next parent turn.`
@@ -71,7 +70,6 @@ export const Agent = defineTool({
           prompt: input.prompt,
           agentType,
           ...(input.taskId !== undefined && { taskId: input.taskId }),
-          ...(input.isolation !== undefined && { isolation: input.isolation }),
         },
         parent,
       )

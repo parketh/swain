@@ -68,7 +68,6 @@ export interface SpawnInput {
   readonly prompt: string
   readonly agentType: AgentType
   readonly taskId?: string
-  readonly isolation?: "worktree"
 }
 
 export interface SpawnResult {

@@ -135,7 +135,7 @@ describe("assembleSystemPrompt", () => {
     expect(AGENT_DESCRIPTION).toContain("Available subagent types")
     expect(AGENT_DESCRIPTION).toContain("Explore")
     expect(AGENT_DESCRIPTION).toContain("GeneralPurpose")
-    expect(AGENT_DESCRIPTION).toContain('isolation: "worktree"')
+    expect(AGENT_DESCRIPTION).toContain("isolated worktree")
     expect(AGENT_DESCRIPTION).toContain("does not inherit the parent conversation")
     expect(AGENT_DESCRIPTION).toContain("Wait for the task notification")
   })
