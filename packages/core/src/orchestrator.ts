@@ -276,8 +276,16 @@ export const makeOrchestrator = (config: OrchestratorConfig = {}): Effect.Effect
                 }
               : {}
           // Durable-before-visible: persist the result, then ring the doorbell.
+          // A persist failure is logged, never swallowed — the in-memory result
+          // is already committed (so the parent is still notified this session),
+          // but the durable record may be stale and trigger re-delegation on the
+          // next start, which is worth surfacing.
+          const logPersistFailure = (error: unknown): Effect.Effect<void> =>
+            Effect.logError(`Failed to persist result of task ${taskId}: ${errorMessage(error)}`)
           if (outcome.ok) {
-            yield* completeTask(taskId, outcome.result, worktreeFields).pipe(Effect.ignore)
+            yield* completeTask(taskId, outcome.result, worktreeFields).pipe(
+              Effect.catchAll(logPersistFailure),
+            )
             yield* emitEvent({
               type: "subagent-complete",
               agentId,
@@ -287,7 +295,9 @@ export const makeOrchestrator = (config: OrchestratorConfig = {}): Effect.Effect
                 cleanup.path !== undefined && { worktreePath: cleanup.path }),
             })
           } else {
-            yield* failTask(taskId, outcome.error, worktreeFields).pipe(Effect.ignore)
+            yield* failTask(taskId, outcome.error, worktreeFields).pipe(
+              Effect.catchAll(logPersistFailure),
+            )
             yield* emitEvent({ type: "subagent-failed", agentId, taskId, error: outcome.error })
           }
           yield* Queue.offer(completions, undefined)
