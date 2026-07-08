@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { type AgentEvent, createSessionState } from "@swain/core"
+import { type AgentEvent, createSessionState, type Task } from "@swain/core"
 import type { LLMEvent, Model } from "@swain/llms"
 import { ContentId, ModelId, ProviderId, ToolCallId } from "@swain/llms"
 import { LLMClient } from "@swain/llms/client"
@@ -302,6 +302,34 @@ describe("components", () => {
     expect(frame).toContain("1 done")
     expect(frame).toContain("running one")
     expect(frame).toContain("[Explore]")
+  })
+
+  test("TaskList resolves blockedBy against a delegated dep excluded from tasks", () => {
+    const base = { description: "d", createdAt: "t", updatedAt: "t" }
+    // Parent task depends on a delegated (owner-set) task not present in `tasks`.
+    const parent: Task = {
+      ...base,
+      id: "p",
+      subject: "parent",
+      status: "pending",
+      agentType: "GeneralPurpose",
+      blockedBy: ["dep"],
+    }
+    const doneDep: Task = {
+      ...base,
+      id: "dep",
+      subject: "dep",
+      status: "completed",
+      owner: "agent-1",
+      blockedBy: [],
+    }
+    // Without allTasks, the dep is unknown and the parent renders blocked forever.
+    const blockedFrame = render(<TaskList tasks={[parent]} />).lastFrame() ?? ""
+    expect(blockedFrame).toContain("blocked")
+    // With the full set, the completed dep clears the block.
+    const clearedFrame =
+      render(<TaskList tasks={[parent]} allTasks={[parent, doneDep]} />).lastFrame() ?? ""
+    expect(clearedFrame).not.toContain("blocked")
   })
 
   test("SubagentMonitor lists running agents with elapsed time and last tool", () => {

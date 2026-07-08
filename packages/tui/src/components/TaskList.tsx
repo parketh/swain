@@ -1,9 +1,12 @@
-import type { Task, TaskStatus } from "@swain/core"
+import { blockingDeps, type Task, type TaskStatus } from "@swain/core"
 import { Box, Text } from "ink"
 import { theme } from "../theme"
 
 export interface TaskListProps {
   readonly tasks: ReadonlyArray<Task>
+  /** All tasks, used to resolve `blockedBy` dependencies that may point at
+   * delegated (owner-set) tasks excluded from `tasks`. Defaults to `tasks`. */
+  readonly allTasks?: ReadonlyArray<Task>
   /** Maximum task rows to show; the rest are summarized in the header count. */
   readonly limit?: number
 }
@@ -23,7 +26,7 @@ const STATUS_COLOR: Record<TaskStatus, string> = {
 }
 
 const isBlocked = (task: Task, byId: ReadonlyMap<string, Task>): boolean =>
-  task.status === "pending" && task.blockedBy.some((id) => byId.get(id)?.status !== "completed")
+  task.status === "pending" && blockingDeps(task, byId).length > 0
 
 // In-progress first, then unblocked pending, then blocked pending, then recently
 // finished — the order the user most wants to see at a glance.
@@ -33,9 +36,9 @@ const priority = (task: Task, byId: ReadonlyMap<string, Task>): number => {
   return 3
 }
 
-export const TaskList = ({ tasks, limit = 6 }: TaskListProps) => {
+export const TaskList = ({ tasks, allTasks = tasks, limit = 6 }: TaskListProps) => {
   if (tasks.length === 0) return null
-  const byId = new Map(tasks.map((t) => [t.id, t]))
+  const byId = new Map(allTasks.map((t) => [t.id, t]))
   const counts = {
     completed: tasks.filter((t) => t.status === "completed").length,
     in_progress: tasks.filter((t) => t.status === "in_progress").length,
