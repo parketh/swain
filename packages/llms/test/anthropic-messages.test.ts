@@ -78,6 +78,7 @@ describe("AnthropicMessages.prepare", () => {
       tools: [lookup],
       toolChoice: "auto",
       generation: GenerationOptions.make({ maxTokens: 512, stop: ["END"] }),
+      providerOptions: { anthropic: { caching: false } },
     })
 
     expect(path).toBe("/messages")
@@ -140,6 +141,7 @@ describe("AnthropicMessages.prepare", () => {
         ]),
       ],
       toolChoice: { type: "tool", name: "lookup" },
+      providerOptions: { anthropic: { caching: false } },
     })
     expect(body.messages).toEqual([
       {
@@ -148,6 +150,46 @@ describe("AnthropicMessages.prepare", () => {
       },
     ])
     expect(body.tool_choice).toEqual({ type: "tool", name: "lookup" })
+  })
+
+  test("adds ephemeral cache_control breakpoints on tools, system, and the last message by default", () => {
+    const lookup = Tool.define({
+      name: "lookup",
+      description: "Look up a value",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    })
+    const { body } = prepareSync({
+      modelId: "claude-sonnet-4-5",
+      system: SystemContent.text("You are helpful."),
+      messages: [Message.user("What is bun?")],
+      tools: [lookup],
+    })
+    const ephemeral = { type: "ephemeral" }
+    // System is lowered to a content-block array carrying the breakpoint.
+    expect(body.system).toEqual([
+      { type: "text", text: "You are helpful.", cache_control: ephemeral },
+    ])
+    // The last (only) tool carries a breakpoint, caching the whole tool block.
+    const tools = body.tools as ReadonlyArray<Record<string, unknown>>
+    expect(tools.at(-1)?.cache_control).toEqual(ephemeral)
+    // The last content block of the last message carries a breakpoint.
+    const messages = body.messages as ReadonlyArray<{ content: ReadonlyArray<unknown> }>
+    expect(messages.at(-1)?.content.at(-1)).toEqual({
+      type: "text",
+      text: "What is bun?",
+      cache_control: ephemeral,
+    })
+  })
+
+  test("omits cache_control when caching is disabled", () => {
+    const { body } = prepareSync({
+      modelId: "m",
+      system: SystemContent.text("sys"),
+      messages: [Message.user("hi")],
+      providerOptions: { anthropic: { caching: false } },
+    })
+    expect(body.system).toBe("sys")
+    expect(JSON.stringify(body)).not.toContain("cache_control")
   })
 
   test("max_tokens defaults when the request carries none", () => {

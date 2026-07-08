@@ -46,6 +46,35 @@ export interface AnthropicOptions {
   readonly temperature?: number
   readonly topP?: number
   readonly topK?: number
+  /**
+   * Enable prompt caching via `cache_control: { type: "ephemeral" }` breakpoints
+   * on the tools, system prompt, and the final message. Defaults to `true`;
+   * Anthropic ignores breakpoints below the minimum cacheable size, so this is
+   * safe to leave on. Set `false` to opt out.
+   */
+  readonly caching?: boolean
+}
+
+const EPHEMERAL = { type: "ephemeral" } as const
+
+const withCacheControl = (block: Record<string, unknown>): Record<string, unknown> => ({
+  ...block,
+  cache_control: EPHEMERAL,
+})
+
+/** Adds a cache breakpoint on the last content block of the last message. */
+const markLastMessage = (
+  messages: ReadonlyArray<Record<string, unknown>>,
+): Array<Record<string, unknown>> => {
+  if (messages.length === 0) return [...messages]
+  const last = messages[messages.length - 1]
+  const content = last?.content
+  if (last === undefined || !Array.isArray(content) || content.length === 0) return [...messages]
+  const cachedContent = [
+    ...content.slice(0, -1),
+    withCacheControl(content[content.length - 1] as Record<string, unknown>),
+  ]
+  return [...messages.slice(0, -1), { ...last, content: cachedContent }]
 }
 
 export interface PreparedAnthropicRequest {
@@ -161,33 +190,52 @@ const prepare = (
   config: AnthropicMessagesConfig = {},
 ): Effect.Effect<PreparedAnthropicRequest, LLMError> => {
   const options = (request.providerOptions?.anthropic ?? {}) as AnthropicOptions
+  const caching = options.caching !== false
   return lowerMessages(request.messages).pipe(
-    Effect.map((messages) => ({
-      path: ANTHROPIC_MESSAGES_PATH,
-      headers: {
-        "anthropic-version": ANTHROPIC_VERSION,
-        "content-type": "application/json",
-      },
-      body: {
-        model: request.modelId,
-        messages,
-        stream: true,
-        max_tokens: request.generation?.maxTokens ?? config.defaultMaxTokens ?? DEFAULT_MAX_TOKENS,
-        ...(request.system !== undefined ? { system: request.system.text } : {}),
-        ...(request.tools !== undefined && request.tools.length > 0
-          ? { tools: request.tools.map(lowerTool) }
-          : {}),
-        ...(request.toolChoice !== undefined
-          ? { tool_choice: lowerToolChoice(request.toolChoice) }
-          : {}),
-        ...(request.generation?.stop !== undefined
-          ? { stop_sequences: [...request.generation.stop] }
-          : {}),
-        ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
-        ...(options.topP !== undefined ? { top_p: options.topP } : {}),
-        ...(options.topK !== undefined ? { top_k: options.topK } : {}),
-      },
-    })),
+    Effect.map((lowered) => {
+      const messages = caching ? markLastMessage(lowered) : lowered
+      const baseTools =
+        request.tools !== undefined && request.tools.length > 0
+          ? request.tools.map(lowerTool)
+          : undefined
+      // A breakpoint on the last tool caches the whole tool block; the system
+      // block and final message add two more, staying within Anthropic's limit.
+      const tools =
+        caching && baseTools !== undefined
+          ? [...baseTools.slice(0, -1), withCacheControl(baseTools[baseTools.length - 1]!)]
+          : baseTools
+      const system =
+        request.system === undefined
+          ? undefined
+          : caching
+            ? [withCacheControl({ type: "text", text: request.system.text })]
+            : request.system.text
+      return {
+        path: ANTHROPIC_MESSAGES_PATH,
+        headers: {
+          "anthropic-version": ANTHROPIC_VERSION,
+          "content-type": "application/json",
+        },
+        body: {
+          model: request.modelId,
+          messages,
+          stream: true,
+          max_tokens:
+            request.generation?.maxTokens ?? config.defaultMaxTokens ?? DEFAULT_MAX_TOKENS,
+          ...(system !== undefined ? { system } : {}),
+          ...(tools !== undefined ? { tools } : {}),
+          ...(request.toolChoice !== undefined
+            ? { tool_choice: lowerToolChoice(request.toolChoice) }
+            : {}),
+          ...(request.generation?.stop !== undefined
+            ? { stop_sequences: [...request.generation.stop] }
+            : {}),
+          ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
+          ...(options.topP !== undefined ? { top_p: options.topP } : {}),
+          ...(options.topK !== undefined ? { top_k: options.topK } : {}),
+        },
+      }
+    }),
   )
 }
 
