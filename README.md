@@ -62,6 +62,20 @@ pick the active model, `/plan` switches to plan mode, `/usage` shows counters,
 `/clear` starts a fresh session, and `/resume` reopens a saved one. Shift-Tab
 cycles the permission mode (`ask → auto → plan`).
 
+## Tasks and subagents
+
+The agent keeps a persisted per-session task list (its own to-do list) and can
+delegate work to non-blocking subagents. Session metadata, transcript, and the
+task graph (`tasks.json`) are stored under
+`${XDG_CONFIG_HOME:-~/.config}/swain/sessions/<project-slug>/<session-id>/`.
+
+Subagents run in their own context and report only a final result, injected back
+into the parent between turns as a task notification. Three built-in types are
+available: `Explore` and `Plan` are read-only; `GeneralPurpose` may implement
+changes, but only inside an isolated git worktree — v1 subagents never mutate the
+parent working tree directly. A retained worktree (one the child left changes in)
+is surfaced on the task and never auto-deleted.
+
 Provider credentials are stored (mode `0600`) in a global
 `${XDG_CONFIG_HOME:-~/.config}/swain/auth.json`, kept separate from the
 secret-free `config.json` (active model and settings) so the config file is safe

@@ -20,6 +20,7 @@ import type { Permissions } from "../src/permission"
 import { assembleSystemPrompt } from "../src/prompt"
 import { createSessionState, loadSession, type SessionState, saveSession } from "../src/state"
 import {
+  AGENT_DESCRIPTION,
   Ask,
   AskService,
   callTool,
@@ -104,6 +105,39 @@ describe("assembleSystemPrompt", () => {
     expect(assembleSystemPrompt(baseInput)).not.toBe(
       assembleSystemPrompt({ ...baseInput, tools: [baseInput.tools[0]!] }),
     )
+  })
+
+  test("includes task to-do guidance and the Agent reminder only when those tools are present", () => {
+    const withTaskAndAgent = assembleSystemPrompt({
+      ...baseInput,
+      tools: [
+        { name: "TaskCreate", description: "add a task" },
+        { name: "Agent", description: "spawn a subagent" },
+      ],
+    })
+    expect(withTaskAndAgent).toContain("task list")
+    expect(withTaskAndAgent).toContain("to-do list")
+    expect(withTaskAndAgent).toContain("Use Agent for independent exploration")
+
+    // A child registry (no Agent, no Task* tools) must not carry that guidance.
+    const childPrompt = assembleSystemPrompt({
+      ...baseInput,
+      tools: [
+        { name: "Read", description: "read a file" },
+        { name: "Grep", description: "search" },
+      ],
+    })
+    expect(childPrompt).not.toContain("Use Agent for independent exploration")
+    expect(childPrompt).not.toContain("to-do list")
+  })
+
+  test("Agent tool description carries the detailed subagent usage guidance", () => {
+    expect(AGENT_DESCRIPTION).toContain("Available subagent types")
+    expect(AGENT_DESCRIPTION).toContain("Explore")
+    expect(AGENT_DESCRIPTION).toContain("GeneralPurpose")
+    expect(AGENT_DESCRIPTION).toContain("isolated worktree")
+    expect(AGENT_DESCRIPTION).toContain("does not inherit the parent conversation")
+    expect(AGENT_DESCRIPTION).toContain("Wait for the task notification")
   })
 })
 
@@ -391,6 +425,35 @@ describe("runTurn", () => {
     await run
     expect(state.messages).toHaveLength(2)
     expect(state.messages[1]).toMatchObject({ role: "assistant" })
+  })
+
+  test("withholds tools on the final iteration so the model concludes gracefully", async () => {
+    // A tool-aware client: it keeps calling a tool whenever tools are offered,
+    // and produces final text when they are withheld (the last iteration).
+    const toolAwareLLM = Layer.succeed(LLMClient.Service, {
+      request: LLMClient.request,
+      streamTurn: (request: Parameters<typeof LLMClient.streamTurn>[0]) =>
+        Stream.fromIterable(
+          request.tools !== undefined && request.tools.length > 0
+            ? toolCallTurn("Echo", { msg: "again" })
+            : textTurn("final answer"),
+        ),
+      generateTurn: () => Effect.succeed({ events: [] }),
+    })
+    const state = session()
+    submitPrompt(state, "hi")
+    await Effect.runPromise(
+      runTurn(state, { maxIterations: 3 }).pipe(
+        Effect.provide(toolAwareLLM),
+        Effect.provide(toolContextLayer(state)),
+        Effect.provide(toolRegistryLayer([echo])),
+      ),
+    )
+    // No max-iterations failure: the turn ends with the model's final text.
+    expect(state.messages.at(-1)).toEqual({
+      role: "assistant",
+      content: [{ type: "text", text: "final answer" }],
+    })
   })
 
   test("fails with a typed error when the tool loop never terminates", async () => {

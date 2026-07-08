@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { type AgentEvent, createSessionState } from "@swain/core"
+import { type AgentEvent, createSessionState, type Task } from "@swain/core"
 import type { LLMEvent, Model } from "@swain/llms"
 import { ContentId, ModelId, ProviderId, ToolCallId } from "@swain/llms"
 import { LLMClient } from "@swain/llms/client"
@@ -13,8 +13,17 @@ import { CommandOverlay, filterCommands } from "../src/components/CommandOverlay
 import { ListSelect } from "../src/components/ListSelect"
 import { nextWord, PromptInput, prevWord, promptSegments } from "../src/components/PromptInput"
 import { QuestionPrompt } from "../src/components/QuestionPrompt"
-import { foldEvents } from "../src/components/Transcript"
+import { SubagentMonitor } from "../src/components/SubagentMonitor"
+import { TaskList } from "../src/components/TaskList"
+import {
+  buildItems,
+  collapseItems,
+  foldEvents,
+  groupSummary,
+  isHiddenTool,
+} from "../src/components/Transcript"
 import type { TuiConfig } from "../src/config"
+import { sessionsDir } from "../src/config"
 import { type Controller, makeController } from "../src/controller"
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 25))
@@ -90,6 +99,187 @@ describe("pure helpers", () => {
     ])
     expect(done.tools[0]?.done).toBe(true)
   })
+
+  test("foldEvents resets the draft at each step boundary so iterations don't concatenate", () => {
+    const state = foldEvents([
+      { type: "step-start", iteration: 0 },
+      { type: "llm-event", event: { type: "text-delta", contentId, text: "first" } },
+      { type: "step-start", iteration: 1 },
+      { type: "llm-event", event: { type: "text-delta", contentId, text: "second" } },
+    ])
+    expect(state.assistant).toBe("second")
+  })
+
+  test("foldEvents clears streamed text at step-end, when it is persisted to messages", () => {
+    const state = foldEvents([
+      { type: "step-start", iteration: 0 },
+      { type: "llm-event", event: { type: "text-delta", contentId, text: "final answer" } },
+      { type: "step-end", iteration: 0, reason: "stop" },
+    ])
+    expect(state.assistant).toBe("")
+    expect(state.reasoning).toBe("")
+  })
+
+  test("buildItems renders one row per tool: draft while unresolved, persisted once resolved", () => {
+    const row = {
+      toolCallId: "x",
+      name: "Bash",
+      input: { command: "ls" },
+      output: "live",
+      done: false,
+      isError: false,
+    }
+    const call = {
+      role: "assistant",
+      content: [{ type: "tool-call", toolCallId: "x", name: "Bash", input: { command: "ls" } }],
+    }
+    const result = {
+      role: "user",
+      content: [
+        { type: "tool-result", toolCallId: "x", name: "Bash", result: { value: { exitCode: 0 } } },
+      ],
+    }
+    const draft = { assistant: "", reasoning: "", tools: [row], errors: [] }
+    const empty = { assistant: "", reasoning: "", tools: [], errors: [] }
+    // In flight: only the live draft row (persisted call has no result yet).
+    // biome-ignore lint/suspicious/noExplicitAny: opaque message fixtures
+    const inFlight = buildItems([call] as any, draft).filter((i) => i.kind === "tool")
+    expect(inFlight).toHaveLength(1)
+    expect(inFlight[0]?.kind === "tool" && inFlight[0].done).toBe(false)
+    // Resolved but draft not yet cleared: only the persisted row.
+    // biome-ignore lint/suspicious/noExplicitAny: opaque message fixtures
+    const resolved = buildItems([call, result] as any, {
+      ...empty,
+      tools: [{ ...row, done: true }],
+    }).filter((i) => i.kind === "tool")
+    expect(resolved).toHaveLength(1)
+    expect(resolved[0]?.kind === "tool" && resolved[0].done).toBe(true)
+    // Draft cleared (next step): still exactly the persisted row.
+    // biome-ignore lint/suspicious/noExplicitAny: opaque message fixtures
+    expect(buildItems([call, result] as any, empty).filter((i) => i.kind === "tool")).toHaveLength(
+      1,
+    )
+  })
+
+  test("buildItems renders an isMeta task-notification message as a system notification", () => {
+    const draft = { assistant: "", reasoning: "", tools: [], errors: [] }
+    const messages = [
+      { role: "user", content: [{ type: "text", text: "hi" }] },
+      {
+        role: "user",
+        isMeta: true,
+        content: [
+          {
+            type: "text",
+            text: '<task-notification>\nSubagent "Find X" [Explore] completed:\nthe report\n</task-notification>',
+          },
+        ],
+      },
+      // biome-ignore lint/suspicious/noExplicitAny: opaque message fixtures
+    ] as any
+    const items = buildItems(messages, draft)
+    expect(items[0]).toMatchObject({ kind: "text", role: "user" })
+    expect(items[1]?.kind).toBe("notification")
+    const note = items[1]
+    expect(note?.kind === "notification" && note.text).toContain("the report")
+    expect(note?.kind === "notification" && note.text).not.toContain("<task-notification>")
+  })
+
+  test("buildItems does not misclassify a user-typed message starting with the tag", () => {
+    const draft = { assistant: "", reasoning: "", tools: [], errors: [] }
+    // Same content prefix, but no isMeta — this is genuine user input.
+    const messages = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "<task-notification> is the tag I mean" }],
+      },
+      // biome-ignore lint/suspicious/noExplicitAny: opaque message fixtures
+    ] as any
+    const items = buildItems(messages, draft)
+    expect(items[0]).toMatchObject({ kind: "text", role: "user" })
+  })
+
+  test("groupSummary renders tense-aware read/search roll-ups", () => {
+    expect(groupSummary(3, 0, false)).toBe("Read 3 files")
+    expect(groupSummary(0, 1, false)).toBe("Searched for 1 pattern")
+    expect(groupSummary(2, 2, false)).toBe("Searched for 2 patterns, read 2 files")
+    expect(groupSummary(1, 0, true)).toBe("Reading 1 file…")
+  })
+
+  test("collapseItems folds consecutive read/search tools but keeps singles and other tools", () => {
+    const draft = { assistant: "", reasoning: "", tools: [], errors: [] }
+    const messages = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool-call", toolCallId: "1", name: "Grep", input: {} },
+          { type: "tool-call", toolCallId: "2", name: "Read", input: {} },
+          { type: "tool-call", toolCallId: "3", name: "Read", input: {} },
+          { type: "tool-call", toolCallId: "4", name: "Bash", input: { command: "ls" } },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "1",
+            name: "Grep",
+            result: { value: { matches: [] } },
+          },
+          {
+            type: "tool-result",
+            toolCallId: "2",
+            name: "Read",
+            result: { value: { totalLines: 5 } },
+          },
+          {
+            type: "tool-result",
+            toolCallId: "3",
+            name: "Read",
+            result: { value: { totalLines: 9 } },
+          },
+          {
+            type: "tool-result",
+            toolCallId: "4",
+            name: "Bash",
+            result: { value: { exitCode: 0, stdout: "x" } },
+          },
+        ],
+      },
+      // biome-ignore lint/suspicious/noExplicitAny: opaque message fixtures
+    ] as any
+    const nodes = collapseItems(buildItems(messages, draft))
+    expect(nodes.map((n) => n.kind)).toEqual(["text", "group", "tool"])
+    const group = nodes[1]
+    expect(group?.kind === "group" && group.reads).toBe(2)
+    expect(group?.kind === "group" && group.searches).toBe(1)
+    expect(group?.kind === "group" && group.active).toBe(false)
+  })
+
+  test("buildItems hides task tools; a group with an in-flight draft read is active", () => {
+    const draft = {
+      assistant: "",
+      reasoning: "",
+      tools: [
+        { toolCallId: "a", name: "Read", input: {}, output: "", done: true, isError: false },
+        { toolCallId: "b", name: "Read", input: {}, output: "", done: false, isError: false },
+      ],
+      errors: [],
+    }
+    const messages = [
+      {
+        role: "assistant",
+        content: [{ type: "tool-call", toolCallId: "t", name: "TaskUpdate", input: {} }],
+      },
+      // biome-ignore lint/suspicious/noExplicitAny: opaque message fixtures
+    ] as any
+    const items = buildItems(messages, draft)
+    expect(items.some((i) => i.kind === "tool" && i.name === "TaskUpdate")).toBe(false)
+    const group = collapseItems(items).find((n) => n.kind === "group")
+    expect(group?.kind === "group" && group.active).toBe(true)
+  })
 })
 
 describe("components", () => {
@@ -108,6 +298,92 @@ describe("components", () => {
     // to collapse, hiding second/subsequent Shift+Enter newlines).
     const gapped = clean(render(<PromptInput value={"a\n\nb"} cursor={3} />).lastFrame())
     expect(gapped.split("\n").length).toBe(3)
+  })
+
+  test("TaskList summarizes counts and lists prioritized tasks with agent type", () => {
+    const base = { description: "d", blockedBy: [], createdAt: "t", updatedAt: "t" }
+    const { lastFrame } = render(
+      <TaskList
+        tasks={[
+          { ...base, id: "1", subject: "running one", status: "in_progress", agentType: "Explore" },
+          { ...base, id: "2", subject: "todo one", status: "pending" },
+          { ...base, id: "3", subject: "done one", status: "completed" },
+        ]}
+      />,
+    )
+    const frame = lastFrame() ?? ""
+    expect(frame).toContain("1 running")
+    expect(frame).toContain("1 pending")
+    expect(frame).toContain("1 done")
+    expect(frame).toContain("running one")
+    expect(frame).toContain("[Explore]")
+  })
+
+  test("TaskList resolves blockedBy against a delegated dep excluded from tasks", () => {
+    const base = { description: "d", createdAt: "t", updatedAt: "t" }
+    // Parent task depends on a delegated (owner-set) task not present in `tasks`.
+    const parent: Task = {
+      ...base,
+      id: "p",
+      subject: "parent",
+      status: "pending",
+      agentType: "GeneralPurpose",
+      blockedBy: ["dep"],
+    }
+    const doneDep: Task = {
+      ...base,
+      id: "dep",
+      subject: "dep",
+      status: "completed",
+      owner: "agent-1",
+      blockedBy: [],
+    }
+    // Without allTasks, the dep is unknown and the parent renders blocked forever.
+    const blockedFrame = render(<TaskList tasks={[parent]} />).lastFrame() ?? ""
+    expect(blockedFrame).toContain("blocked")
+    // With the full set, the completed dep clears the block.
+    const clearedFrame =
+      render(<TaskList tasks={[parent]} allTasks={[parent, doneDep]} />).lastFrame() ?? ""
+    expect(clearedFrame).not.toContain("blocked")
+  })
+
+  test("SubagentMonitor lists running agents with elapsed time and last tool", () => {
+    const { lastFrame } = render(
+      <SubagentMonitor
+        now={10_000}
+        agents={[
+          {
+            agentId: "d2d540df1234",
+            agentType: "Explore",
+            description: "find X",
+            startedAt: 4000,
+            toolUseCount: 3,
+            lastTool: "Grep",
+          },
+          {
+            agentId: "7b42a0f5abcd",
+            agentType: "Plan",
+            description: "plan Y",
+            startedAt: 9000,
+            toolUseCount: 0,
+          },
+        ]}
+      />,
+    )
+    const frame = lastFrame() ?? ""
+    expect(frame).toContain("Subagents: 2 running")
+    expect(frame).toContain("Explore")
+    expect(frame).toContain("(d2d540df)")
+    expect(frame).toContain("6s")
+    expect(frame).toContain("Grep")
+    expect(frame).toContain("Plan")
+  })
+
+  test("isHiddenTool hides task tools but not others", () => {
+    expect(isHiddenTool("TaskCreate")).toBe(true)
+    expect(isHiddenTool("TaskUpdate")).toBe(true)
+    expect(isHiddenTool("Bash")).toBe(false)
+    expect(isHiddenTool(undefined)).toBe(false)
   })
 
   test("ListSelect filters by query and selects the highlighted item on Enter", () => {
@@ -238,6 +514,45 @@ describe("App", () => {
     built.push(controller)
     return controller
   }
+
+  test("renders the task panel from the loaded task store", async () => {
+    const session = createSessionState({
+      workingDirectory: dir,
+      model: testModel,
+      permissionMode: "ask",
+      currentDate: "2026-07-05",
+    })
+    const tdir = join(sessionsDir(join(dir, "config.json"), dir), session.sessionId)
+    mkdirSync(tdir, { recursive: true })
+    writeFileSync(
+      join(tdir, "tasks.json"),
+      JSON.stringify([
+        {
+          id: "t1",
+          subject: "investigate the bug",
+          description: "d",
+          status: "in_progress",
+          agentType: "Explore",
+          blockedBy: [],
+          createdAt: "2026-07-08T00:00:00.000Z",
+          updatedAt: "2026-07-08T00:00:00.000Z",
+        },
+      ]),
+    )
+    const c = makeController({
+      session,
+      activeModel: { provider: "anthropic", modelId: "claude-sonnet-5" },
+      config,
+      configPath: join(dir, "config.json"),
+      llmLayer: scripted([[]]),
+      persist: false,
+    })
+    built.push(c)
+    const { lastFrame } = render(<App controller={c} />)
+    await flush()
+    await flush()
+    expect(clean(lastFrame() ?? "")).toContain("investigate the bug")
+  })
 
   test("renders the status line and an empty prompt", () => {
     const { lastFrame } = render(<App controller={makeCtrl()} />)

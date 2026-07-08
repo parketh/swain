@@ -22,6 +22,14 @@ export interface OpenAIChatOptions {
   readonly temperature?: number
   readonly topP?: number
   readonly seed?: number
+  /**
+   * Explicit prompt-cache routing key sent as `prompt_cache_key`. OpenAI-style
+   * prompt caching is unconditionally automatic (there is no enable flag); this
+   * only pins requests that share a prefix to the same cache for higher hit
+   * rates. Opt-in: only sent when set, since some compatible backends
+   * (DeepSeek, Z.AI) reject unknown parameters.
+   */
+  readonly promptCacheKey?: string
 }
 
 export interface OpenAIChatRequest {
@@ -134,6 +142,7 @@ const prepare = (
     ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
     ...(options.topP !== undefined ? { top_p: options.topP } : {}),
     ...(options.seed !== undefined ? { seed: options.seed } : {}),
+    ...(options.promptCacheKey !== undefined ? { prompt_cache_key: options.promptCacheKey } : {}),
   }
   return { path: OPENAI_CHAT_PATH, body }
 }

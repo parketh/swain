@@ -15,6 +15,8 @@ import {
 import { makeController, type RequestOptions } from "./controller"
 import { historyPath, loadHistory } from "./history"
 import { availableModels, resolveModelSelection } from "./models"
+import { queryTerminalBackground } from "./terminalBackground"
+import { applyTerminalBackground } from "./theme"
 
 export { App, type StartOptions, startApp } from "./app"
 export type { AppProps } from "./components/App"
@@ -165,6 +167,9 @@ export const run = async (options: RunOptions = {}): Promise<void> => {
   })
 
   if (flags.resume !== undefined) await controller.resumeSession(flags.resume)
+
+  const background = await queryTerminalBackground()
+  if (background !== undefined) applyTerminalBackground(background)
 
   startApp({ controller })
 }

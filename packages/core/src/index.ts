@@ -1,6 +1,18 @@
 export { type AgentEvent, type RunTurnOptions, runTurn, submitPrompt } from "./agent"
 export { AgentError, ToolError, type ToolErrorReason } from "./errors"
 export {
+  type ChildRunContext,
+  type ChildRunner,
+  makeOrchestrator,
+  type Orchestrator,
+  type OrchestratorConfig,
+  OrchestratorService,
+  type ParentRunContext,
+  type SpawnInput,
+  type SpawnResult,
+  type SubagentEvent,
+} from "./orchestrator"
+export {
   type Approval,
   ApprovalService,
   allow,
@@ -25,3 +37,40 @@ export {
   type SystemContext,
   saveSession,
 } from "./state"
+export {
+  type ChildRegistryOptions,
+  EXPLORE,
+  GENERAL_PURPOSE,
+  getSubagentDefinition,
+  makeChildToolRegistry,
+  PLAN,
+  removeTaskWorktrees,
+  type SubagentDefinition,
+  subagentDefinitions,
+} from "./subagents"
+export {
+  type AgentType,
+  blockingDeps,
+  type ClaimTaskInput,
+  type CreateTaskInput,
+  claimTask,
+  completeTask,
+  createTask,
+  type FinishTaskInput,
+  failTask,
+  getTask,
+  listTasks,
+  loadTaskStore,
+  markParentNotified,
+  pendingParentNotifications,
+  resetDanglingTasks,
+  type Task,
+  TaskError,
+  type TaskErrorReason,
+  type TaskStatus,
+  TaskStore,
+  type TaskStoreService,
+  taskStoreLayer,
+  type UpdateTaskInput,
+  updateTask,
+} from "./tasks"

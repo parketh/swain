@@ -5,6 +5,7 @@ import { parseCommand } from "../commands"
 import type { ProviderConfig } from "../config"
 import type { Controller, PendingApproval, PendingQuestion } from "../controller"
 import { detectFileToken, type FileMatch, replaceToken, searchFiles } from "../fs"
+import { parseMouseEvents } from "../mouse"
 import { theme } from "../theme"
 import { CommandOverlay, filterCommands } from "./CommandOverlay"
 import { ConnectDialog } from "./ConnectDialog"
@@ -17,6 +18,8 @@ import { QuestionPrompt, type QuestionPromptAnswer } from "./QuestionPrompt"
 import { ResumePicker } from "./ResumePicker"
 import { Spinner } from "./Spinner"
 import { StatusLine } from "./StatusLine"
+import { SubagentMonitor } from "./SubagentMonitor"
+import { TaskList } from "./TaskList"
 import { type DraftState, emptyDraft, foldEvent, Transcript } from "./Transcript"
 import { useTerminalSize } from "./useTerminalSize"
 import { VariantPicker } from "./VariantPicker"
@@ -116,7 +119,26 @@ export const App = ({ controller }: AppProps) => {
     }
   }, [controller])
 
+  // While subagents run, tick once a second so their elapsed-time display stays
+  // live even though no events are arriving.
+  const runningAgents = controller.getSubagents().length
+  useEffect(() => {
+    if (runningAgents === 0) return
+    const id = setInterval(forceRender, 1000)
+    return () => clearInterval(id)
+  }, [runningAgents])
+
   const state = controller.getState()
+  // The task panel shows only the parent's own to-do items; delegated tasks
+  // (owner set) belong to a subagent and appear in the subagent monitor instead.
+  const allTasks = controller.getTasks()
+  const tasks = allTasks.filter((t) => t.owner === undefined)
+  const subagents = controller.getSubagents()
+  // Show the task panel only while there is outstanding work; once everything is
+  // completed/failed it collapses (tasks stay persisted for resume/history).
+  const hasOutstandingTasks = tasks.some(
+    (t) => t.status === "pending" || t.status === "in_progress",
+  )
   const cwd = state.session.workingDirectory
   const commandMode = isCommandToken(value)
   const commandMatches = commandMode ? filterCommands(value.slice(1)) : []
@@ -299,15 +321,14 @@ export const App = ({ controller }: AppProps) => {
   useInput(
     (input, key) => {
       debugKey(input, key as unknown as Record<string, unknown>)
-      // Mouse events (SGR-encoded `[<b;x;y[Mm]`, ESC already stripped by Ink):
-      // scroll the transcript on wheel and swallow the rest so no sequence leaks
-      // into the prompt. Button bit 64 marks a wheel event; low bit is direction.
-      const wheel = [...input.matchAll(/\[<(\d+);\d+;\d+[Mm]/g)]
-      if (wheel.length > 0) {
+      // Mouse events: scroll the transcript on wheel and swallow the rest so no
+      // sequence leaks into the prompt. Button bit 64 marks a wheel event; low
+      // bit is direction.
+      const mouse = parseMouseEvents(input)
+      if (mouse.length > 0) {
         let delta = 0
-        for (const m of wheel) {
-          const b = Number(m[1])
-          if (b & 64) delta += (b & 1) === 0 ? 1 : -1
+        for (const m of mouse) {
+          if (m.button & 64) delta += (m.button & 1) === 0 ? 1 : -1
         }
         if (delta !== 0) scrollBy(delta * 3)
         return
@@ -562,11 +583,30 @@ export const App = ({ controller }: AppProps) => {
       </Box>
       {/* Pinned bottom: the prompt + status stay in flow, while any overlay is
           absolutely positioned to float directly above them — drawn on top of
-          the conversation instead of pushing it up. */}
-      <Box flexDirection="column" flexShrink={0}>
+          the conversation instead of pushing it up. `marginTop` keeps one blank
+          line between the conversation and the status/prompt cluster. */}
+      <Box flexDirection="column" flexShrink={0} marginTop={1}>
         {overlay !== null ? (
-          <Box position="absolute" bottom="100%" width={columns} flexDirection="column">
+          <Box
+            position="absolute"
+            bottom="100%"
+            width={columns}
+            flexDirection="column"
+            // Opaque backdrop: without it, Ink leaves the overlay's empty cells
+            // transparent and the transcript behind bleeds through.
+            backgroundColor={theme.overlay}
+          >
             {overlay}
+          </Box>
+        ) : null}
+        {subagents.length > 0 ? (
+          <Box marginBottom={1}>
+            <SubagentMonitor agents={subagents} now={Date.now()} />
+          </Box>
+        ) : null}
+        {hasOutstandingTasks ? (
+          <Box marginBottom={1}>
+            <TaskList tasks={tasks} allTasks={allTasks} />
           </Box>
         ) : null}
         {state.running ? <Spinner /> : null}

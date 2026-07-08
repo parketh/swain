@@ -141,6 +141,17 @@ describe("OpenAIChat.prepare", () => {
     })
     expect(body.tool_choice).toEqual({ type: "function", function: { name: "lookup" } })
   })
+
+  test("prompt_cache_key is sent only when the option is set", () => {
+    const withKey = OpenAIChat.prepare({
+      modelId: "gpt-4.1-mini",
+      messages: [Message.user("hi")],
+      providerOptions: { openai: { promptCacheKey: "swain-session-1" } },
+    })
+    expect(withKey.body.prompt_cache_key).toBe("swain-session-1")
+    const without = OpenAIChat.prepare({ modelId: "gpt-4.1-mini", messages: [Message.user("hi")] })
+    expect(without.body.prompt_cache_key).toBeUndefined()
+  })
 })
 
 describe("OpenAIChat.decode", () => {

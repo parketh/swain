@@ -1,9 +1,15 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { BunContext } from "@effect/platform-bun"
-import { type AgentEvent, createSessionState, type PermissionMode, saveSession } from "@swain/core"
+import {
+  type AgentEvent,
+  createSessionState,
+  type PermissionMode,
+  type SessionState,
+  saveSession,
+} from "@swain/core"
 import type { LLMEvent, LLMRequest, Model } from "@swain/llms"
 import { ContentId, ModelId, ProviderId, ToolCallId } from "@swain/llms"
 import { LLMClient } from "@swain/llms/client"
@@ -328,5 +334,219 @@ describe("controller command actions", () => {
     await c.resumeSession("s-resume")
     expect(c.getState().session.sessionId).toBe("s-resume")
     expect(c.getUsage()).toMatchObject({ turns: 3, inputTokens: 12, outputTokens: 8 })
+  })
+
+  test("listSessions ignores task-only dirs and still lists saved sessions", async () => {
+    const c = build({ providers: { anthropic: { apiKey: "sk-1" } } })
+    const sdir = sessionsDir(join(dir, "config.json"), dir)
+    const saved = createSessionState({
+      sessionId: "s-real",
+      workingDirectory: dir,
+      model: testModel,
+      currentDate: "2026-07-05",
+    })
+    await Effect.runPromise(saveSession(saved, sdir).pipe(Effect.provide(BunContext.layer)))
+    // A session whose first turn hasn't saved yet: tasks.json exists, session.json does not.
+    mkdirSync(join(sdir, "s-tasks-only"), { recursive: true })
+    writeFileSync(join(sdir, "s-tasks-only", "tasks.json"), "[]")
+
+    const listed = c.listSessions()
+    expect(listed.some((s) => s.sessionId === "s-real")).toBe(true)
+    expect(listed.some((s) => s.sessionId === "s-tasks-only")).toBe(false)
+  })
+})
+
+const waitFor = async (predicate: () => boolean, ms = 2000): Promise<void> => {
+  const start = Date.now()
+  while (!predicate()) {
+    if (Date.now() - start > ms) throw new Error("waitFor timed out")
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+}
+
+const hasNotification = (c: Controller): boolean =>
+  c
+    .getState()
+    .session.messages.some(
+      (m) =>
+        m.role === "user" &&
+        m.content.some((b) => b.type === "text" && b.text.includes("<task-notification>")),
+    )
+
+interface SeedTask {
+  readonly id: string
+  readonly subject: string
+  readonly result: string
+}
+
+const completedTask = (task: SeedTask) => ({
+  id: task.id,
+  subject: task.subject,
+  description: "brief",
+  status: "completed",
+  owner: `owner-${task.id}`,
+  agentType: "Explore",
+  result: task.result,
+  blockedBy: [],
+  createdAt: "2026-07-08T00:00:00.000Z",
+  updatedAt: "2026-07-08T00:00:00.000Z",
+})
+
+describe("controller subagent drain", () => {
+  let dir: string
+  let controller: Controller
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "swain-drain-"))
+  })
+  afterEach(() => {
+    controller?.dispose()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  const sessionTaskDir = (session: SessionState): string =>
+    join(sessionsDir(join(dir, "config.json"), dir), session.sessionId)
+
+  const seed = (session: SessionState, tasks: ReadonlyArray<unknown>): void => {
+    const tdir = sessionTaskDir(session)
+    mkdirSync(tdir, { recursive: true })
+    writeFileSync(join(tdir, "tasks.json"), JSON.stringify(tasks))
+  }
+
+  const buildWith = (
+    llmLayer: ReturnType<typeof scripted>["layer"],
+    tasks: ReadonlyArray<unknown> = [],
+  ): { controller: Controller; session: SessionState } => {
+    const session = createSessionState({
+      workingDirectory: dir,
+      model: testModel,
+      permissionMode: "auto",
+      currentDate: "2026-07-08",
+    })
+    seed(session, tasks)
+    controller = makeController({
+      session,
+      activeModel: { provider: "anthropic", modelId: "claude-sonnet-5" },
+      config,
+      configPath: join(dir, "config.json"),
+      llmLayer,
+      persist: false,
+    })
+    return { controller, session }
+  }
+
+  test("injects a completed subagent result on load without auto-running a turn", async () => {
+    const { controller: c } = buildWith(scripted([textTurn("ack")]).layer, [
+      completedTask({ id: "t1", subject: "probe", result: "found the bug" }),
+    ])
+    await waitFor(() => hasNotification(c))
+    const notification = c
+      .getState()
+      .session.messages.find((m) => m.role === "user" && m.content.some((b) => b.type === "text"))
+    const text = notification?.content.find((b) => b.type === "text")
+    expect(text && "text" in text ? text.text : "").toContain("found the bug")
+    // Load must not auto-run: the result is surfaced but no assistant turn fires.
+    expect(c.getState().session.messages.some((m) => m.role === "assistant")).toBe(false)
+  })
+
+  test("batches multiple completed tasks into one synthetic notification", async () => {
+    const { controller: c } = buildWith(scripted([textTurn("ack")]).layer, [
+      completedTask({ id: "t1", subject: "a", result: "found A" }),
+      completedTask({ id: "t2", subject: "b", result: "found B" }),
+    ])
+    await waitFor(() => hasNotification(c))
+    const userMessages = c
+      .getState()
+      .session.messages.filter(
+        (m) =>
+          m.role === "user" &&
+          m.content.some((b) => b.type === "text" && b.text.includes("<task-notification>")),
+      )
+    expect(userMessages).toHaveLength(1)
+    const text = userMessages[0]?.content.find((b) => b.type === "text")
+    const value = text && "text" in text ? text.text : ""
+    expect(value).toContain("found A")
+    expect(value).toContain("found B")
+  })
+
+  test("resets a dangling in_progress task on load without re-running it", async () => {
+    const dangling = {
+      id: "d1",
+      subject: "resume me",
+      description: "the brief",
+      status: "in_progress",
+      owner: "dead-agent",
+      agentType: "Explore",
+      blockedBy: [],
+      createdAt: "2026-07-08T00:00:00.000Z",
+      updatedAt: "2026-07-08T00:00:00.000Z",
+    }
+    const { controller: c, session } = buildWith(scripted([textTurn("should not run")]).layer, [
+      dangling,
+    ])
+    const tdir = sessionTaskDir(session)
+    const readTask = () => {
+      const tasks = JSON.parse(readFileSync(join(tdir, "tasks.json"), "utf8"))
+      return tasks.find((t: { id: string }) => t.id === "d1")
+    }
+    // Reset to pending with the owner cleared — never re-spawned or completed.
+    await waitFor(() => readTask()?.status === "pending")
+    const task = readTask()
+    expect(task.owner).toBeUndefined()
+    expect(task.agentType).toBe("Explore")
+    // No parent turn ran on resume: no assistant messages, no active subagents.
+    expect(c.getState().session.messages.some((m) => m.role === "assistant")).toBe(false)
+    expect(c.getSubagents()).toHaveLength(0)
+  })
+
+  test("defers the drain while a parent turn runs, then flushes it after", async () => {
+    let release = (): void => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let parentCalls = 0
+    const isChild = (req: LLMRequest): boolean =>
+      JSON.stringify(req.messages).includes("## Assignment:")
+    const spawnTurn = toolCallTurn("Agent", {
+      description: "probe",
+      prompt: "look",
+      subagentType: "Explore",
+    })
+    const layer = Layer.succeed(LLMClient.Service, {
+      request: LLMClient.request,
+      streamTurn: (req: LLMRequest) => {
+        if (isChild(req)) return Stream.fromIterable(textTurn("child findings"))
+        parentCalls += 1
+        if (parentCalls === 1) return Stream.fromIterable(spawnTurn)
+        if (parentCalls === 2) {
+          return Stream.unwrap(
+            Effect.promise(() => gate).pipe(
+              Effect.as(Stream.fromIterable(textTurn("parent done"))),
+            ),
+          )
+        }
+        return Stream.fromIterable(textTurn("drain ack"))
+      },
+      generateTurn: () => Effect.succeed({ events: [] }),
+    })
+
+    const { controller: c, session } = buildWith(layer)
+    const tdir = sessionTaskDir(session)
+    const childCompleted = (): boolean => {
+      try {
+        const tasks = JSON.parse(readFileSync(join(tdir, "tasks.json"), "utf8"))
+        return tasks.some((t: { status: string }) => t.status === "completed")
+      } catch {
+        return false
+      }
+    }
+
+    const turn = c.submitPrompt("spawn a subagent")
+    await waitFor(childCompleted)
+    // Parent turn is still blocked; the completion must not have been injected.
+    expect(hasNotification(c)).toBe(false)
+    release()
+    await turn
+    await waitFor(() => hasNotification(c))
+    expect(hasNotification(c)).toBe(true)
   })
 })

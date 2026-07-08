@@ -3,20 +3,34 @@ import { join as pathJoin } from "node:path"
 import type { HttpClient } from "@effect/platform"
 import {
   type AgentEvent,
+  type AgentType,
   type Approval,
   submitPrompt as coreSubmitPrompt,
   createSessionState,
+  listTasks,
   loadSession,
+  loadTaskStore,
+  makeOrchestrator,
+  markParentNotified,
+  type Orchestrator,
+  OrchestratorService,
   type PermissionDecision,
   type PermissionMode,
+  pendingParentNotifications,
+  removeTaskWorktrees,
+  resetDanglingTasks,
   runTurn,
   type SessionState,
+  type SubagentEvent,
   saveSession,
+  type Task,
+  TaskStore,
+  type TaskStoreService,
 } from "@swain/core"
 import type { AskHandler, AskInput, AskResult } from "@swain/core/tools"
 import type { GenerationOptions, ProviderOptions } from "@swain/llms"
 import { LLMClient } from "@swain/llms/client"
-import { Effect, Fiber, type Layer } from "effect"
+import { Effect, Fiber, Layer, Queue } from "effect"
 import { authPath, saveAuth } from "./auth"
 import type { CommandParseResult } from "./commands"
 import {
@@ -67,6 +81,18 @@ export interface ConnectResult {
   readonly error?: string
 }
 
+/** A live, still-running subagent, surfaced in the subagent monitor panel. */
+export interface SubagentStatus {
+  readonly agentId: string
+  readonly agentType: AgentType
+  readonly description: string
+  /** Epoch ms when the spawn event was observed, for the elapsed-time display. */
+  readonly startedAt: number
+  readonly lastTool?: string
+  readonly lastToolInput?: unknown
+  readonly toolUseCount: number
+}
+
 export interface SavedSession {
   readonly sessionId: string
   readonly modifiedMs: number
@@ -100,6 +126,10 @@ export interface Controller {
   getState(): TuiState
   getRequestOptions(): RequestOptions
   getUsage(): UsageSnapshot
+  /** Current session task list, refreshed after turns and subagent lifecycle. */
+  getTasks(): ReadonlyArray<Task>
+  /** Currently running subagents, for the live monitor panel. */
+  getSubagents(): ReadonlyArray<SubagentStatus>
   subscribe(listener: () => void): () => void
   onEvent(listener: (event: AgentEvent) => void): () => void
   onQuestion(listener: (request: PendingQuestion) => void): () => void
@@ -213,6 +243,195 @@ export const makeController = (deps: ControllerDeps): Controller => {
   const sessionsDirFor = (s: SessionState): string =>
     sessionsDir(deps.configPath, s.workingDirectory)
 
+  // --- Task store + subagent orchestration (per session) ------------------
+
+  const sessionDirFor = (s: SessionState): string => pathJoin(sessionsDirFor(s), s.sessionId)
+
+  interface SessionEnv {
+    readonly taskStore: TaskStoreService
+    readonly orchestrator: Orchestrator
+    readonly layers: Layer.Layer<TaskStore | OrchestratorService>
+    readonly listener: Fiber.RuntimeFiber<void, unknown>
+  }
+
+  let sessionEnv: SessionEnv | undefined
+  let sessionEnvPromise: Promise<SessionEnv> | undefined
+  let drainPending = false
+  let draining = false
+  let disposed = false
+  let currentTasks: ReadonlyArray<Task> = []
+  const subagentMap = new Map<string, SubagentStatus>()
+  let currentSubagents: ReadonlyArray<SubagentStatus> = []
+
+  // Maintains the live subagent monitor from orchestrator lifecycle events. A
+  // finished agent is dropped immediately; its result surfaces via the task
+  // notification drain, not this panel.
+  const updateSubagents = (event: SubagentEvent): void => {
+    if (event.type === "subagent-start") {
+      subagentMap.set(event.agentId, {
+        agentId: event.agentId,
+        agentType: event.agentType,
+        description: event.description,
+        startedAt: Date.now(),
+        toolUseCount: 0,
+      })
+    } else if (event.type === "subagent-progress") {
+      const current = subagentMap.get(event.agentId)
+      if (current !== undefined) {
+        subagentMap.set(event.agentId, {
+          ...current,
+          ...(event.lastTool !== undefined && { lastTool: event.lastTool }),
+          ...(event.lastToolInput !== undefined && { lastToolInput: event.lastToolInput }),
+          toolUseCount: event.toolUseCount,
+        })
+      }
+    } else {
+      subagentMap.delete(event.agentId)
+    }
+    currentSubagents = Array.from(subagentMap.values())
+    notify()
+  }
+
+  const buildSessionEnv = async (s: SessionState): Promise<SessionEnv> => {
+    const taskStore = await runtime.runPromise(loadTaskStore(sessionDirFor(s)))
+    const orchestrator = await runtime.runPromise(
+      makeOrchestrator({
+        onEvent: (event) =>
+          Effect.sync(() => {
+            emitEvent(event)
+            updateSubagents(event)
+            // Progress events don't change task state; only lifecycle edges do.
+            if (event.type !== "subagent-progress") void refreshTasks()
+          }),
+      }),
+    )
+    const layers = Layer.merge(
+      Layer.succeed(TaskStore, taskStore),
+      Layer.succeed(OrchestratorService, orchestrator),
+    )
+    // A single parked fiber: blocks on the wake-up queue, drains on each ring.
+    const listener = runtime.runFork(
+      Effect.forever(
+        Queue.take(orchestrator.completions).pipe(
+          Effect.flatMap(() => Effect.sync(() => void maybeDrainCompletions())),
+        ),
+      ),
+    )
+    return { taskStore, orchestrator, layers, listener }
+  }
+
+  const ensureSessionEnv = (): Promise<SessionEnv> => {
+    if (sessionEnv !== undefined) return Promise.resolve(sessionEnv)
+    if (sessionEnvPromise === undefined) {
+      sessionEnvPromise = buildSessionEnv(session).then((env) => {
+        sessionEnv = env
+        return env
+      })
+    }
+    return sessionEnvPromise
+  }
+
+  const teardownSessionEnv = async (): Promise<void> => {
+    const env = sessionEnv
+    sessionEnv = undefined
+    sessionEnvPromise = undefined
+    currentTasks = []
+    subagentMap.clear()
+    currentSubagents = []
+    if (env === undefined) return
+    await runtime.runPromise(env.orchestrator.interruptAll).catch(() => {})
+    await runtime.runPromise(Fiber.interrupt(env.listener)).catch(() => {})
+  }
+
+  const renderNotification = (task: Task): string => {
+    const failed = task.status === "failed"
+    const body = (failed ? task.error : task.result) ?? ""
+    const worktree =
+      task.worktreePath !== undefined
+        ? `\nRetained worktree: ${task.worktreePath}${
+            task.worktreeBranch !== undefined ? ` (branch ${task.worktreeBranch})` : ""
+          }`
+        : ""
+    return `Subagent "${task.subject}" [${task.agentType ?? "?"}] ${
+      failed ? "failed" : "completed"
+    }:\n${body}${worktree}`
+  }
+
+  // Decides drain-or-defer right now (not a scheduled timer): the payload is
+  // always re-read from the durable TaskStore, never the wake-up queue.
+  // Appends finished subagent results as one synthetic `<task-notification>`
+  // user message and marks them notified. Injection only — the caller decides
+  // whether to run a parent turn. Returns true if anything was injected.
+  const injectPendingNotifications = async (): Promise<boolean> => {
+    const env = await ensureSessionEnv()
+    if (disposed) return false
+    const pending = await runtime.runPromise(
+      pendingParentNotifications().pipe(Effect.provide(env.layers)),
+    )
+    if (pending.length === 0 || disposed) return false
+    const block = pending.map(renderNotification).join("\n\n")
+    // The `<task-notification>` wrapper is payload for the model; the isMeta flag
+    // is the typed marker every consumer uses to tell this from real user input.
+    coreSubmitPrompt(session, `<task-notification>\n${block}\n</task-notification>`, true)
+    await runtime.runPromise(
+      markParentNotified(pending.map((t) => t.id)).pipe(Effect.provide(env.layers)),
+    )
+    notify()
+    return true
+  }
+
+  const maybeDrainCompletions = async (): Promise<void> => {
+    if (running || draining || disposed) {
+      if (!disposed) drainPending = true
+      return
+    }
+    draining = true
+    let injected = false
+    try {
+      injected = await injectPendingNotifications()
+    } catch {
+      // Runtime disposed or a transient store error: drop this drain attempt.
+    } finally {
+      draining = false
+    }
+    if (injected && !disposed) await runTurnNow()
+  }
+
+  const refreshTasks = async (): Promise<void> => {
+    if (disposed) return
+    try {
+      const env = await ensureSessionEnv()
+      const tasks = await runtime.runPromise(listTasks().pipe(Effect.provide(env.layers)))
+      currentTasks = tasks
+      emitEvent({ type: "task-updated", tasks })
+      notify()
+    } catch {
+      // Store unavailable (disposed/transient): keep the last known task list.
+    }
+  }
+
+  // On session load (initial/resume/clear): make the session inert. Reset
+  // dangling subagent tasks to pending WITHOUT re-spawning — resuming must never
+  // auto-run agents; the user (or the next prompt) decides. Surface any results
+  // that completed while closed as a notification, but do not run a parent turn.
+  const startSession = async (): Promise<void> => {
+    if (disposed) return
+    try {
+      const env = await ensureSessionEnv()
+      if (disposed) return
+      const reset = await runtime.runPromise(resetDanglingTasks().pipe(Effect.provide(env.layers)))
+      // Remove the orphaned worktrees of subagents that died while closed. No
+      // re-spawn here (resume must not auto-run agents); just reclaim the disk.
+      await runtime.runPromise(
+        removeTaskWorktrees(session.workingDirectory, reset).pipe(Effect.provide(env.layers)),
+      )
+      await injectPendingNotifications()
+    } catch {
+      // Best-effort: a dangling task simply stays for the next start.
+    }
+    await refreshTasks()
+  }
+
   // --- Session summaries (resume picker labels) ---------------------------
 
   // biome-ignore lint/suspicious/noExplicitAny: persisted messages are opaque here
@@ -261,25 +480,35 @@ export const makeController = (deps: ControllerDeps): Controller => {
 
   const listSessions = (): ReadonlyArray<SavedSession> => {
     const dir = sessionsDirFor(session)
+    let names: ReadonlyArray<string>
     try {
-      return readdirSync(dir, { withFileTypes: true })
+      names = readdirSync(dir, { withFileTypes: true })
         .filter((entry) => entry.isDirectory())
-        .map((entry) => {
-          const sdir = pathJoin(dir, entry.name)
-          const modifiedMs = statSync(pathJoin(sdir, "session.json")).mtimeMs
-          const summary = readSummary(sdir)
-          const firstPrompt = readFirstPrompt(sdir)
-          return {
-            sessionId: entry.name,
-            modifiedMs,
-            ...(summary !== undefined && { summary }),
-            ...(firstPrompt !== undefined && { firstPrompt }),
-          }
-        })
-        .sort((a, b) => b.modifiedMs - a.modifiedMs)
+        .map((entry) => entry.name)
     } catch {
       return []
     }
+    const sessions: Array<SavedSession> = []
+    for (const name of names) {
+      const sdir = pathJoin(dir, name)
+      let modifiedMs: number
+      try {
+        // A dir holding only tasks.json (a session whose first turn hasn't
+        // saved yet) has no session.json — skip it instead of failing the list.
+        modifiedMs = statSync(pathJoin(sdir, "session.json")).mtimeMs
+      } catch {
+        continue
+      }
+      const summary = readSummary(sdir)
+      const firstPrompt = readFirstPrompt(sdir)
+      sessions.push({
+        sessionId: name,
+        modifiedMs,
+        ...(summary !== undefined && { summary }),
+        ...(firstPrompt !== undefined && { firstPrompt }),
+      })
+    }
+    return sessions.sort((a, b) => b.modifiedMs - a.modifiedMs)
   }
 
   const SUMMARY_SYSTEM =
@@ -357,6 +586,7 @@ export const makeController = (deps: ControllerDeps): Controller => {
   let pendingPrompt: { readonly text: string; readonly retractAt: number } | undefined
 
   const runTurnNow = async (): Promise<void> => {
+    const env = await ensureSessionEnv()
     running = true
     notify()
     const abort = new AbortController()
@@ -368,9 +598,20 @@ export const makeController = (deps: ControllerDeps): Controller => {
       abort.signal,
     )
     const effect = runTurn(session, {
-      onEvent: (event) => Effect.sync(() => emitEvent(event)),
+      onEvent: (event) =>
+        Effect.sync(() => {
+          emitEvent(event)
+          // Live-refresh the task panel when the model mutates its to-do list
+          // mid-turn, instead of waiting for the whole turn to finish.
+          if (
+            event.type === "tool-execution-end" &&
+            (event.name === "TaskCreate" || event.name === "TaskUpdate")
+          ) {
+            void refreshTasks()
+          }
+        }),
       ...requestOptions,
-    }).pipe(Effect.provide(ctxLayer))
+    }).pipe(Effect.provide(ctxLayer), Effect.provide(env.layers))
     const fiber = runtime.runFork(effect)
     currentFiber = fiber
     try {
@@ -384,6 +625,13 @@ export const makeController = (deps: ControllerDeps): Controller => {
       currentAbort = undefined
       currentFiber = undefined
       notify()
+      // The turn may have created or updated tasks (its own to-do list).
+      void refreshTasks()
+      // A subagent that completed mid-turn deferred its drain; flush it now.
+      if (drainPending) {
+        drainPending = false
+        void maybeDrainCompletions()
+      }
     }
   }
 
@@ -448,6 +696,7 @@ export const makeController = (deps: ControllerDeps): Controller => {
         .runPromise(saveSession(previous, sessionsDirFor(previous)))
         .catch(() => undefined)
     }
+    void teardownSessionEnv().then(startSession)
   }
 
   // Runs the "terminal" commands directly; interactive commands (model/variants
@@ -486,7 +735,7 @@ export const makeController = (deps: ControllerDeps): Controller => {
     }
   }
 
-  return {
+  const controller: Controller = {
     getState: () => ({
       session,
       permissionMode: session.systemContext.permissionMode,
@@ -497,6 +746,8 @@ export const makeController = (deps: ControllerDeps): Controller => {
     }),
     getRequestOptions: () => requestOptions,
     getUsage: () => usageSnapshot(session, activeModel),
+    getTasks: () => currentTasks,
+    getSubagents: () => currentSubagents,
     getHistory: () => history,
     recordPrompt,
 
@@ -567,9 +818,11 @@ export const makeController = (deps: ControllerDeps): Controller => {
           sessionsDir: sessionsDirFor(session),
         }),
       )
+      await teardownSessionEnv()
       session = loaded
       requestOptions = result.selection.requestOptions
       notify()
+      await startSession()
     },
 
     listSessions,
@@ -609,7 +862,13 @@ export const makeController = (deps: ControllerDeps): Controller => {
     },
 
     dispose: () => {
-      void runtime.dispose()
+      disposed = true
+      void teardownSessionEnv().finally(() => {
+        void runtime.dispose()
+      })
     },
   }
+
+  void startSession()
+  return controller
 }

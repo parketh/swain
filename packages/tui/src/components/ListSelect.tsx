@@ -1,5 +1,6 @@
 import { Box, Text, useInput } from "ink"
 import { useState } from "react"
+import { isMouseEvent } from "../mouse"
 import { theme } from "../theme"
 import { clampCols, fillPad } from "./overlayFill"
 
@@ -52,6 +53,7 @@ export const ListSelect = <Value,>({
   const index = Math.min(highlight, Math.max(0, filtered.length - 1))
 
   useInput((input, key) => {
+    if (isMouseEvent(input)) return
     if (key.escape) return onCancel()
     if (key.upArrow) return setHighlight((h) => Math.max(0, h - 1))
     if (key.downArrow) return setHighlight((h) => Math.min(filtered.length - 1, h + 1))

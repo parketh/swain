@@ -13,6 +13,7 @@ import { Context, Effect, Stream } from "effect"
 import { AgentError } from "./errors"
 import { assembleSystemPrompt } from "./prompt"
 import type { SessionState } from "./state"
+import type { AgentType, Task } from "./tasks"
 import type { ToolContext, ToolRegistry } from "./tools"
 import { callTool, ToolRegistry as ToolRegistryTag, toLLMTool } from "./tools"
 
@@ -20,8 +21,8 @@ type LLMClientService = Context.Tag.Identifier<typeof LLMClient.Service>
 
 const DEFAULT_MAX_ITERATIONS = 20
 
-export const submitPrompt = (session: SessionState, prompt: string): void => {
-  session.messages.push(Message.user(prompt))
+export const submitPrompt = (session: SessionState, prompt: string, isMeta = false): void => {
+  session.messages.push(Message.user(prompt, isMeta))
 }
 
 /**
@@ -60,6 +61,35 @@ export type AgentEvent =
       readonly source: "llm" | "agent" | "tool"
       readonly message: string
       readonly recoverable?: boolean
+    }
+  | { readonly type: "task-updated"; readonly tasks: ReadonlyArray<Task> }
+  | {
+      readonly type: "subagent-start"
+      readonly agentId: string
+      readonly taskId: string
+      readonly agentType: AgentType
+      readonly description: string
+    }
+  | {
+      readonly type: "subagent-progress"
+      readonly agentId: string
+      readonly taskId: string
+      readonly lastTool?: string
+      readonly lastToolInput?: unknown
+      readonly toolUseCount: number
+    }
+  | {
+      readonly type: "subagent-complete"
+      readonly agentId: string
+      readonly taskId: string
+      readonly result: string
+      readonly worktreePath?: string
+    }
+  | {
+      readonly type: "subagent-failed"
+      readonly agentId: string
+      readonly taskId: string
+      readonly error: string
     }
 
 export interface RunTurnOptions {
@@ -133,11 +163,16 @@ const loop = (
       return yield* new AgentError({ reason: "max-iterations", message })
     }
 
+    // On the final permitted iteration, withhold tools so the model must
+    // produce a final answer instead of calling another tool and overrunning
+    // the budget — a graceful conclusion beats a hard max-iterations failure.
+    const toolsAllowed = iteration < ctx.maxIterations - 1
     const request = LLMClient.request({
       model: session.systemContext.model,
       system: ctx.system,
       messages: session.messages,
-      ...(ctx.llmTools.length > 0 && { tools: ctx.llmTools, toolChoice: "auto" as const }),
+      ...(toolsAllowed &&
+        ctx.llmTools.length > 0 && { tools: ctx.llmTools, toolChoice: "auto" as const }),
       ...(ctx.generation !== undefined && { generation: ctx.generation }),
       ...(ctx.providerOptions !== undefined && { providerOptions: ctx.providerOptions }),
     })
