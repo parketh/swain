@@ -1,6 +1,18 @@
 export { type AgentEvent, type RunTurnOptions, runTurn, submitPrompt } from "./agent"
 export { AgentError, ToolError, type ToolErrorReason } from "./errors"
 export {
+  type ChildRunContext,
+  type ChildRunner,
+  makeOrchestrator,
+  type Orchestrator,
+  type OrchestratorConfig,
+  OrchestratorService,
+  type ParentRunContext,
+  type SpawnInput,
+  type SpawnResult,
+  type SubagentEvent,
+} from "./orchestrator"
+export {
   type Approval,
   ApprovalService,
   allow,

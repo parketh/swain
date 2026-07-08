@@ -12,6 +12,7 @@ export {
   toLLMTool,
   toolRegistryLayer,
 } from "../tool"
+export { AGENT_DESCRIPTION, Agent, AgentInput, AgentResult } from "./agent"
 export {
   Ask,
   AskAnswer,
@@ -47,6 +48,7 @@ export {
 export { Write, WriteInput, WriteResult } from "./write"
 
 import type { AnyTool } from "../tool"
+import { Agent } from "./agent"
 import { Ask } from "./ask"
 import { Bash } from "./bash"
 import { Edit } from "./edit"
@@ -76,4 +78,5 @@ export const builtinTools: ReadonlyArray<AnyTool> = [
   TaskList,
   TaskGet,
   TaskUpdate,
+  Agent,
 ]
