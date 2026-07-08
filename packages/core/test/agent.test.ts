@@ -427,6 +427,35 @@ describe("runTurn", () => {
     expect(state.messages[1]).toMatchObject({ role: "assistant" })
   })
 
+  test("withholds tools on the final iteration so the model concludes gracefully", async () => {
+    // A tool-aware client: it keeps calling a tool whenever tools are offered,
+    // and produces final text when they are withheld (the last iteration).
+    const toolAwareLLM = Layer.succeed(LLMClient.Service, {
+      request: LLMClient.request,
+      streamTurn: (request: Parameters<typeof LLMClient.streamTurn>[0]) =>
+        Stream.fromIterable(
+          request.tools !== undefined && request.tools.length > 0
+            ? toolCallTurn("Echo", { msg: "again" })
+            : textTurn("final answer"),
+        ),
+      generateTurn: () => Effect.succeed({ events: [] }),
+    })
+    const state = session()
+    submitPrompt(state, "hi")
+    await Effect.runPromise(
+      runTurn(state, { maxIterations: 3 }).pipe(
+        Effect.provide(toolAwareLLM),
+        Effect.provide(toolContextLayer(state)),
+        Effect.provide(toolRegistryLayer([echo])),
+      ),
+    )
+    // No max-iterations failure: the turn ends with the model's final text.
+    expect(state.messages.at(-1)).toEqual({
+      role: "assistant",
+      content: [{ type: "text", text: "final answer" }],
+    })
+  })
+
   test("fails with a typed error when the tool loop never terminates", async () => {
     const state = session()
     submitPrompt(state, "hi")

@@ -88,6 +88,7 @@ export interface SubagentStatus {
   /** Epoch ms when the spawn event was observed, for the elapsed-time display. */
   readonly startedAt: number
   readonly lastTool?: string
+  readonly lastToolInput?: unknown
   readonly toolUseCount: number
 }
 
@@ -279,6 +280,7 @@ export const makeController = (deps: ControllerDeps): Controller => {
         subagentMap.set(event.agentId, {
           ...current,
           ...(event.lastTool !== undefined && { lastTool: event.lastTool }),
+          ...(event.lastToolInput !== undefined && { lastToolInput: event.lastToolInput }),
           toolUseCount: event.toolUseCount,
         })
       }

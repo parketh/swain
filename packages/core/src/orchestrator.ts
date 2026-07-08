@@ -41,6 +41,7 @@ export type SubagentEvent =
       readonly agentId: string
       readonly taskId: string
       readonly lastTool?: string
+      readonly lastToolInput?: unknown
       readonly toolUseCount: number
     }
   | {
@@ -234,6 +235,7 @@ export const makeOrchestrator = (config: OrchestratorConfig = {}): Effect.Effect
               agentId,
               taskId,
               lastTool: event.name,
+              lastToolInput: event.input,
               toolUseCount,
             })
           }

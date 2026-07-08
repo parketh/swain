@@ -75,6 +75,7 @@ export type AgentEvent =
       readonly agentId: string
       readonly taskId: string
       readonly lastTool?: string
+      readonly lastToolInput?: unknown
       readonly toolUseCount: number
     }
   | {
@@ -162,11 +163,16 @@ const loop = (
       return yield* new AgentError({ reason: "max-iterations", message })
     }
 
+    // On the final permitted iteration, withhold tools so the model must
+    // produce a final answer instead of calling another tool and overrunning
+    // the budget — a graceful conclusion beats a hard max-iterations failure.
+    const toolsAllowed = iteration < ctx.maxIterations - 1
     const request = LLMClient.request({
       model: session.systemContext.model,
       system: ctx.system,
       messages: session.messages,
-      ...(ctx.llmTools.length > 0 && { tools: ctx.llmTools, toolChoice: "auto" as const }),
+      ...(toolsAllowed &&
+        ctx.llmTools.length > 0 && { tools: ctx.llmTools, toolChoice: "auto" as const }),
       ...(ctx.generation !== undefined && { generation: ctx.generation }),
       ...(ctx.providerOptions !== undefined && { providerOptions: ctx.providerOptions }),
     })
