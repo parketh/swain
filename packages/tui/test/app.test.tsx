@@ -110,6 +110,57 @@ describe("pure helpers", () => {
     expect(state.assistant).toBe("second")
   })
 
+  test("foldEvents clears streamed text at step-end, when it is persisted to messages", () => {
+    const state = foldEvents([
+      { type: "step-start", iteration: 0 },
+      { type: "llm-event", event: { type: "text-delta", contentId, text: "final answer" } },
+      { type: "step-end", iteration: 0, reason: "stop" },
+    ])
+    expect(state.assistant).toBe("")
+    expect(state.reasoning).toBe("")
+  })
+
+  test("buildItems renders one row per tool: draft while unresolved, persisted once resolved", () => {
+    const row = {
+      toolCallId: "x",
+      name: "Bash",
+      input: { command: "ls" },
+      output: "live",
+      done: false,
+      isError: false,
+    }
+    const call = {
+      role: "assistant",
+      content: [{ type: "tool-call", toolCallId: "x", name: "Bash", input: { command: "ls" } }],
+    }
+    const result = {
+      role: "user",
+      content: [
+        { type: "tool-result", toolCallId: "x", name: "Bash", result: { value: { exitCode: 0 } } },
+      ],
+    }
+    const draft = { assistant: "", reasoning: "", tools: [row], errors: [] }
+    const empty = { assistant: "", reasoning: "", tools: [], errors: [] }
+    // In flight: only the live draft row (persisted call has no result yet).
+    // biome-ignore lint/suspicious/noExplicitAny: opaque message fixtures
+    const inFlight = buildItems([call] as any, draft).filter((i) => i.kind === "tool")
+    expect(inFlight).toHaveLength(1)
+    expect(inFlight[0]?.kind === "tool" && inFlight[0].done).toBe(false)
+    // Resolved but draft not yet cleared: only the persisted row.
+    // biome-ignore lint/suspicious/noExplicitAny: opaque message fixtures
+    const resolved = buildItems([call, result] as any, {
+      ...empty,
+      tools: [{ ...row, done: true }],
+    }).filter((i) => i.kind === "tool")
+    expect(resolved).toHaveLength(1)
+    expect(resolved[0]?.kind === "tool" && resolved[0].done).toBe(true)
+    // Draft cleared (next step): still exactly the persisted row.
+    // biome-ignore lint/suspicious/noExplicitAny: opaque message fixtures
+    expect(buildItems([call, result] as any, empty).filter((i) => i.kind === "tool")).toHaveLength(
+      1,
+    )
+  })
+
   test("buildItems renders a <task-notification> user message as a system notification", () => {
     const draft = { assistant: "", reasoning: "", tools: [], errors: [] }
     const messages = [

@@ -51,6 +51,14 @@ export const foldEvent = (state: DraftState, event: AgentEvent): DraftState => {
     // they are not persisted and should stay visible for the whole turn.
     case "step-start":
       return { ...state, assistant: "", reasoning: "", tools: [] }
+    // `step-end` fires after the step's assistant message is pushed to
+    // `session.messages`, so the streamed copy is redundant from here on. This
+    // also covers the final step of internally-started turns (e.g. notification
+    // drains), which never pass through the prompt submit path and would
+    // otherwise leave the last message duplicated. Tool rows stay: they carry
+    // live execution output until their results are persisted.
+    case "step-end":
+      return { ...state, assistant: "", reasoning: "" }
     case "llm-event": {
       const inner = event.event
       if (inner.type === "text-delta") return { ...state, assistant: state.assistant + inner.text }
@@ -253,6 +261,11 @@ export const buildItems = (
   // biome-ignore lint/suspicious/noExplicitAny: opaque persisted content blocks
   const list = messages as ReadonlyArray<any>
   const results = resultsById(list)
+  // A tool call can exist in both sources at once: its `tool-call` block is
+  // persisted before execution while its draft row streams live output. Render
+  // exactly one — the draft row until the result is persisted, then the
+  // persisted row (whose result value is authoritative).
+  const draftIds = new Set(draft.tools.map((row) => row.toolCallId))
   for (const message of list) {
     for (const block of message.content ?? []) {
       if (block.type === "text") {
@@ -263,6 +276,7 @@ export const buildItems = (
         )
       } else if (block.type === "tool-call" && !isHiddenTool(block.name)) {
         const result = results.get(String(block.toolCallId))
+        if (result === undefined && draftIds.has(String(block.toolCallId))) continue
         items.push({
           kind: "tool",
           name: block.name,
@@ -279,7 +293,7 @@ export const buildItems = (
     }
   }
   for (const row of draft.tools) {
-    if (isHiddenTool(row.name)) continue
+    if (isHiddenTool(row.name) || results.has(row.toolCallId)) continue
     items.push({
       kind: "tool",
       name: row.name,
