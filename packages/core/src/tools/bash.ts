@@ -47,7 +47,11 @@ export const isHardDenied = (command: string): boolean =>
 
 export const isRisky = (command: string): boolean => RISKY.some((pattern) => pattern.test(command))
 
-/** Commands a read-only subagent may run as a pipeline/chain segment head. */
+/**
+ * Commands a read-only subagent may run as a pipeline/chain segment head. Every
+ * entry must be an inspection command that cannot itself exec another command
+ * (no `env`/`xargs`/`sh`/`timeout`); write-capable flags are handled separately.
+ */
 const READ_ONLY_COMMANDS: ReadonlySet<string> = new Set([
   "ls",
   "pwd",
@@ -72,7 +76,6 @@ const READ_ONLY_COMMANDS: ReadonlySet<string> = new Set([
   "realpath",
   "date",
   "du",
-  "env",
 ])
 
 const READ_ONLY_GIT: ReadonlySet<string> = new Set([
@@ -89,33 +92,131 @@ const READ_ONLY_GIT: ReadonlySet<string> = new Set([
   "grep",
 ])
 
-/** Constructs that can smuggle a write past a per-command allowlist. */
-const READ_ONLY_REJECT: ReadonlyArray<RegExp> = [
-  />/,
-  /<</,
-  /\$\(/,
-  /`/,
-  /\bfind\b[^|;&\n]*\s-(delete|exec|execdir|ok|okdir)\b/,
-]
+/** `find` actions that write, delete, or execute; disqualify a read-only find. */
+const FIND_WRITE_ACTIONS: ReadonlySet<string> = new Set([
+  "-delete",
+  "-exec",
+  "-execdir",
+  "-ok",
+  "-okdir",
+  "-fprint",
+  "-fprint0",
+  "-fprintf",
+  "-fls",
+])
 
 /**
- * Conservative allowlist classifier for read-only subagent Bash: every segment
- * of a pipeline/chain must start with an allowlisted inspection command (or a
- * read-only git subcommand), and write-smuggling shell constructs (redirection,
- * heredocs, substitution, `find -exec`) are rejected outright. Anything
- * unrecognized is rejected; false positives are acceptable.
+ * Detects a write-capable flag on an otherwise-inspection command, so a segment
+ * like `sort -o f` or `find … -delete` is not misclassified as read-only. Only
+ * allowlisted commands that can write need an entry; writes are excluded by
+ * omission everywhere else.
+ */
+const hasWriteFlag = (head: string, args: ReadonlyArray<string>): boolean => {
+  if (head === "sort") return args.some((a) => a.startsWith("--output") || /^-[a-zA-Z]*o/.test(a))
+  if (head === "find") return args.some((a) => FIND_WRITE_ACTIONS.has(a))
+  return false
+}
+
+/**
+ * Splits a command into chain/pipeline segments of argv tokens, honoring single
+ * and double quotes and backslash escapes. Returns null when the command
+ * contains a construct that can smuggle a write or extra execution past a
+ * per-command allowlist — redirection (`>`/`<`) or command/process substitution
+ * (`$(`, backticks, `<(`) — which no inspection command needs. Fail-closed:
+ * anything the tokenizer cannot account for rejects the whole command.
+ */
+const tokenizeSegments = (command: string): ReadonlyArray<ReadonlyArray<string>> | null => {
+  const segments: Array<Array<string>> = []
+  let argv: Array<string> = []
+  let token = ""
+  let hasToken = false
+  let quote: '"' | "'" | null = null
+  const endToken = (): void => {
+    if (hasToken) {
+      argv.push(token)
+      token = ""
+      hasToken = false
+    }
+  }
+  const endSegment = (): void => {
+    endToken()
+    if (argv.length > 0) segments.push(argv)
+    argv = []
+  }
+  for (let i = 0; i < command.length; i += 1) {
+    const c = command[i]
+    if (quote !== null) {
+      if (c === quote) quote = null
+      else {
+        token += c
+        hasToken = true
+      }
+      continue
+    }
+    switch (c) {
+      case "'":
+      case '"':
+        quote = c
+        hasToken = true
+        break
+      case "\\": {
+        const next = command[i + 1]
+        if (next !== undefined) {
+          token += next
+          hasToken = true
+          i += 1
+        }
+        break
+      }
+      case " ":
+      case "\t":
+        endToken()
+        break
+      case "\n":
+      case ";":
+        endSegment()
+        break
+      case "|":
+      case "&":
+        endSegment()
+        if (command[i + 1] === c) i += 1
+        break
+      case ">":
+      case "<":
+      case "`":
+        return null
+      case "$":
+        if (command[i + 1] === "(") return null
+        token += c
+        hasToken = true
+        break
+      default:
+        token += c
+        hasToken = true
+    }
+  }
+  endSegment()
+  return segments
+}
+
+/**
+ * Fail-closed read-only classifier for read-only subagent Bash: the command must
+ * tokenize without any write/execute construct, and every chain/pipeline segment
+ * must start with an allowlisted inspection command (or a read-only git
+ * subcommand) carrying no write-capable flag. Anything unrecognized is rejected.
  */
 export const isReadOnlyCommand = (command: string): boolean => {
-  if (READ_ONLY_REJECT.some((pattern) => pattern.test(command))) return false
-  const segments = command
-    .split(/[|&;\n]/)
-    .map((segment) => segment.trim())
-    .filter((segment) => segment.length > 0)
-  if (segments.length === 0) return false
-  return segments.every((segment) => {
-    const [head, sub] = segment.split(/\s+/)
-    if (head === "git") return sub !== undefined && READ_ONLY_GIT.has(sub)
-    return head !== undefined && READ_ONLY_COMMANDS.has(head)
+  const segments = tokenizeSegments(command)
+  if (segments === null || segments.length === 0) return false
+  return segments.every((argv) => {
+    const [head, ...args] = argv
+    if (head === undefined) return false
+    if (head === "git") {
+      const sub = args.find((a) => !a.startsWith("-"))
+      return sub !== undefined && READ_ONLY_GIT.has(sub)
+    }
+    if (!READ_ONLY_COMMANDS.has(head)) return false
+    return !hasWriteFlag(head, args)
   })
 }
 

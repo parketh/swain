@@ -82,8 +82,15 @@ describe("command classifiers", () => {
       "cat `rm x`",
       "find . -name '*.tmp' -delete",
       "find . -name '*.ts' -exec rm {} \\;",
+      "find . -fprintf out.txt '%p\\n'",
       "grep foo src | xargs rm",
       "npm install",
+      "env rm important.txt",
+      "env node -e 'x'",
+      "cat <(rm x)",
+      "sort -o victim.txt input.txt",
+      "sort -uo victim.txt input.txt",
+      "sed --in-place s/a/b/ f",
       "",
     ]
     for (const command of rejected)
