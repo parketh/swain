@@ -9,6 +9,10 @@ export const ZAI_BASE_URL = "https://api.z.ai/api/paas/v4"
 export interface ZAIOptions {
   readonly temperature?: number
   readonly topP?: number
+  /** Enable reasoning via the top-level thinking flag. GLM-5.2 only. */
+  readonly thinking?: boolean
+  /** Reasoning depth; `high` and `max`, matching DeepSeek. GLM-5.2 only. */
+  readonly reasoningEffort?: "high" | "max"
 }
 
 export interface ZAIConfig {
