@@ -13,7 +13,7 @@ import type {
   Usage,
   UserMessage,
 } from "../schema"
-import { ContentId, LLMError, ToolCallId } from "../schema"
+import { ContentId, LLMError, renderModelSwitch, ToolCallId } from "../schema"
 import type { ToolInputAssembler } from "./tool-input"
 import { ToolInput } from "./tool-input"
 
@@ -80,6 +80,8 @@ const lowerUserMessage = (message: UserMessage): Array<Record<string, unknown>> 
   for (const block of message.content) {
     if (block.type === "tool-result") {
       items.push(lowerToolResult(block))
+    } else if (block.type === "model-switch") {
+      texts.push({ type: "input_text", text: renderModelSwitch(block) })
     } else {
       texts.push({ type: "input_text", text: block.text })
     }

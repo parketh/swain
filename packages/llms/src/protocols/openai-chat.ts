@@ -11,7 +11,7 @@ import type {
   ToolResultValue,
   Usage,
 } from "../schema"
-import { ContentId, LLMError, ToolCallId } from "../schema"
+import { ContentId, LLMError, renderModelSwitch, ToolCallId } from "../schema"
 import type { ToolInputAssembler } from "./tool-input"
 import { ToolInput } from "./tool-input"
 
@@ -93,6 +93,8 @@ const lowerMessages = (
             tool_call_id: block.toolCallId,
             content: lowerToolResult(block.result),
           })
+        } else if (block.type === "model-switch") {
+          texts.push(renderModelSwitch(block))
         } else {
           texts.push(block.text)
         }

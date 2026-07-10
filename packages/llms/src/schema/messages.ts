@@ -45,8 +45,37 @@ export const ToolResultContent = Schema.Struct({
 })
 export type ToolResultContent = typeof ToolResultContent.Type
 
-export const UserContent = Schema.Union(TextContent, ToolResultContent)
+const ModelSwitchRef = Schema.Struct({
+  provider: Schema.String,
+  modelId: Schema.String,
+  variant: Schema.optional(Schema.String),
+})
+
+/**
+ * A meta transcript event recording a model switch mid-conversation. Persisted
+ * as an `isMeta` user message so consumers can render it as a distinct switch
+ * row rather than genuine user input.
+ */
+export const ModelSwitchContent = Schema.Struct({
+  type: Schema.Literal("model-switch"),
+  from: ModelSwitchRef,
+  to: ModelSwitchRef,
+  reason: Schema.String,
+  requestedBy: Schema.Literal("router", "user"),
+})
+export type ModelSwitchContent = typeof ModelSwitchContent.Type
+
+export const UserContent = Schema.Union(TextContent, ToolResultContent, ModelSwitchContent)
 export type UserContent = typeof UserContent.Type
+
+const switchRefKey = (ref: ModelSwitchContent["from"]): string =>
+  ref.variant !== undefined && ref.variant !== ""
+    ? `${ref.provider}:${ref.modelId}:${ref.variant}`
+    : `${ref.provider}:${ref.modelId}`
+
+/** One-line text form of a model-switch event, for provider history and logs. */
+export const renderModelSwitch = (block: ModelSwitchContent): string =>
+  `[Model switched from ${switchRefKey(block.from)} to ${switchRefKey(block.to)} — ${block.reason}]`
 
 export const AssistantContent = Schema.Union(TextContent, ReasoningContent, ToolCallContent)
 export type AssistantContent = typeof AssistantContent.Type

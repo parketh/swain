@@ -213,7 +213,19 @@ interface NotificationItem {
   readonly kind: "notification"
   readonly text: string
 }
-type Item = TextItem | ToolItem | ErrorItem | NotificationItem
+interface SwitchItem {
+  readonly kind: "switch"
+  readonly from: string
+  readonly to: string
+  readonly reason: string
+  readonly requestedBy: "router" | "user"
+}
+type Item = TextItem | ToolItem | ErrorItem | NotificationItem | SwitchItem
+
+const switchRefKey = (ref: { provider: string; modelId: string; variant?: string }): string =>
+  ref.variant !== undefined && ref.variant !== ""
+    ? `${ref.provider}:${ref.modelId}:${ref.variant}`
+    : `${ref.provider}:${ref.modelId}`
 
 // Subagent completions are injected as `<task-notification>` user messages so
 // the model sees them, but they are not something the user typed. They carry a
@@ -275,6 +287,14 @@ export const buildItems = (
             ? { kind: "notification", text: stripNotification(block.text) }
             : { kind: "text", role: message.role, text: block.text },
         )
+      } else if (block.type === "model-switch") {
+        items.push({
+          kind: "switch",
+          from: switchRefKey(block.from),
+          to: switchRefKey(block.to),
+          reason: block.reason,
+          requestedBy: block.requestedBy,
+        })
       } else if (block.type === "tool-call" && !isHiddenTool(block.name)) {
         const result = results.get(String(block.toolCallId))
         if (result === undefined && draftIds.has(String(block.toolCallId))) continue
@@ -363,6 +383,16 @@ const NodeRow = ({ node }: { node: Node }) => {
     )
   }
   if (node.kind === "error") return <Text color="red">⚠ {node.text}</Text>
+  if (node.kind === "switch") {
+    const verb = node.requestedBy === "user" ? "Switched" : "Routed"
+    return (
+      <Row marker="⇄" color={theme.primaryDim}>
+        <Text color={theme.muted}>
+          {verb} {node.from} → {node.to} — {node.reason}
+        </Text>
+      </Row>
+    )
+  }
   if (node.kind === "notification") {
     return (
       <Row marker="⚑" color={theme.primaryDim}>

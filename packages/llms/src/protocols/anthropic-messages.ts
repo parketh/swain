@@ -13,7 +13,7 @@ import type {
   ToolResultContent,
   UserMessage,
 } from "../schema"
-import { ContentId, LLMError, ToolCallId } from "../schema"
+import { ContentId, LLMError, renderModelSwitch, ToolCallId } from "../schema"
 import type { ToolInputAssembler } from "./tool-input"
 import { ToolInput } from "./tool-input"
 
@@ -129,6 +129,8 @@ const lowerUserMessage = (message: UserMessage): Record<string, unknown> => {
   for (const block of message.content) {
     if (block.type === "tool-result") {
       toolResults.push(lowerToolResult(block))
+    } else if (block.type === "model-switch") {
+      texts.push({ type: "text", text: renderModelSwitch(block) })
     } else {
       texts.push({ type: "text", text: block.text })
     }
