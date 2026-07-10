@@ -1,4 +1,5 @@
-import { allCatalogModels, type ModelOption, type RoutingProfile } from "./models"
+import type { RouterConfig, TuiConfig } from "./config"
+import { allCatalogModels, availableModels, type ModelOption, type RoutingProfile } from "./models"
 
 export interface RouterTargetRef {
   readonly provider: string
@@ -73,3 +74,34 @@ export const modelRoutableTargets = (model: ModelOption): ReadonlyArray<Routable
 /** Every routable target across the catalog, independent of configuration. */
 export const catalogRoutableTargets = (): ReadonlyArray<RoutableTarget> =>
   allCatalogModels().flatMap(modelRoutableTargets)
+
+/** Normalized router settings; an omitted `router` reads as disabled with empty opt-outs. */
+export const routerSettings = (config: TuiConfig): RouterConfig =>
+  config.router ?? { enabled: false, disabledModels: [], disabledTargets: [] }
+
+/**
+ * Router targets currently enabled: every routable target of a configured
+ * provider, minus whole-model opt-outs (`disabledModels`) and variant opt-outs
+ * (`disabledTargets`). New models/variants are enabled by default because config
+ * stores opt-outs only.
+ */
+export const enabledRouterTargets = (config: TuiConfig): ReadonlyArray<RoutableTarget> => {
+  const settings = routerSettings(config)
+  const disabledModels = new Set(settings.disabledModels)
+  const disabledTargets = new Set(settings.disabledTargets)
+  return availableModels(config)
+    .filter((model) => !disabledModels.has(modelKey(model)))
+    .flatMap(modelRoutableTargets)
+    .filter((target) => !disabledTargets.has(target.id))
+}
+
+export type RouterStatus = "off" | "inactive" | "on"
+
+/**
+ * Router runtime state: `off` when the master toggle is disabled, `inactive`
+ * when on but fewer than two enabled connected targets exist, otherwise `on`.
+ */
+export const routerStatus = (config: TuiConfig): RouterStatus => {
+  if (routerSettings(config).enabled !== true) return "off"
+  return enabledRouterTargets(config).length >= 2 ? "on" : "inactive"
+}

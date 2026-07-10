@@ -21,8 +21,16 @@ export const ProviderConfig = Schema.Struct({
 })
 export type ProviderConfig = typeof ProviderConfig.Type
 
+export const RouterConfig = Schema.Struct({
+  enabled: Schema.Boolean,
+  disabledModels: Schema.Array(Schema.String),
+  disabledTargets: Schema.Array(Schema.String),
+})
+export type RouterConfig = typeof RouterConfig.Type
+
 export const TuiConfig = Schema.Struct({
   activeModel: Schema.optional(ActiveModel),
+  router: Schema.optional(RouterConfig),
   providers: Schema.optionalWith(Schema.Record({ key: Schema.String, value: ProviderConfig }), {
     default: () => ({}),
   }),
@@ -104,6 +112,7 @@ export const saveConfig = (
     const dir = NodePath.dirname(path)
     const nonSecret = {
       ...(config.activeModel !== undefined && { activeModel: config.activeModel }),
+      ...(config.router !== undefined && { router: config.router }),
     }
     const body = JSON.stringify(nonSecret, null, 2)
     yield* fs
