@@ -29,6 +29,13 @@ export { Glob, GlobInput, GlobResult } from "./glob"
 export { Grep, GrepInput, GrepResult } from "./grep"
 export { Read, ReadInput, ReadResult } from "./read"
 export { errorResult, successResult } from "./results"
+export {
+  SWITCH_MODEL_DESCRIPTION,
+  SWITCH_MODEL_NAME,
+  SwitchModel,
+  SwitchModelInput,
+  SwitchModelResult,
+} from "./switch-model"
 export { TaskCreate, TaskCreateInput, TaskCreateResult } from "./task-create"
 export { TaskGet, TaskGetInput, TaskGetResult } from "./task-get"
 export { TaskList, TaskListInput, TaskListResult } from "./task-list"
@@ -55,6 +62,7 @@ import { Edit } from "./edit"
 import { Glob } from "./glob"
 import { Grep } from "./grep"
 import { Read } from "./read"
+import { SwitchModel } from "./switch-model"
 import { TaskCreate } from "./task-create"
 import { TaskGet } from "./task-get"
 import { TaskList } from "./task-list"
@@ -79,4 +87,5 @@ export const builtinTools: ReadonlyArray<AnyTool> = [
   TaskGet,
   TaskUpdate,
   Agent,
+  SwitchModel,
 ]

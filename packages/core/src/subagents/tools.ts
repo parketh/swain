@@ -5,10 +5,11 @@ import { type AnyTool, defineTool } from "../tool"
 import { isReadOnlyCommand } from "../tools/bash"
 import { getSubagentDefinition } from "./definitions"
 
-/** Tools no child agent may ever receive: prevents recursion, direct user prompts, and parent task mutation. */
+/** Tools no child agent may ever receive: prevents recursion, direct user prompts, parent task mutation, and model switching. */
 const GLOBAL_CHILD_DENY: ReadonlySet<string> = new Set([
   "Agent",
   "Ask",
+  "SwitchModel",
   "TaskCreate",
   "TaskList",
   "TaskGet",

@@ -53,6 +53,7 @@ import {
   type ProviderOption,
   resolveModelSelection,
 } from "./models"
+import { routerStatus } from "./router"
 import { type LLMClientService, makeRuntime, toolContextLayer } from "./runtime"
 import { type UsageSnapshot, usageSnapshot } from "./usage"
 
@@ -614,7 +615,9 @@ export const makeController = (deps: ControllerDeps): Controller => {
             void refreshTasks()
           }
         }),
-      ...requestOptions,
+      // Request options now travel through session.systemContext.requestOptions,
+      // so a mid-turn SwitchModel can replace them. Only the router flag is passed.
+      routerActive: routerStatus(config) === "on",
     }).pipe(
       Effect.provide(ctxLayer),
       Effect.provide(env.layers),
