@@ -44,6 +44,7 @@ import {
   type TuiConfig,
 } from "./config"
 import { appendHistory, historyPath, saveHistory } from "./history"
+import { modelResolverLayer } from "./model-resolver"
 import {
   availableModels,
   connectableProviders,
@@ -614,7 +615,11 @@ export const makeController = (deps: ControllerDeps): Controller => {
           }
         }),
       ...requestOptions,
-    }).pipe(Effect.provide(ctxLayer), Effect.provide(env.layers))
+    }).pipe(
+      Effect.provide(ctxLayer),
+      Effect.provide(env.layers),
+      Effect.provide(modelResolverLayer(() => config)),
+    )
     const fiber = runtime.runFork(effect)
     currentFiber = fiber
     try {

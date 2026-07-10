@@ -1,6 +1,12 @@
 export { type AgentEvent, type RunTurnOptions, runTurn, submitPrompt } from "./agent"
 export { AgentError, ToolError, type ToolErrorReason } from "./errors"
 export {
+  ModelResolveError,
+  type ModelResolver,
+  ModelResolverService,
+  type ResolvedModel,
+} from "./model-resolver"
+export {
   type ChildRunContext,
   type ChildRunner,
   makeOrchestrator,
