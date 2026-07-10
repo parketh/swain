@@ -1,11 +1,17 @@
 import type { CommandExecutor, FileSystem } from "@effect/platform"
+import type { Model } from "@swain/llms"
 import { LLMClient, Message } from "@swain/llms"
 import { Context, Effect, Fiber, Queue, Ref } from "effect"
 import type { AgentEvent } from "./agent"
 import { runTurn } from "./agent"
 import { ToolError } from "./errors"
 import type { Permissions } from "./permission"
-import { createSessionState, type SessionState } from "./state"
+import {
+  createSessionState,
+  type RequestOptions,
+  type SessionModelRef,
+  type SessionState,
+} from "./state"
 import { getSubagentDefinition, type SubagentDefinition } from "./subagents/definitions"
 import { makeChildToolRegistry } from "./subagents/tools"
 import {
@@ -67,6 +73,10 @@ export interface SpawnInput {
   readonly description: string
   readonly prompt: string
   readonly agentType: AgentType
+  /** Optional model override for the child; omitted inherits the parent's current model. */
+  readonly model?: Model
+  readonly requestOptions?: RequestOptions
+  readonly modelRef?: SessionModelRef
   readonly taskId?: string
 }
 
@@ -211,10 +221,15 @@ export const makeOrchestrator = (config: OrchestratorConfig = {}): Effect.Effect
         const registry = makeChildToolRegistry(input.agentType, parent.tools, {
           isolated: worktree !== undefined,
         })
+        // Inherit the parent's current model/options unless the spawn overrides
+        // them (Agent.model). The child reads request options from its own
+        // session state each turn.
         const childSession = createSessionState({
           sessionId: `${parent.session.sessionId}:${agentId}`,
           workingDirectory: worktree?.path ?? parent.session.workingDirectory,
-          model: parent.session.systemContext.model,
+          model: input.model ?? parent.session.systemContext.model,
+          modelRef: input.modelRef ?? parent.session.systemContext.modelRef,
+          requestOptions: input.requestOptions ?? parent.session.systemContext.requestOptions,
           permissionMode: parent.session.systemContext.permissionMode,
           currentDate: parent.session.systemContext.currentDate,
           messages: [Message.user(childBrief(definition, input))],
