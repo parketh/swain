@@ -1,5 +1,12 @@
+import type { RouterPromptTarget } from "@swain/core"
 import type { RouterConfig, TuiConfig } from "./config"
-import { allCatalogModels, availableModels, type ModelOption, type RoutingProfile } from "./models"
+import {
+  aggregateRouting,
+  allCatalogModels,
+  availableModels,
+  type ModelOption,
+  type RoutingProfile,
+} from "./models"
 
 export interface RouterTargetRef {
   readonly provider: string
@@ -94,6 +101,29 @@ export const enabledRouterTargets = (config: TuiConfig): ReadonlyArray<RoutableT
     .flatMap(modelRoutableTargets)
     .filter((target) => !disabledTargets.has(target.id))
 }
+
+/**
+ * Enabled targets rendered as router prompt rows: canonical id, label, and the
+ * derived comparison signals from each target's routing profile. Missing
+ * metadata stays `undefined` so the prompt can mark it unknown rather than
+ * inventing a value.
+ */
+export const routerPromptTargets = (config: TuiConfig): ReadonlyArray<RouterPromptTarget> =>
+  enabledRouterTargets(config).map((target) => {
+    const routing = target.routing
+    const aggregate = routing !== undefined ? aggregateRouting(routing) : undefined
+    return {
+      id: target.id,
+      label: target.label,
+      hasBenchmarks: (routing?.benchmarks.length ?? 0) > 0,
+      ...(aggregate?.capability !== undefined && { capability: aggregate.capability }),
+      ...(aggregate?.benchmarkAvg !== undefined && { benchmarkAvg: aggregate.benchmarkAvg }),
+      ...(aggregate?.contextWindow !== undefined && { contextWindow: aggregate.contextWindow }),
+      ...(aggregate?.aggregateCost !== undefined && { aggregateCost: aggregate.aggregateCost }),
+      ...(routing?.relCostEstimate !== undefined && { relCostEstimate: routing.relCostEstimate }),
+      ...(routing?.relCostBasis !== undefined && { relCostBasis: routing.relCostBasis }),
+    }
+  })
 
 export type RouterStatus = "off" | "inactive" | "on"
 

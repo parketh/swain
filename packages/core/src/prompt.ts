@@ -1,11 +1,33 @@
 import type { PermissionMode } from "./permission"
 
+/** One enabled routable target, rendered as a row in the router prompt block. */
+export interface RouterPromptTarget {
+  readonly id: string
+  readonly label: string
+  readonly capability?: number
+  readonly benchmarkAvg?: number
+  readonly contextWindow?: number
+  readonly relCostEstimate?: number
+  readonly aggregateCost?: number
+  readonly relCostBasis?: string
+  /** False when `benchmarks` is empty — rendered as "unmeasured", never invented. */
+  readonly hasBenchmarks: boolean
+}
+
+/** Router context injected into the prompt only when routing is active. */
+export interface RouterPromptContext {
+  readonly targets: ReadonlyArray<RouterPromptTarget>
+  /** Current target id, marked `[current]`; recomputed after a mid-turn switch. */
+  readonly currentId: string
+}
+
 export interface SystemPromptInput {
   readonly workingDirectory: string
   readonly currentDate: string
   readonly model: string
   readonly permissionMode: PermissionMode
   readonly tools: ReadonlyArray<{ readonly name: string; readonly description: string }>
+  readonly router?: RouterPromptContext
 }
 
 /**
@@ -25,6 +47,46 @@ Keep the list moving in real time — this is how the user sees progress:
 const AGENT_REMINDER = `Use Agent for independent exploration, planning, or isolated implementation work. Subagents are useful for parallel work and for keeping broad search or implementation noise out of the main context. Do not delegate work that can be handled with one or two direct tool calls. After launching a subagent, wait for its completion notification before using its result.
 
 Agent creates and tracks a task for each subagent automatically, and the UI shows running subagents in a live monitor. Do NOT create separate tracking tasks for subagents you delegate — that duplicates them. Only use TaskCreate for your own (non-delegated) work.`
+
+const ROUTER_GUIDANCE = `You can switch the model handling this conversation with the SwitchModel tool, choosing one of the routable targets above.
+
+- Pick the right target at the START of the conversation, before substantive work; getting this right up front matters more than switching later.
+- Later switches should be uncommon and are usually UPWARD escalation — move to a more capable target when the task turns more complex, riskier, or more correctness-sensitive. Avoid switching down late just to save cost.
+- Compare targets primarily on capability and relative cost; higher capability and lower cost are better. Treat unknown/unmeasured fields as unknown — never assume a value.
+- The target marked [current] is the one you are running on now; switching to it is unnecessary and is a no-op.
+- At most ONE switch takes effect per user turn.
+- To switch, emit SwitchModel as your ONLY tool call and then stop generating. Any sibling tool calls in the same message are dropped and must be reissued on the next turn after the switch.
+- To delegate a subagent to a specific target, pass Agent's optional \`model\` field a routable target id. Omit it to inherit the current model.`
+
+const fmtCost = (target: RouterPromptTarget): string => {
+  const parts: Array<string> = []
+  if (target.relCostEstimate !== undefined) parts.push(`~${target.relCostEstimate}x`)
+  if (target.aggregateCost !== undefined)
+    parts.push(`aggregate ~${Math.round(target.aggregateCost * 10) / 10}`)
+  if (target.relCostBasis !== undefined) parts.push(target.relCostBasis)
+  return parts.length > 0 ? parts.join(", ") : "unknown (effort-token uplift unknown)"
+}
+
+const renderTarget = (target: RouterPromptTarget, current: boolean): string => {
+  const capability = target.capability !== undefined ? `${target.capability}` : "unknown"
+  const benchmarks =
+    target.hasBenchmarks && target.benchmarkAvg !== undefined
+      ? target.benchmarkAvg.toFixed(0)
+      : "unmeasured"
+  const context = target.contextWindow !== undefined ? `${target.contextWindow}` : "unknown"
+  return `- \`${target.id}\`${current ? " [current]" : ""} — ${target.label}
+    capability ${capability}, benchmarks ${benchmarks}, context ${context}, cost ${fmtCost(target)}`
+}
+
+const renderRouterBlock = (router: RouterPromptContext): string => {
+  const rows = router.targets
+    .map((target) => renderTarget(target, target.id === router.currentId))
+    .join("\n")
+  return `Routable model targets:
+${rows}
+
+${ROUTER_GUIDANCE}`
+}
 
 export const assembleSystemPrompt = (input: SystemPromptInput): string => {
   const toolList = input.tools.map((tool) => ({
@@ -51,5 +113,6 @@ ${JSON.stringify(toolList, null, 2)}`,
   ]
   if (hasTaskTools) sections.push(TASK_GUIDANCE)
   if (hasAgentTool) sections.push(AGENT_REMINDER)
+  if (input.router !== undefined) sections.push(renderRouterBlock(input.router))
   return `${sections.join("\n\n")}\n`
 }

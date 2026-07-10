@@ -53,7 +53,7 @@ import {
   type ProviderOption,
   resolveModelSelection,
 } from "./models"
-import { routerStatus } from "./router"
+import { routerPromptTargets, routerStatus } from "./router"
 import { type LLMClientService, makeRuntime, toolContextLayer } from "./runtime"
 import { type UsageSnapshot, usageSnapshot } from "./usage"
 
@@ -616,8 +616,11 @@ export const makeController = (deps: ControllerDeps): Controller => {
           }
         }),
       // Request options now travel through session.systemContext.requestOptions,
-      // so a mid-turn SwitchModel can replace them. Only the router flag is passed.
-      routerActive: routerStatus(config) === "on",
+      // so a mid-turn SwitchModel can replace them. The router context is passed
+      // only when routing is active; its presence exposes SwitchModel.
+      ...(routerStatus(config) === "on" && {
+        router: { targets: routerPromptTargets(config) },
+      }),
     }).pipe(
       Effect.provide(ctxLayer),
       Effect.provide(env.layers),

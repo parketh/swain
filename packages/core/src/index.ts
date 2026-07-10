@@ -30,7 +30,12 @@ export {
   type PermissionRequest,
   type Permissions,
 } from "./permission"
-export { assembleSystemPrompt, type SystemPromptInput } from "./prompt"
+export {
+  assembleSystemPrompt,
+  type RouterPromptContext,
+  type RouterPromptTarget,
+  type SystemPromptInput,
+} from "./prompt"
 export {
   type CreateSessionInput,
   createSessionState,

@@ -12,7 +12,7 @@ import { LLMClient, LLMTurnSummary, Message } from "@swain/llms"
 import { Context, Effect, Either, Option, Schema, Stream } from "effect"
 import { AgentError } from "./errors"
 import { type ModelResolver, ModelResolverService } from "./model-resolver"
-import { assembleSystemPrompt } from "./prompt"
+import { assembleSystemPrompt, type RouterPromptTarget } from "./prompt"
 import { modelRefKey, recordModelTransition, type SessionState } from "./state"
 import type { AgentType, Task } from "./tasks"
 import type { ToolContext, ToolRegistry } from "./tools"
@@ -104,10 +104,12 @@ export type AgentEvent =
 export interface RunTurnOptions {
   readonly maxIterations?: number
   /**
-   * When true, `SwitchModel` is exposed to the model and the router prompt block
-   * is included. Router status is global config, so this is fixed per turn.
+   * Present only when routing is active (global router status `on`). Its
+   * presence exposes `SwitchModel` and injects the router prompt block; the
+   * `[current]` marker is recomputed each iteration from live session state.
+   * Router status is global config, so this is fixed per user turn.
    */
-  readonly routerActive?: boolean
+  readonly router?: { readonly targets: ReadonlyArray<RouterPromptTarget> }
   readonly onEvent?: (event: AgentEvent) => Effect.Effect<void>
 }
 
@@ -241,7 +243,7 @@ export const runTurn = (
 ): Effect.Effect<void, AgentError | LLMError, LLMClientService | ToolRegistry | ToolContext> =>
   Effect.gen(function* () {
     const registry = yield* ToolRegistryTag
-    const routerActive = options.routerActive === true
+    const routerActive = options.router !== undefined
     // SwitchModel is only offered to the model when routing is active; it stays
     // in the registry for runtime interception either way.
     const tools = Array.from(registry.values()).filter(
@@ -252,8 +254,9 @@ export const runTurn = (
       name: tool.name,
       description: tool.description,
     }))
+    const routerTargets = options.router?.targets
     // Reassembled from live session state each iteration so a mid-turn switch is
-    // reflected (new model id, and — from Task 8 — the router block).
+    // reflected: the new model id, and the router block's [current] marker.
     const buildSystem = (): string =>
       assembleSystemPrompt({
         workingDirectory: session.workingDirectory,
@@ -261,6 +264,12 @@ export const runTurn = (
         model: session.systemContext.model.id,
         permissionMode: session.systemContext.permissionMode,
         tools: toolDescriptors,
+        ...(routerTargets !== undefined && {
+          router: {
+            targets: routerTargets,
+            currentId: modelRefKey(session.systemContext.modelRef),
+          },
+        }),
       })
     const resolver = yield* Effect.serviceOption(ModelResolverService)
     const emit = (event: AgentEvent): Effect.Effect<void> => options.onEvent?.(event) ?? Effect.void

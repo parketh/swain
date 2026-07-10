@@ -119,7 +119,7 @@ const drive = (
   resolver: Layer.Layer<ModelResolverService> = resolverLayer(),
 ) =>
   Effect.runPromise(
-    runTurn(state, { routerActive: true }).pipe(
+    runTurn(state, { router: { targets: [] } }).pipe(
       Effect.provide(scriptedLayer(turns)),
       Effect.provide(ctxLayer(state)),
       Effect.provide(toolRegistryLayer(builtinTools)),
