@@ -756,6 +756,21 @@ describe("App", () => {
     expect(lastFrame()).toContain("Extra")
   })
 
+  test("the status line shows the router state", () => {
+    const { lastFrame } = render(<App controller={makeCtrl()} />)
+    expect(clean(lastFrame())).toContain("router off")
+  })
+
+  test("/router opens the router dialog with bracketed enabled variants", async () => {
+    const { stdin, lastFrame } = render(<App controller={makeCtrl()} />)
+    stdin.write("/router ")
+    await flush()
+    stdin.write("\r")
+    await flush()
+    expect(clean(lastFrame())).toContain("Router configuration")
+    expect(clean(lastFrame())).toContain("[low, medium, high")
+  })
+
   test("/connect opens a provider picker with every static provider", async () => {
     const { stdin, lastFrame } = render(<App controller={makeCtrl()} />)
     stdin.write("/connect ")

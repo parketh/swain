@@ -16,6 +16,7 @@ import { PermissionPrompt } from "./PermissionPrompt"
 import { nextWord, PromptInput, prevWord } from "./PromptInput"
 import { QuestionPrompt, type QuestionPromptAnswer } from "./QuestionPrompt"
 import { ResumePicker } from "./ResumePicker"
+import { RouterDialog } from "./RouterDialog"
 import { Spinner } from "./Spinner"
 import { StatusLine } from "./StatusLine"
 import { SubagentMonitor } from "./SubagentMonitor"
@@ -30,6 +31,7 @@ type Dialog =
   | { readonly kind: "variants" }
   | { readonly kind: "connect"; readonly provider?: string }
   | { readonly kind: "resume" }
+  | { readonly kind: "router" }
 
 export interface AppProps {
   readonly controller: Controller
@@ -290,6 +292,9 @@ export const App = ({ controller }: AppProps) => {
           return setNotice(`Unknown provider "${args}".`)
         return setDialog({ kind: "connect", provider: args === "" ? undefined : args })
       }
+      case "router":
+        // Dialog-only; `/router` ignores any arguments (no arg grammar).
+        return setDialog({ kind: "router" })
       case "resume":
         if (args !== "") return void controller.resumeSession(args)
         void controller.ensureSummaries()
@@ -521,6 +526,15 @@ export const App = ({ controller }: AppProps) => {
       onSubmit={connect}
       onCancel={() => setDialog(undefined)}
     />
+  ) : dialog?.kind === "router" ? (
+    <RouterDialog
+      view={controller.getRouterView()}
+      onToggleEnabled={() => void controller.setRouterEnabled(!controller.getRouterView().enabled)}
+      onToggleModel={(provider, modelId) => void controller.toggleRouterModel(provider, modelId)}
+      onToggleTarget={(targetId) => void controller.toggleRouterTarget(targetId)}
+      onCancel={() => setDialog(undefined)}
+      width={columns}
+    />
   ) : commandMode ? (
     <CommandOverlay query={value.slice(1)} highlight={highlight} width={columns} />
   ) : fileToken !== undefined ? (
@@ -625,6 +639,7 @@ export const App = ({ controller }: AppProps) => {
           activeModel={state.activeModel}
           permissionMode={state.permissionMode}
           usage={controller.getUsage()}
+          routerStatus={state.routerStatus}
         />
       </Box>
     </Box>

@@ -10,6 +10,18 @@ describe("parseCommand", () => {
     expect(parseCommand("/help")).toEqual({ type: "command", name: "help", args: "" })
   })
 
+  test("/router parses as a known command", () => {
+    expect(parseCommand("/router")).toEqual({ type: "command", name: "router", args: "" })
+  })
+
+  test("/router with args still parses as the router command (args ignored by the UI)", () => {
+    expect(parseCommand("/router anything")).toEqual({
+      type: "command",
+      name: "router",
+      args: "anything",
+    })
+  })
+
   test("a command preserves its argument string", () => {
     expect(parseCommand("/model openai gpt-4.1")).toEqual({
       type: "command",

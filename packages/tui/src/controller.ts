@@ -53,7 +53,13 @@ import {
   type ProviderOption,
   resolveModelSelection,
 } from "./models"
-import { routerPromptTargets, routerStatus } from "./router"
+import {
+  modelKey,
+  type RouterStatus,
+  routerPromptTargets,
+  routerSettings,
+  routerStatus,
+} from "./router"
 import { type LLMClientService, makeRuntime, toolContextLayer } from "./runtime"
 import { type UsageSnapshot, usageSnapshot } from "./usage"
 
@@ -68,7 +74,28 @@ export interface TuiState {
   readonly activeModel: ActiveModel
   readonly connectableProviders: ReadonlyArray<ProviderOption>
   readonly availableModels: ReadonlyArray<ModelOption>
+  readonly routerStatus: RouterStatus
   readonly running: boolean
+}
+
+/** A connected model row for the /router dialog, with per-variant enablement. */
+export interface RouterModelView {
+  readonly provider: string
+  readonly modelId: string
+  readonly label: string
+  readonly providerLabel: string
+  readonly enabled: boolean
+  readonly variants: ReadonlyArray<{
+    readonly id: string
+    readonly label: string
+    readonly enabled: boolean
+  }>
+}
+
+export interface RouterView {
+  readonly enabled: boolean
+  readonly status: RouterStatus
+  readonly models: ReadonlyArray<RouterModelView>
 }
 
 export interface PendingQuestion {
@@ -151,6 +178,14 @@ export interface Controller {
   selectModel(provider: string, modelId: string, variant?: string): Promise<void>
   setVariant(variant?: string): Promise<void>
   connectProvider(provider: string, creds: ProviderConfig): Promise<ConnectResult>
+  /** Connected models with router enablement, for the /router dialog. */
+  getRouterView(): RouterView
+  /** Toggles the global router master switch. */
+  setRouterEnabled(enabled: boolean): Promise<void>
+  /** Toggles a whole model in/out of routing (all its variants). */
+  toggleRouterModel(provider: string, modelId: string): Promise<void>
+  /** Toggles a single variant target in/out of routing. */
+  toggleRouterTarget(targetId: string): Promise<void>
   refreshAvailableModels(): void
   clearConversation(): void
   resumeSession(sessionId: string): Promise<void>
@@ -784,6 +819,7 @@ export const makeController = (deps: ControllerDeps): Controller => {
       activeModel,
       connectableProviders: connectableCache,
       availableModels: availableCache,
+      routerStatus: routerStatus(config),
       running,
     }),
     getRequestOptions: () => requestOptions,
@@ -833,6 +869,52 @@ export const makeController = (deps: ControllerDeps): Controller => {
         providers: { ...config.providers, [provider]: creds },
       }
       return persistConfig(next)
+    },
+
+    getRouterView: () => {
+      const settings = routerSettings(config)
+      const disabledModels = new Set(settings.disabledModels)
+      const disabledTargets = new Set(settings.disabledTargets)
+      const models: ReadonlyArray<RouterModelView> = availableCache.map((model) => ({
+        provider: model.provider,
+        modelId: model.modelId,
+        label: model.label,
+        providerLabel: model.providerLabel,
+        enabled: !disabledModels.has(modelKey(model)),
+        variants: model.variants.map((variant) => ({
+          id: variant.id,
+          label: variant.label,
+          enabled: !disabledTargets.has(`${modelKey(model)}:${variant.id}`),
+        })),
+      }))
+      return { enabled: settings.enabled, status: routerStatus(config), models }
+    },
+
+    setRouterEnabled: async (enabled) => {
+      const settings = routerSettings(config)
+      await persistConfig({ ...config, router: { ...settings, enabled } })
+      notify()
+    },
+
+    toggleRouterModel: async (provider, modelId) => {
+      const settings = routerSettings(config)
+      const key = modelKey({ provider, modelId })
+      const disabled = settings.disabledModels.includes(key)
+      const disabledModels = disabled
+        ? settings.disabledModels.filter((m) => m !== key)
+        : [...settings.disabledModels, key]
+      await persistConfig({ ...config, router: { ...settings, disabledModels } })
+      notify()
+    },
+
+    toggleRouterTarget: async (targetId) => {
+      const settings = routerSettings(config)
+      const disabled = settings.disabledTargets.includes(targetId)
+      const disabledTargets = disabled
+        ? settings.disabledTargets.filter((t) => t !== targetId)
+        : [...settings.disabledTargets, targetId]
+      await persistConfig({ ...config, router: { ...settings, disabledTargets } })
+      notify()
     },
 
     refreshAvailableModels: () => {

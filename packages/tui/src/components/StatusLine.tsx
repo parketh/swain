@@ -8,6 +8,13 @@ export interface StatusLineProps {
   readonly activeModel: ActiveModel
   readonly permissionMode: PermissionMode
   readonly usage: UsageSnapshot
+  readonly routerStatus: "off" | "inactive" | "on"
+}
+
+const ROUTER_COLOR: Record<StatusLineProps["routerStatus"], string> = {
+  off: "gray",
+  inactive: "yellow",
+  on: "green",
 }
 
 const MODE_COLOR: Record<PermissionMode, string> = {
@@ -16,7 +23,12 @@ const MODE_COLOR: Record<PermissionMode, string> = {
   plan: "cyan",
 }
 
-export const StatusLine = ({ activeModel, permissionMode, usage }: StatusLineProps) => (
+export const StatusLine = ({
+  activeModel,
+  permissionMode,
+  usage,
+  routerStatus,
+}: StatusLineProps) => (
   <Box>
     <Text color={theme.muted}>{activeModel.provider}/</Text>
     <Text>{activeModel.modelId}</Text>
@@ -25,6 +37,8 @@ export const StatusLine = ({ activeModel, permissionMode, usage }: StatusLinePro
     ) : null}
     <Text> · </Text>
     <Text color={MODE_COLOR[permissionMode]}>{permissionMode}</Text>
+    <Text color={theme.muted}> · </Text>
+    <Text color={ROUTER_COLOR[routerStatus]}>router {routerStatus}</Text>
     <Text color={theme.muted}>
       {" · "}
       {usage.totalTokens} tok
