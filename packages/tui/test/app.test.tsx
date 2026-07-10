@@ -753,7 +753,7 @@ describe("App", () => {
     await flush()
     expect(lastFrame()).toContain("Select a variant")
     expect(lastFrame()).toContain("default")
-    expect(lastFrame()).toContain("extended thinking")
+    expect(lastFrame()).toContain("Extra")
   })
 
   test("/connect opens a provider picker with every static provider", async () => {
@@ -872,7 +872,7 @@ describe("App", () => {
     stdin.write("\r") // select it → auto-advance to the variant picker
     await flush()
     expect(clean(lastFrame())).toContain("Select a variant")
-    expect(clean(lastFrame())).toContain("extended thinking")
+    expect(clean(lastFrame())).toContain("Extra")
   })
 
   test("Ctrl+C clears the input and arms exit instead of exiting on the first press", async () => {

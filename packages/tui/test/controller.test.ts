@@ -159,10 +159,10 @@ describe("controller", () => {
   test("selecting a variant updates the request options used by the next turn", async () => {
     const llm = scripted([textTurn("ok")])
     const c = build(llm)
-    await c.setVariant("thinking")
+    await c.setVariant("high")
     await c.submitPrompt("hi")
     expect(llm.requests.at(-1)?.providerOptions).toEqual({
-      anthropic: { thinking: { type: "enabled", budgetTokens: 8192 } },
+      anthropic: { thinking: { type: "adaptive", effort: "high" } },
     })
   })
 

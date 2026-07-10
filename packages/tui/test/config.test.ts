@@ -167,14 +167,14 @@ describe("resolveModelSelection", () => {
     }
   })
 
-  test("lowers an anthropic thinking variant to providerOptions.anthropic.thinking", () => {
-    const result = resolveModelSelection("anthropic", "claude-sonnet-5", "thinking", config)
+  test("lowers an anthropic effort variant to adaptive-thinking providerOptions", () => {
+    const result = resolveModelSelection("anthropic", "claude-sonnet-5", "high", config)
     expect(result.type).toBe("ok")
     if (result.type === "ok") {
       const opts = result.selection.requestOptions.providerOptions as {
-        anthropic?: { thinking?: unknown }
+        anthropic?: { thinking?: { type?: string; effort?: string } }
       }
-      expect(opts.anthropic?.thinking).toBeDefined()
+      expect(opts.anthropic?.thinking).toEqual({ type: "adaptive", effort: "high" })
     }
   })
 
