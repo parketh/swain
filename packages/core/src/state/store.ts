@@ -4,7 +4,18 @@ import type { PlatformError } from "@effect/platform/Error"
 import type { Model } from "@swain/llms"
 import { Message } from "@swain/llms"
 import { Effect, ParseResult, Schema } from "effect"
-import { createSessionState, type SessionState } from "./session"
+import {
+  createSessionState,
+  type RequestOptions,
+  type SessionModelRef,
+  type SessionState,
+} from "./session"
+
+const ModelRef = Schema.Struct({
+  provider: Schema.String,
+  modelId: Schema.String,
+  variant: Schema.optional(Schema.String),
+})
 
 const SessionMetadata = Schema.Struct({
   sessionId: Schema.String,
@@ -12,6 +23,9 @@ const SessionMetadata = Schema.Struct({
   permissionMode: Schema.Literal("plan", "ask", "auto"),
   currentDate: Schema.String,
   model: Schema.Struct({ id: Schema.String, provider: Schema.String }),
+  // Legacy sessions predate model refs; both fields tolerate their absence.
+  modelRef: Schema.optional(ModelRef),
+  pastModels: Schema.optionalWith(Schema.Array(ModelRef), { default: () => [] }),
   counters: Schema.Struct({
     turns: Schema.Number,
     inputTokens: Schema.Number,
@@ -47,6 +61,8 @@ export const saveSession = (
         id: session.systemContext.model.id,
         provider: session.systemContext.model.provider,
       },
+      modelRef: session.systemContext.modelRef,
+      pastModels: [...session.systemContext.pastModels],
       counters: { ...session.counters },
     }
     yield* fs.writeFileString(NodePath.join(dir, "session.json"), JSON.stringify(metadata, null, 2))
@@ -61,12 +77,46 @@ export const saveSession = (
 export interface LoadSessionInput {
   readonly sessionId: string
   readonly model: Model
+  /** The persisted target this live `model` was built from; overrides the file. */
+  readonly modelRef?: SessionModelRef
+  /** Live request options for the resolved target; not persisted separately. */
+  readonly requestOptions?: RequestOptions
   readonly sessionsDir: string
 }
 
+const readMetadata = (
+  sessionsDir: string,
+  sessionId: string,
+): Effect.Effect<SessionMetadata, PlatformError | ParseResult.ParseError, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const dir = sessionPath(sessionsDir, sessionId)
+    return yield* fs
+      .readFileString(NodePath.join(dir, "session.json"))
+      .pipe(Effect.flatMap(Schema.decode(Schema.parseJson(SessionMetadata))))
+  })
+
+/**
+ * The persisted current-model target for a session, or `undefined` for legacy
+ * sessions (and on any read/parse failure). Callers resolve this into a live
+ * model before resuming, so resume restores the conversation's own model rather
+ * than the global default.
+ */
+export const readPersistedModelRef = (
+  sessionsDir: string,
+  sessionId: string,
+): Effect.Effect<SessionModelRef | undefined, never, FileSystem.FileSystem> =>
+  readMetadata(sessionsDir, sessionId).pipe(
+    Effect.map((metadata) => metadata.modelRef),
+    Effect.orElseSucceed(() => undefined),
+  )
+
 /**
  * Reloads a persisted session into memory. The model carries behavior that
- * cannot be serialized, so the caller supplies it. The file cache starts empty.
+ * cannot be serialized, so the caller supplies it (and the `modelRef` it was
+ * resolved from). Legacy sessions without a persisted `modelRef` fall back to
+ * the caller's model and an empty past-model history. The file cache starts
+ * empty.
  */
 export const loadSession = (
   input: LoadSessionInput,
@@ -75,9 +125,7 @@ export const loadSession = (
     const fs = yield* FileSystem.FileSystem
     const dir = sessionPath(input.sessionsDir, input.sessionId)
 
-    const metadata = yield* fs
-      .readFileString(NodePath.join(dir, "session.json"))
-      .pipe(Effect.flatMap(Schema.decode(Schema.parseJson(SessionMetadata))))
+    const metadata = yield* readMetadata(input.sessionsDir, input.sessionId)
 
     const transcript = yield* fs
       .readFileString(NodePath.join(dir, "messages.jsonl"))
@@ -87,10 +135,14 @@ export const loadSession = (
       Schema.decode(Schema.parseJson(Message))(line),
     )
 
+    const modelRef = input.modelRef ?? metadata.modelRef
     const state = createSessionState({
       sessionId: metadata.sessionId,
       workingDirectory: metadata.workingDirectory,
       model: input.model,
+      ...(modelRef !== undefined && { modelRef }),
+      ...(input.requestOptions !== undefined && { requestOptions: input.requestOptions }),
+      pastModels: metadata.pastModels,
       permissionMode: metadata.permissionMode,
       currentDate: metadata.currentDate,
       messages,

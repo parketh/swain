@@ -17,9 +17,12 @@ import {
   type PermissionDecision,
   type PermissionMode,
   pendingParentNotifications,
+  readPersistedModelRef,
+  recordModelTransition,
   removeTaskWorktrees,
   resetDanglingTasks,
   runTurn,
+  type SessionModelRef,
   type SessionState,
   type SubagentEvent,
   saveSession,
@@ -666,7 +669,18 @@ export const makeController = (deps: ControllerDeps): Controller => {
       emitEvent({ type: "agent-error", source: "agent", message: result.error.message })
       return
     }
-    Object.assign(session.systemContext, { model: result.selection.model })
+    const modelRef: SessionModelRef = {
+      provider,
+      modelId,
+      ...(variant !== undefined && { variant }),
+    }
+    // Record a session-local transition so /model "steers" the conversation:
+    // the previous target moves into pastModels and this becomes current.
+    recordModelTransition(session, {
+      model: result.selection.model,
+      modelRef,
+      requestOptions: result.selection.requestOptions,
+    })
     activeModel = { provider, modelId, ...(variant !== undefined && { variant }) }
     requestOptions = result.selection.requestOptions
     await persistConfig({ ...config, activeModel })
@@ -684,9 +698,26 @@ export const makeController = (deps: ControllerDeps): Controller => {
 
   const clearConversation = (): void => {
     const previous = session
+    // A new conversation starts from the global default (activeModel), not the
+    // previous session's possibly auto-routed current model. Resolve it fresh so
+    // the model and request options match the default rather than a routed target.
+    const resolved = resolveModelSelection(
+      activeModel.provider,
+      activeModel.modelId,
+      activeModel.variant,
+      config,
+    )
+    const model = resolved.type === "ok" ? resolved.selection.model : previous.systemContext.model
+    if (resolved.type === "ok") requestOptions = resolved.selection.requestOptions
     session = createSessionState({
       workingDirectory: previous.workingDirectory,
-      model: previous.systemContext.model,
+      model,
+      modelRef: {
+        provider: activeModel.provider,
+        modelId: activeModel.modelId,
+        ...(activeModel.variant !== undefined && { variant: activeModel.variant }),
+      },
+      requestOptions,
       permissionMode: previous.systemContext.permissionMode,
       currentDate: previous.systemContext.currentDate,
     })
@@ -801,26 +832,47 @@ export const makeController = (deps: ControllerDeps): Controller => {
     clearConversation,
 
     resumeSession: async (sessionId) => {
-      const result = resolveModelSelection(
-        activeModel.provider,
-        activeModel.modelId,
-        activeModel.variant,
-        config,
-      )
+      const dir = sessionsDirFor(session)
+      // Resume on the conversation's own persisted model, not the global default.
+      // Fall back to activeModel for legacy sessions or if the target no longer
+      // resolves (e.g. its provider was disconnected).
+      const persistedRef = await runtime.runPromise(readPersistedModelRef(dir, sessionId))
+      const target = persistedRef ?? {
+        provider: activeModel.provider,
+        modelId: activeModel.modelId,
+        ...(activeModel.variant !== undefined && { variant: activeModel.variant }),
+      }
+      let result = resolveModelSelection(target.provider, target.modelId, target.variant, config)
+      if (result.type === "error" && persistedRef !== undefined) {
+        result = resolveModelSelection(
+          activeModel.provider,
+          activeModel.modelId,
+          activeModel.variant,
+          config,
+        )
+      }
       if (result.type === "error") {
         emitEvent({ type: "agent-error", source: "agent", message: result.error.message })
         return
       }
+      const selection = result.selection
+      const modelRef: SessionModelRef = {
+        provider: selection.provider,
+        modelId: selection.modelId,
+        ...(selection.variant !== undefined && { variant: selection.variant }),
+      }
       const loaded = await runtime.runPromise(
         loadSession({
           sessionId,
-          model: result.selection.model,
-          sessionsDir: sessionsDirFor(session),
+          model: selection.model,
+          modelRef,
+          requestOptions: selection.requestOptions,
+          sessionsDir: dir,
         }),
       )
       await teardownSessionEnv()
       session = loaded
-      requestOptions = result.selection.requestOptions
+      requestOptions = selection.requestOptions
       notify()
       await startSession()
     },

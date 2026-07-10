@@ -7,6 +7,7 @@ import {
   type AgentEvent,
   createSessionState,
   type PermissionMode,
+  recordModelTransition,
   type SessionState,
   saveSession,
 } from "@swain/core"
@@ -163,6 +164,54 @@ describe("controller", () => {
     await c.submitPrompt("hi")
     expect(llm.requests.at(-1)?.providerOptions).toEqual({
       anthropic: { thinking: { type: "adaptive", effort: "high" } },
+    })
+  })
+
+  test("/model records a session-local transition into pastModels", async () => {
+    const c = build(scripted([textTurn("ok")]))
+    await c.selectModel("anthropic", "claude-opus-4-8", "high")
+    const ctx = c.getState().session.systemContext
+    expect(ctx.modelRef).toEqual({
+      provider: "anthropic",
+      modelId: "claude-opus-4-8",
+      variant: "high",
+    })
+    expect(ctx.pastModels).toEqual([{ provider: "anthropic", modelId: "claude-sonnet-5" }])
+  })
+
+  test("/clear starts a fresh conversation from the global default, not a routed model", async () => {
+    const c = build(scripted([textTurn("ok")]))
+    // Simulate auto-routing to a different target without touching activeModel.
+    recordModelTransition(c.getState().session, {
+      model: { ...testModel, id: ModelId.make("claude-opus-4-8") },
+      modelRef: { provider: "anthropic", modelId: "claude-opus-4-8", variant: "max" },
+      requestOptions: {},
+    })
+    c.clearConversation()
+    const ctx = c.getState().session.systemContext
+    expect(ctx.modelRef).toEqual({ provider: "anthropic", modelId: "claude-sonnet-5" })
+    expect(ctx.pastModels).toEqual([])
+  })
+
+  test("resuming a routed session uses the persisted modelRef, not activeModel", async () => {
+    const persisted = createSessionState({
+      sessionId: "routed",
+      workingDirectory: dir,
+      model: { ...testModel, id: ModelId.make("claude-opus-4-8") },
+      modelRef: { provider: "anthropic", modelId: "claude-opus-4-8", variant: "max" },
+      currentDate: "2026-07-05",
+    })
+    await Effect.runPromise(
+      saveSession(persisted, sessionsDir(join(dir, "config.json"), dir)).pipe(
+        Effect.provide(BunContext.layer),
+      ),
+    )
+    const c = build(scripted([textTurn("ok")]))
+    await c.resumeSession("routed")
+    expect(c.getState().session.systemContext.modelRef).toEqual({
+      provider: "anthropic",
+      modelId: "claude-opus-4-8",
+      variant: "max",
     })
   })
 

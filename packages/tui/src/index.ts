@@ -153,6 +153,12 @@ export const run = async (options: RunOptions = {}): Promise<void> => {
   const session = createSessionState({
     workingDirectory: cwd,
     model,
+    modelRef: {
+      provider: activeModel.provider,
+      modelId: activeModel.modelId,
+      ...(activeModel.variant !== undefined && { variant: activeModel.variant }),
+    },
+    requestOptions,
     permissionMode: flags.permissionMode ?? "ask",
     currentDate: new Date().toISOString().slice(0, 10),
   })
