@@ -2,7 +2,7 @@
 
 > Use subagents to implement this plan task-by-task.
 
-**Goal:** Add an automated model router that lets users enable routing globally with `/router`, choose which connected models and effort variants are routable, and let the active model switch or delegate to enabled model targets when the task calls for it.
+**Goal:** Add an automated model router that lets users enable routing globally with `/router`, choose which connected models and effort variants are routable, and let the active model switch or delegate subagents to enabled model targets when the task calls for it.
 
 **Architecture:** Router state is global TUI config, while the effective model for a conversation is session-local state. The active model receives a compact list of enabled routable targets in the system prompt and can call a normal model-visible `SwitchModel` tool. Core treats that tool as a special control-flow result: it records a typed/meta transcript switch event, updates the session current model, and immediately continues the same user turn on the selected target. Subagents use an optional `Agent.model` target override; omitted overrides inherit the parent session's current model.
 
@@ -12,10 +12,10 @@
 
 ## Decisions
 
-- `/router` opens a TUI dialog only. No v1 command argument grammar.
+- `/router` opens a TUI dialog only. No command arguments.
 - Router config is global user config in `~/.config/swain/config.json`, like `/model` and `/connect` state.
-- New sessions start from the global active model. Existing conversations resume on their last session-local current model.
-- `/model` keeps today's behavior of updating the global default, and also records an explicit session-local model switch for the current conversation.
+- New sessions start from the global active model. Existing conversations resume on their last session-local current model, which may be different from the global active model.
+- `/model` keeps today's behavior of updating the global default, and also records an explicit session-local model switch for the current conversation, allowing the user to "steer" the conversation to a different model and trigger a `SwitchModel` tool call.
 - `SwitchModel` is a normal model-visible tool, not a provider protocol action. Core intercepts it as control flow instead of letting it behave like an ordinary tool result.
 - `SwitchModel` is not a fork primitive; it updates the current session's model and records a trace event.
 - Each routable target is identified as `provider:modelId[:variant]`.
@@ -24,7 +24,7 @@
 - Router is effectively inactive unless the global toggle is on and at least two enabled connected targets exist.
 - Only enabled connected targets are shown to the model. Disabled targets are invisible to prompt guidance and rejected by runtime validation.
 - `SwitchModel` can be in the built-in registry, but it is only exposed in the LLM tool list when router status is `on`; runtime validation still rejects inactive or disallowed targets.
-- The current target is included in router prompt metadata with `current: true`, but instructions say not to call `SwitchModel` for it. Same-target `SwitchModel` calls are no-op success.
+- The current target is included in router prompt metadata with `current: true`, but instructions say not to call `SwitchModel` for it. Same-target `SwitchModel` calls are no-op.
 - At most one successful model switch is allowed per user turn. Multiple switches are allowed across the conversation.
 - After a successful switch, the next model request in the same user turn reassembles the system prompt so `current` and routing guidance reflect the new model.
 - `SwitchModel` requires a short `reason`.
@@ -35,7 +35,7 @@
 - Routing policy is correctness-first within reasonable cost. The prompt should encourage selecting the right target at the start of a conversation before substantive work. Later switches should be uncommon and mostly upward escalation when the task becomes more complex, risky, or correctness-sensitive; avoid late down-routing just to save cost.
 - Router prompt entries use `capability` plus `relCostEstimate` as the primary comparison signal when cost estimates are available. `relCostEstimate` is catalog metadata, rendered approximately (for example `~1x`, `~2x`, `~5x`) because effort-level token uplift is real but task-dependent and not publicly standardized.
 - Hard-coded model metadata is acceptable in v1. Token costs, effort-level token multipliers, and benchmark figures are supplied during implementation; the schema must make missing or estimated metadata explicit.
-- Fixing Anthropic extended-thinking effort levels is in scope as Task 0 so Anthropic variants are real request options, not inert catalog rows.
+- Wiring provider reasoning and effort controls is in scope as Task 1 so effort variants are real request options, not inert catalog rows. Reasoning is unwired today for all three catalog providers that support it: Anthropic (declared but not encoded), DeepSeek, and Z.ai. Each uses a different request shape, and their effort ladders differ — Anthropic exposes `low`, `medium`, `high`, `xhigh`, and `max`; DeepSeek and Z.ai expose only `high` and `max`.
 - `SwitchModel` is allowed in plan permission mode.
 - If a target disappears because credentials/config changed between prompt assembly and tool execution, return a recoverable no-op tool error and continue on the current model. Add a test for this race.
 - Status line shows a minimal router state: off, on, or inactive.
@@ -89,40 +89,42 @@ Extend the existing catalog in `packages/tui/src/models.ts`:
 ```ts
 interface RoutingBenchmark {
   readonly name: string
-  readonly score: number
-  readonly higherIsBetter?: boolean
+  readonly score: number // normalized 0-100, higher is always better
 }
 
 interface RoutingProfile {
-  readonly inputCostPerMillion?: number
-  readonly outputCostPerMillion?: number
-  readonly avgTokensPerTask?: number
+  readonly inputCostPerMTok?: number
+  readonly outputCostPerMTok?: number
+  readonly contextWindow?: number
   readonly capability?: number
   readonly relCostEstimate?: number
   readonly relCostBasis?: "published-price" | "measured-usage" | "manual-estimate"
   readonly benchmarks: ReadonlyArray<RoutingBenchmark>
-  readonly capabilitySummary: string
-  readonly estimated?: boolean
 }
 ```
+
+### Derived comparison signals
+
+The harness computes aggregates from `RoutingProfile` and shows the model only the aggregates, never the raw arrays/prices:
+
+- `benchmarkAvg` = mean of `benchmarks[].score` (already normalized 0–100, higher better).
+- `aggregateCost` = `relCostEstimate × tokenCost`, where `tokenCost = inputCostPerMTok × 4 + outputCostPerMTok × 1` (fixed volume-weight blend). Not split by effort variant — `relCostEstimate` already carries the effort signal.
+- Performance is presented as three signals: `capability`, `benchmarkAvg`, `contextWindow`.
+
+This aggregation is a pure catalog helper (Task 2) with its own tests; Task 8 only renders the results.
 
 Attach `routing?: RoutingProfile` to each model default and variant. Initial benchmark/cost data is hard-coded from values supplied during implementation. If any field is unknown, it must be represented explicitly and prompt text must say the data is unknown, not infer it.
 
 Prompt-facing `relCostEstimate` is stored in catalog metadata when there is a defensible basis. It is a unitless approximate multiplier such as `~1x`, `~2x`, or `~5x`, chosen from supplied model pricing and expected effort-token volume. For effort ladders, the lowest/default effort for that model/provider is usually `~1x`; higher efforts may get larger multipliers. `relCostBasis` records whether the estimate came from published token prices only, measured Swain usage, or a manual estimate.
 
-Evidence behind the estimate:
-
-- OpenAI documents that hidden reasoning tokens are billed as output tokens and can range from hundreds to tens of thousands depending on task complexity.
-- Azure OpenAI documents that higher `reasoning_effort` generally produces more reasoning tokens.
-- Anthropic documents `budget_tokens` as a maximum/target, not guaranteed usage, and says Claude may not use the entire budget.
-- AWS/Anthropic guidance recommends monitoring actual thinking token usage because actual usage varies by task.
-
-Conclusion: effort cost uplift is real, but exact multipliers are estimates. If `relCostEstimate` is absent, prompt rendering should show token prices and say effort-token uplift is unknown rather than inventing a multiplier.
+If `relCostEstimate` is absent, prompt rendering shows token prices and states that effort-token uplift is unknown rather than inventing a multiplier.
 
 Variant coverage:
 
-- Models with a provider-native effort setting expose every supported discrete effort rung as catalog variants.
-- Anthropic thinking is continuous, so Swain defines discrete budget buckets in the catalog; benchmark/cost estimates for interpolated buckets must set `estimated: true`.
+- Models with a provider-native effort setting expose every supported effort rung as catalog variants — all real API values, no Swain-invented buckets, so no interpolation/estimation for the effort mapping itself. Ladders are ragged and that is fine (the unified frontier absorbs it):
+  - Anthropic Opus 4.8 / Sonnet 5: five adaptive-thinking effort levels (`low`, `medium`, `high`, `xhigh`, `max`).
+  - Codex: native `low`, `medium`, `high`.
+  - DeepSeek V4 flash/pro and Z.ai GLM-5.2: `off`, `high`, `max` only (`low`/`medium` clamp to `high`).
 - Models with no effort API expose a single default target.
 - `/router` starts with all catalog variants enabled for every connected model.
 
@@ -172,7 +174,7 @@ Rules:
 
 - `modelRef` is the current conversation model target.
 - `requestOptions` is runtime state for the current model target (`providerOptions`/`generation`). `runTurn` reads it from the session every iteration.
-- `pastModels` is deduped by target ID and ordered by first time it stopped being current.
+- `pastModels` is deduped by target ID and ordered by first time it stopped being current. In v1 it is write-only: persisted for manual inspection/debugging of session model history, with no runtime reader.
 - `createSessionState` requires `modelRef`; tests/helpers can derive `{ provider: model.provider, modelId: model.id }` when no variant exists.
 - `saveSession` persists `modelRef` and `pastModels`.
 - `requestOptions` is not persisted separately; TUI resume resolves persisted `modelRef` and rebuilds the live `Model` plus request options.
@@ -195,46 +197,72 @@ export const ModelSwitchContent = Schema.Struct({
 
 Add it to `UserContent`. Persist it as a user `isMeta: true` message. Transcript rendering can later display it as a distinct switch row.
 
-## Task 0: Wire Anthropic extended thinking
+## Tracer Bullet
 
-**Objective:** Make Anthropic effort variants actually affect the request body.
+Before investing in catalog metadata (T2), config persistence (T3), or transcript/dialog UI (T6, T10), prove the riskiest mechanism end-to-end: a mid-turn model switch that reassembles the prompt, replaces request options, and continues the same turn on a possibly cross-provider model.
+
+Build the thinnest vertical slice first — a reduced form of T4 + T5 + T7:
+
+- Session-local `modelRef`/current model (minimal T4).
+- A hard-coded two-target stub `ModelResolver` (no catalog, no config) that resolves exactly two live models, ideally cross-provider (minimal T5).
+- `SwitchModel` control-flow interception in `runTurn`: reassemble prompt, replace request options, continue on the target (minimal T7).
+
+Verify the loop actually switches mid-turn and the continued request is valid on the new provider. Only once this holds, layer the full catalog metadata, config, prompt block, `Agent.model`, and dialog behind it. The task numbering below is dependency order for the full build; the tracer slice cuts across T4/T5/T7 and runs first.
+
+## Task 1: Wire provider reasoning and effort controls
+
+**Objective:** Make effort selection actually change the request for every reasoning-capable provider in the catalog.
+
+Reasoning is unwired today across all three providers: Anthropic declares a thinking variant that is never encoded, and DeepSeek and Z.ai carry no reasoning fields at all. Each provider uses a different request shape, so the work splits per provider. DeepSeek and Z.ai share one OpenAI-compatible protocol path, so 1.3 builds directly on 1.2.
+
+Each subtask follows the same loop: write a failing test asserting the provider's request encodes the right reasoning fields for a given effort, run the subtask's test file to confirm it fails, add the provider option plus its encoding, then rerun to green. Each subtask below states only what differs — its files, the facts that drive it, what the test asserts, and what to implement. Keep every change SDK-free and local to the protocol and provider.
+
+### Task 1.1: Anthropic adaptive thinking and effort
 
 **Files:**
 - Modify: `packages/llms/src/protocols/anthropic-messages.ts`
 - Test: `packages/llms/test/anthropic-thinking.test.ts`
 
-**Step 1: Write failing tests**
+**Model variants:**
+- Opus 4.8 and Sonnet 5 support adaptive thinking only. Manual budget-token thinking is rejected outright, so it is not used.
+- Effort is a soft guidance level with five rungs: `low`, `medium`, `high`, `xhigh`, and `max`, defaulting to `high`. Both models support all five. The product UI labels `xhigh` as "Extra".
+- Adaptive thinking must be enabled explicitly on Opus 4.8, and is on by default on Sonnet 5.
+- These models reject any non-default temperature, top-p, or top-k on every request. The protocol sends those unconditionally today, so it must stop sending them for these models — a latent bug this feature exposes.
 
-- A request with `providerOptions: { anthropic: { thinking: { type: "enabled", budgetTokens: 4096 } } }` emits `thinking: { type: "enabled", budget_tokens: 4096 }` in the Anthropic request body.
-- Existing Anthropic streaming decode for thinking deltas still passes.
+**Test asserts:** for each of the five effort levels, the request encodes adaptive thinking plus that effort; a non-default temperature, top-p, or top-k is not sent; existing thinking-delta stream decoding still passes.
 
-**Step 2: Run tests to verify failure**
+**Implement:** add an adaptive-thinking provider option carrying an optional effort level and display mode; encode it into the request; drop non-default sampling parameters for these models.
 
-Run:
+### Task 1.2: DeepSeek reasoning and effort
 
-```bash
-bun test packages/llms/test/anthropic-thinking.test.ts packages/llms/test/anthropic-messages.test.ts
-```
+**Files:**
+- Modify: `packages/llms/src/protocols/openai-chat.ts`
+- Modify: `packages/llms/src/providers/deepseek.ts`
+- Test: `packages/llms/test/openai-chat-reasoning.test.ts`
 
-Expected: FAIL because `thinking` is currently not encoded.
+**Model variants:**
+- DeepSeek V4 flash and pro enable reasoning with a thinking flag and grade it with an effort parameter. Only `high` and `max` are distinct; lower requests clamp up to `high`. The catalog therefore exposes `off`, `high`, and `max`.
+- DeepSeek silently ignores sampling parameters while reasoning, so no stripping is needed.
+- Whether the effort parameter alone enables reasoning or must be paired with the thinking flag is unconfirmed; send both and confirm against the live API during implementation.
 
-**Step 3: Implement**
+**Test asserts:** a request carrying reasoning at `high` or `max` encodes both the thinking flag and the effort level; a request without reasoning options encodes neither.
 
-- Extend Anthropic provider options with `thinking?: { type: "enabled"; budgetTokens: number }`.
-- In request preparation, lower it to Anthropic wire format `thinking: { type: "enabled", budget_tokens: budgetTokens }`.
-- Keep this SDK-free and protocol-local.
+**Implement:** add optional thinking and effort fields to the shared OpenAI-chat options and to the DeepSeek options; encode them into the request body when present.
 
-**Step 4: Verify**
+### Task 1.3: Z.ai reasoning and effort
 
-Run:
+**Files:**
+- Modify: `packages/llms/src/providers/zai.ts`
+- Test: extend `packages/llms/test/openai-chat-reasoning.test.ts`
 
-```bash
-bun test packages/llms/test/anthropic-thinking.test.ts packages/llms/test/anthropic-messages.test.ts
-```
+**Model variants:**
+- GLM-5.2 enables reasoning with a thinking flag and grades it with the same `high` and `max` levels as DeepSeek. Graded effort is specific to 5.2, so it is scoped to that model. The catalog exposes `off`, `high`, and `max`.
 
-Expected: PASS.
+**Test asserts:** a request carrying reasoning at `high` or `max` encodes the thinking flag and effort level.
 
-## Task 1: Router target helpers and catalog metadata
+**Implement:** add the same optional thinking and effort fields to the Z.ai options; the shared protocol change from 1.2 already encodes them.
+
+## Task 2: Router target helpers and catalog metadata
 
 **Objective:** Define canonical target IDs and attach routing metadata to catalog entries.
 
@@ -250,9 +278,10 @@ Expected: PASS.
 - `parseTargetId` rejects malformed IDs.
 - Every non-deprecated connected catalog model exposes at least one routable target.
 - Every routable target has explicit routing metadata or an explicit unknown marker.
-- Every routable target with complete metadata has `capability` in `[0, 100]`, positive `relCostEstimate` when supplied, a valid `relCostBasis` when `relCostEstimate` is supplied, positive `avgTokensPerTask` when supplied, and non-negative token costs.
+- Every routable target with complete metadata has `capability` in `[0, 100]`, positive `relCostEstimate` when supplied, a valid `relCostBasis` when `relCostEstimate` is supplied, positive `contextWindow` when supplied, and non-negative token costs.
 - Effort variants for the same model can have distinct `relCostEstimate` so low-effort and high-effort variants can compare correctly even when per-token prices match.
 - Models with effort controls expose the full catalog ladder by default; models without effort controls expose only a default target.
+- The aggregation helper returns `benchmarkAvg` as the mean of benchmark scores and `aggregateCost` as `relCostEstimate × blended tokenCost`; missing inputs surface as explicit unknown, not silently zeroed.
 
 **Step 2: Run tests to verify failure**
 
@@ -269,9 +298,10 @@ Expected: FAIL because helpers and metadata do not exist.
 - Add target ID helpers.
 - Add routing metadata interfaces.
 - Add catalog traversal helpers that return all target refs for a model: default target when no variants exist, variant targets when variants exist.
+- Add a pure aggregation helper computing `benchmarkAvg`, `aggregateCost`, and the performance-signal triple for a target's `RoutingProfile`.
 - Attach supplied cost/benchmark metadata. Do not invent benchmark values.
-- Add Anthropic effort helper variants only after Task 0 wires the provider option.
-- Mark interpolated Anthropic bucket metadata with `estimated: true`.
+- Add Anthropic effort helper variants only after Task 1.1 wires the provider option.
+- Mark interpolated Anthropic bucket cost with `relCostBasis: "manual-estimate"` and leave `benchmarks` empty.
 
 **Step 4: Verify**
 
@@ -283,7 +313,7 @@ bun test packages/tui/test/router.test.ts packages/tui/test/routing-catalog.test
 
 Expected: PASS.
 
-## Task 2: Router config persistence and derived routing state
+## Task 3: Router config persistence and derived routing state
 
 **Objective:** Persist global router settings and compute enabled connected targets.
 
@@ -320,7 +350,7 @@ bun test packages/tui/test/router-config.test.ts
 
 Run the router config test.
 
-## Task 3: Session-local current and past models
+## Task 4: Session-local current and past models
 
 **Objective:** Separate the global default model from the current model of a persisted conversation.
 
@@ -360,7 +390,7 @@ bun test packages/core/test/session-models.test.ts packages/tui/test/controller.
 
 Run the tests above.
 
-## Task 4: Model resolver bridge
+## Task 5: Model resolver bridge
 
 **Objective:** Let core tools resolve router target IDs without importing TUI catalog code.
 
@@ -396,7 +426,7 @@ bun test packages/tui/test/model-resolver.test.ts
 
 Run the model resolver test.
 
-## Task 5: Typed switch transcript rendering foundation
+## Task 6: Typed switch transcript rendering foundation
 
 **Objective:** Persist model switches as structured meta transcript content.
 
@@ -428,7 +458,7 @@ bun test packages/llms/test/schema.test.ts packages/tui/test/app.test.tsx
 
 Run the tests above.
 
-## Task 6: `SwitchModel` control-flow tool
+## Task 7: `SwitchModel` control-flow tool
 
 **Objective:** Add model-visible `SwitchModel({ model, reason })` and intercept it as routing control flow.
 
@@ -447,6 +477,7 @@ Run the tests above.
 - A valid switch appends a typed meta model-switch message and updates `session.systemContext.model`, `modelRef`, and `pastModels`.
 - A valid switch replaces `session.systemContext.requestOptions` with the target's request options; it never merges provider-specific options from the previous model.
 - Same-target switch is a no-op success and does not append duplicate switch history.
+- `SwitchModel` emitted alongside sibling tool calls: only the switch is applied, siblings are not executed, and the assistant message is replaced by the meta switch message (no orphan `tool_use`, no `tool_result` owed).
 - `unavailable` resolver errors return a recoverable tool error and leave session unchanged.
 - At most one successful switch is allowed per submitted user turn; a second switch in the same turn is a no-op or recoverable tool error per implementation choice, but it must not switch again.
 - Child registries exclude `SwitchModel`.
@@ -468,9 +499,9 @@ bun test packages/core/test/switch-model.test.ts packages/core/test/agent.test.t
 - Filter the LLM-visible tool list so `SwitchModel` is sent only when router status is `on`; keep runtime validation for defense in depth.
 - In `runTurn`, detect `SwitchModel` tool calls before ordinary tool continuation:
   - execute only the first successful switch for the current user turn;
-  - append the typed switch meta message;
+  - if `SwitchModel` arrives alongside sibling tool calls in the same assistant message, honor only the switch and drop the siblings unexecuted; the next iteration on the target model regenerates any needed work;
+  - replace the entire switching assistant message with the typed switch meta message, so no orphan `tool_use` blocks (switch or sibling) survive into history and no `tool_result` is owed;
   - replace active request options with the resolved target's request options;
-  - discard free-text assistant content from the switching model before the switch trace;
   - reassemble the system prompt with the new current target;
   - continue the same user turn on the target model;
   - do not append an ordinary `tool-result` message for successful switches.
@@ -480,7 +511,7 @@ bun test packages/core/test/switch-model.test.ts packages/core/test/agent.test.t
 
 Run the switch and agent loop tests.
 
-## Task 7: Router prompt block
+## Task 8: Router prompt block
 
 **Objective:** Inject enabled target metadata and routing policy only when router is active.
 
@@ -497,6 +528,7 @@ Run the switch and agent loop tests.
 - Current target row includes `current: true`.
 - Disabled targets are absent.
 - Instructions say same-target switches are unnecessary/no-op, max one switch per user turn, initial routing is encouraged before substantive work, and later switches should usually be upward escalation for complexity/correctness rather than cost-only down-routing.
+- Instructions say to emit `SwitchModel` as its own sole tool call and stop generating; any sibling tool calls in the same message will be dropped and must be reissued after the switch.
 - Instructions describe `Agent.model` and its default inheritance.
 
 **Step 2: Verify failure**
@@ -511,16 +543,14 @@ bun test packages/core/test/prompt-router.test.ts
 
 - Add optional router context to `RunTurnOptions` or session context.
 - Store model metadata as structured TS/JSON data, then render it into a compact markdown list or table in the system prompt.
-- Include one prompt entry per enabled target:
+- Include one prompt entry per enabled target, rendering computed aggregates (not raw benchmark scores or per-MTok prices):
   - `id`
   - label
   - current
-  - `capability`
-  - `relCostEstimate` when known, rendered approximately
+  - performance signals: `capability`, `benchmarkAvg`, `contextWindow`
+  - `aggregateCost` (`relCostEstimate × blended tokenCost`), rendered approximately
   - `relCostBasis` when `relCostEstimate` is present
-  - optional raw costs and benchmark references when useful
-  - capability summary
-  - estimated/unknown markers
+  - unknown/unmeasured markers (empty `benchmarks`, absent cost)
 - Append router guidance only when status is `on`.
 - Recompute router context at the start of each user turn and again after a successful switch.
 
@@ -528,7 +558,7 @@ bun test packages/core/test/prompt-router.test.ts
 
 Run the prompt router test.
 
-## Task 8: `Agent.model` target override
+## Task 9: `Agent.model` target override
 
 **Objective:** Allow parent agents to delegate subagents to an enabled target.
 
@@ -565,7 +595,7 @@ bun test packages/core/test/agent-model.test.ts
 
 Run the agent model test.
 
-## Task 9: `/router` dialog and status line
+## Task 10: `/router` dialog and status line
 
 **Objective:** Add user-facing router setup and a minimal status indicator.
 
@@ -613,9 +643,11 @@ bun test packages/tui/test/commands.test.ts packages/tui/test/router-command.tes
 
 Run the TUI tests and manually smoke `/router`.
 
-## Task 10: Verification sweep
+## Task 11: Verification sweep
 
 **Objective:** Prove the router works without regressing current single-model behavior.
+
+**Testability boundary:** routing-decision *quality* (does the model pick the right target) is non-deterministic and not unit-tested. Automated tests cover only mechanics — switch plumbing, target validation, one-switch-per-turn, mixed-batch drop, and the credential-race no-op. Decision quality is validated by the manual smoke below and deferred to a future eval harness.
 
 **Files:**
 - Existing tests only unless gaps require focused additions.
@@ -633,7 +665,8 @@ bun test packages/llms/test packages/core/test packages/tui/test
 - Start with one connected model and router on: status shows inactive; no router prompt block; no `SwitchModel` available.
 - Connect or enable at least two targets: status shows on; prompt includes only enabled targets.
 - Confirm router prompt entries include `capability` and catalog `relCostEstimate` when known, e.g. `low ~1x`, `medium ~2x`, `high ~5x`.
-- Confirm Anthropic effort targets carry `thinking.budget_tokens` in encoded requests.
+- Confirm Anthropic effort targets encode `thinking: {type: "adaptive"}` + `output_config.effort` (not `budget_tokens`) and omit non-default sampling params.
+- Confirm DeepSeek and Z.ai effort targets encode top-level `thinking: {type: "enabled"}` + `reasoning_effort` (`high`/`max`).
 - Ask a first-turn trivial prompt from an expensive default: observe either no switch with a reasoned answer or an early traceable down-route before substantive work.
 - Ask a conversation that grows harder after a cheap current model: observe a traceable up-route when appropriate.
 - Use `/model` mid-conversation: global default updates and the transcript shows a user-driven switch.
@@ -645,7 +678,9 @@ bun test packages/llms/test packages/core/test packages/tui/test
 - Self-routing may under-route because the active model judges its own suitability. The plan mitigates this with explicit prompt guidance and traceable outcomes; a dedicated router model is deferred.
 - Hard-coded benchmark and cost data will become stale. The schema isolates it so a hosted metadata feed can replace it later.
 - `relCostEstimate` is only as good as the supplied pricing and effort-token assumptions. Wrong multipliers can mis-rank variants; tests should catch missing or invalid values, not business accuracy.
-- Cross-provider switches rely on provider-neutral message history. Existing schema supports this, but request options must be replaced, not merged.
+- Cross-provider switches rely on provider-neutral message history. Existing schema supports this, but request options must be replaced, not merged. **Assumption:** provider adapters can translate an accumulated history (including thinking/tool blocks from another provider) into the target provider's request format. Invalidation: if an adapter rejects a foreign mid-conversation history, cross-provider routing is constrained to same-provider targets until adapters normalize. The tracer bullet verifies this before the full build commits to it.
+- Thinking blocks are tied to the model that produced them. On any `SwitchModel` (including Anthropic→Anthropic effort changes and cross-provider), prior-turn `thinking`/`redacted_thinking` blocks must be stripped from the history sent to the new target — foreign models ignore them but still bill them as input tokens, and a mismatched producer can be rejected. The switch path must drop them.
+- Relocating `requestOptions` from per-turn `RunTurnOptions` into `session.systemContext` touches every session, not just routed ones — broad blast radius. Mitigation: non-routed sessions seed `requestOptions` from the same source used today, and the existing single-model turn tests must pass unchanged (Task 11).
 - Dynamic tool schemas would reduce invalid target calls, but current static registry makes runtime validation the lower-risk implementation.
 
 ## Deferred
