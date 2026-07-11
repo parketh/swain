@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test"
-import { modelRoutableTargets, parseTargetId, targetId } from "../src/router"
+import {
+  modelRoutableTargets,
+  parseTargetId,
+  paretoFrontier,
+  type RoutableTarget,
+  targetId,
+} from "../src/router"
 
 describe("targetId", () => {
   test("encodes provider:modelId without a variant", () => {
@@ -70,5 +76,42 @@ describe("modelRoutableTargets", () => {
       "anthropic:claude-opus-4-8:low",
       "anthropic:claude-opus-4-8:high",
     ])
+  })
+})
+
+describe("paretoFrontier", () => {
+  const t = (id: string, capability?: number, avgCostPerTask?: number): RoutableTarget => ({
+    ref: { provider: "p", modelId: id },
+    id,
+    label: id,
+    ...(capability !== undefined || avgCostPerTask !== undefined
+      ? { routing: { ...(capability !== undefined && { capability }), ...(avgCostPerTask !== undefined && { avgCostPerTask }) } }
+      : {}),
+  })
+  const ids = (targets: ReadonlyArray<RoutableTarget>) => targets.map((x) => x.id).sort()
+
+  test("drops a target that is both pricier and less capable", () => {
+    const kept = paretoFrontier([t("cheap-weak", 30, 0.02), t("pricey-strong", 50, 0.5), t("dominated", 40, 0.6)])
+    expect(ids(kept)).toEqual(["cheap-weak", "pricey-strong"])
+  })
+
+  test("keeps cheaper-but-weaker and stronger-but-pricier tradeoffs", () => {
+    const kept = paretoFrontier([t("a", 30, 0.02), t("b", 50, 0.5)])
+    expect(ids(kept)).toEqual(["a", "b"])
+  })
+
+  test("drops an equal-capability target that costs more", () => {
+    const kept = paretoFrontier([t("cheap", 40, 0.02), t("pricey", 40, 0.9)])
+    expect(ids(kept)).toEqual(["cheap"])
+  })
+
+  test("keeps duplicates with identical capability and cost", () => {
+    const kept = paretoFrontier([t("a", 40, 0.1), t("b", 40, 0.1)])
+    expect(ids(kept)).toEqual(["a", "b"])
+  })
+
+  test("keeps targets missing either metric; they neither dominate nor are dominated", () => {
+    const kept = paretoFrontier([t("strong", 50, 0.1), t("no-cost", 90), t("no-cap", undefined, 0.01), t("none")])
+    expect(ids(kept)).toEqual(["no-cap", "no-cost", "none", "strong"])
   })
 })

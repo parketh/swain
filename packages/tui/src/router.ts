@@ -90,12 +90,36 @@ export const enabledRouterTargets = (config: TuiConfig): ReadonlyArray<RoutableT
 }
 
 /**
- * Enabled targets rendered as router prompt rows: canonical id, label, and each
- * target's routing signals. Missing metadata stays `undefined` so the prompt can
- * mark it unknown rather than inventing a value.
+ * `other` dominates `target`: ≥ capability and ≤ cost, strictly better on one axis.
+ * Incomparable if either lacks a metric.
+ * */
+const dominates = (other: RoutableTarget, target: RoutableTarget): boolean => {
+  const oc = other.routing?.capability
+  const oCost = other.routing?.avgCostPerTask
+  const tc = target.routing?.capability
+  const tCost = target.routing?.avgCostPerTask
+  if (oc === undefined || oCost === undefined || tc === undefined || tCost === undefined) {
+    return false
+  }
+  return oc >= tc && oCost <= tCost && (oc > tc || oCost < tCost)
+}
+
+/**
+ * Drops dominated targets, keeping cheaper-but-weaker and stronger-but-pricier tradeoffs and any
+ * missing a metric.
+ * */
+export const paretoFrontier = (
+  targets: ReadonlyArray<RoutableTarget>,
+): ReadonlyArray<RoutableTarget> =>
+  targets.filter((target) => !targets.some((other) => dominates(other, target)))
+
+/**
+ * Enabled targets on the Pareto frontier, rendered as router prompt rows so the
+ * router only sees non-dominated choices. Missing metadata stays `undefined` so
+ * the prompt can mark it unknown rather than inventing a value.
  */
 export const routerPromptTargets = (config: TuiConfig): ReadonlyArray<RouterPromptTarget> =>
-  enabledRouterTargets(config).map((target) => ({
+  paretoFrontier(enabledRouterTargets(config)).map((target) => ({
     id: target.id,
     label: target.label,
     ...(target.routing?.capability !== undefined && { capability: target.routing.capability }),
