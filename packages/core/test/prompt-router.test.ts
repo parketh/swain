@@ -18,19 +18,13 @@ const targets: ReadonlyArray<RouterPromptTarget> = [
     id: "anthropic:claude-sonnet-5:high",
     label: "Claude Sonnet 5 (high)",
     capability: 88,
-    relCostEstimate: 3,
-    aggregateCost: 90,
-    relCostBasis: "manual-estimate",
-    hasBenchmarks: false,
+    avgCostPerTask: 0.9,
   },
   {
     id: "anthropic:claude-opus-4-8:max",
     label: "Claude Opus 4.8 (max)",
     capability: 95,
-    relCostEstimate: 5,
-    aggregateCost: 300,
-    relCostBasis: "manual-estimate",
-    hasBenchmarks: false,
+    avgCostPerTask: 3,
   },
 ]
 
@@ -67,13 +61,12 @@ describe("assembleSystemPrompt router block", () => {
     const prompt = assembleSystemPrompt({
       ...base,
       router: {
-        targets: [{ id: "p:m", label: "Bare model", hasBenchmarks: false }],
+        targets: [{ id: "p:m", label: "Bare model" }],
         currentId: "other",
       },
     })
     expect(prompt).toContain("capability unknown")
-    expect(prompt).toContain("benchmarks unmeasured")
-    expect(prompt).toContain("cost unknown")
+    expect(prompt).toContain("avg cost unknown")
   })
 
   test("guidance covers no-op, one-switch, escalation, sole-tool-call, and Agent.model", () => {

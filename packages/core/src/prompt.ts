@@ -4,14 +4,10 @@ import type { PermissionMode } from "./permission"
 export interface RouterPromptTarget {
   readonly id: string
   readonly label: string
+  /** Rough 0-100 capability tier; higher is better. */
   readonly capability?: number
-  readonly benchmarkAvg?: number
-  readonly contextWindow?: number
-  readonly relCostEstimate?: number
-  readonly aggregateCost?: number
-  readonly relCostBasis?: string
-  /** False when `benchmarks` is empty — rendered as "unmeasured", never invented. */
-  readonly hasBenchmarks: boolean
+  /** Weighted average cost per task in USD; lower is cheaper. */
+  readonly avgCostPerTask?: number
 }
 
 /** Router context injected into the prompt only when routing is active. */
@@ -58,24 +54,11 @@ const ROUTER_GUIDANCE = `You can switch the model handling this conversation wit
 - To switch, emit SwitchModel as your ONLY tool call and then stop generating. Any sibling tool calls in the same message are dropped and must be reissued on the next turn after the switch.
 - To delegate a subagent to a specific target, pass Agent's optional \`model\` field a routable target id. Omit it to inherit the current model.`
 
-const fmtCost = (target: RouterPromptTarget): string => {
-  const parts: Array<string> = []
-  if (target.relCostEstimate !== undefined) parts.push(`~${target.relCostEstimate}x`)
-  if (target.aggregateCost !== undefined)
-    parts.push(`aggregate ~${Math.round(target.aggregateCost * 10) / 10}`)
-  if (target.relCostBasis !== undefined) parts.push(target.relCostBasis)
-  return parts.length > 0 ? parts.join(", ") : "unknown (effort-token uplift unknown)"
-}
-
 const renderTarget = (target: RouterPromptTarget, current: boolean): string => {
   const capability = target.capability !== undefined ? `${target.capability}` : "unknown"
-  const benchmarks =
-    target.hasBenchmarks && target.benchmarkAvg !== undefined
-      ? target.benchmarkAvg.toFixed(0)
-      : "unmeasured"
-  const context = target.contextWindow !== undefined ? `${target.contextWindow}` : "unknown"
+  const cost = target.avgCostPerTask !== undefined ? `~$${target.avgCostPerTask}/task` : "unknown"
   return `- \`${target.id}\`${current ? " [current]" : ""} — ${target.label}
-    capability ${capability}, benchmarks ${benchmarks}, context ${context}, cost ${fmtCost(target)}`
+    capability ${capability}, avg cost ${cost}`
 }
 
 const renderRouterBlock = (router: RouterPromptContext): string => {

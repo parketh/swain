@@ -1,12 +1,6 @@
 import type { RouterPromptTarget } from "@swain/core"
 import type { RouterConfig, TuiConfig } from "./config"
-import {
-  aggregateRouting,
-  allCatalogModels,
-  availableModels,
-  type ModelOption,
-  type RoutingProfile,
-} from "./models"
+import { allCatalogModels, availableModels, type ModelOption, type RoutingProfile } from "./models"
 
 export interface RouterTargetRef {
   readonly provider: string
@@ -48,20 +42,13 @@ export interface RoutableTarget {
 
 /**
  * All routable targets for a catalog model: the model's default target when it
- * has no variants, otherwise one target per variant. Variant targets carry the
- * variant's effective routing profile (model base merged with the variant cost).
+ * has no variants, otherwise one target per variant, each carrying that
+ * variant's routing profile.
  */
 export const modelRoutableTargets = (model: ModelOption): ReadonlyArray<RoutableTarget> => {
   if (model.variants.length === 0) {
     const ref: RouterTargetRef = { provider: model.provider, modelId: model.modelId }
-    return [
-      {
-        ref,
-        id: targetId(ref),
-        label: model.label,
-        ...(model.routing !== undefined && { routing: model.routing }),
-      },
-    ]
+    return [{ ref, id: targetId(ref), label: model.label }]
   }
   return model.variants.map((variant) => {
     const ref: RouterTargetRef = {
@@ -103,27 +90,19 @@ export const enabledRouterTargets = (config: TuiConfig): ReadonlyArray<RoutableT
 }
 
 /**
- * Enabled targets rendered as router prompt rows: canonical id, label, and the
- * derived comparison signals from each target's routing profile. Missing
- * metadata stays `undefined` so the prompt can mark it unknown rather than
- * inventing a value.
+ * Enabled targets rendered as router prompt rows: canonical id, label, and each
+ * target's routing signals. Missing metadata stays `undefined` so the prompt can
+ * mark it unknown rather than inventing a value.
  */
 export const routerPromptTargets = (config: TuiConfig): ReadonlyArray<RouterPromptTarget> =>
-  enabledRouterTargets(config).map((target) => {
-    const routing = target.routing
-    const aggregate = routing !== undefined ? aggregateRouting(routing) : undefined
-    return {
-      id: target.id,
-      label: target.label,
-      hasBenchmarks: (routing?.benchmarks.length ?? 0) > 0,
-      ...(aggregate?.capability !== undefined && { capability: aggregate.capability }),
-      ...(aggregate?.benchmarkAvg !== undefined && { benchmarkAvg: aggregate.benchmarkAvg }),
-      ...(aggregate?.contextWindow !== undefined && { contextWindow: aggregate.contextWindow }),
-      ...(aggregate?.aggregateCost !== undefined && { aggregateCost: aggregate.aggregateCost }),
-      ...(routing?.relCostEstimate !== undefined && { relCostEstimate: routing.relCostEstimate }),
-      ...(routing?.relCostBasis !== undefined && { relCostBasis: routing.relCostBasis }),
-    }
-  })
+  enabledRouterTargets(config).map((target) => ({
+    id: target.id,
+    label: target.label,
+    ...(target.routing?.capability !== undefined && { capability: target.routing.capability }),
+    ...(target.routing?.avgCostPerTask !== undefined && {
+      avgCostPerTask: target.routing.avgCostPerTask,
+    }),
+  }))
 
 export type RouterStatus = "off" | "inactive" | "on"
 
