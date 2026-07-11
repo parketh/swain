@@ -44,15 +44,20 @@ const AGENT_REMINDER = `Use Agent for independent exploration, planning, or isol
 
 Agent creates and tracks a task for each subagent automatically, and the UI shows running subagents in a live monitor. Do NOT create separate tracking tasks for subagents you delegate — that duplicates them. Only use TaskCreate for your own (non-delegated) work.`
 
-const ROUTER_GUIDANCE = `You can switch the model handling this conversation with the SwitchModel tool, choosing one of the routable targets above.
+const ROUTER_GUIDANCE = `You can switch the model handling this conversation with the SwitchModel tool, choosing one of the routable targets above. Pick the model best suited to the task by classifying the user's request into one of the tiers below, then picking the routable target above that best fits it by judging capability and cost together from the data shown. Don't pay for capability the task will not use.
 
-- Pick the right target at the START of the conversation, before substantive work; getting this right up front matters more than switching later.
-- Later switches should be uncommon and are usually UPWARD escalation — move to a more capable target when the task turns more complex, riskier, or more correctness-sensitive. Avoid switching down late just to save cost.
-- Compare targets primarily on capability and relative cost; higher capability and lower cost are better. Treat unknown/unmeasured fields as unknown — never assume a value.
-- The target marked [current] is the one you are running on now; switching to it is unnecessary and is a no-op.
-- At most ONE switch takes effect per user turn.
-- To switch, emit SwitchModel as your ONLY tool call and then stop generating. Any sibling tool calls in the same message are dropped and must be reissued on the next turn after the switch.
-- To delegate a subagent to a specific target, pass Agent's optional \`model\` field a routable target id. Omit it to inherit the current model.`
+Task tiers:
+- Simple: the cheapest capable target: quick lookups, one-line fixes, typos, renames, formatting, boilerplate, docs.
+- Routine: a mid-tier target: single-file edits, straightforward Q&A, applying well-known patterns, standard tests, debugging an issue with an obvious cause.
+- Complex [DEFAULT]: a near-top target, one tier below the strongest: multi-file refactors, ambiguous debugging, implementing a spec or non-trivial feature. This is the DEFAULT tier when a task does not clearly fit another.
+- Critical: security audits, penetration testing, architecture reviews, and other mission-critical work.
+
+Rules:
+- Decide at the START of the conversation; getting this right up front matters more than switching later.
+- The target marked [current] is the one you are running on now; do NOT switch to it.
+- To switch, emit SwitchModel as your ONLY tool call and then stop generating.
+
+You can also use Agent to delegate tasks to a specific target model. When using Agent, classify its task the same way and pass Agent's \`model\` field the matching routable target id; omit a target to inherit the current one.`
 
 const renderTarget = (target: RouterPromptTarget, current: boolean): string => {
   const capability = target.capability !== undefined ? `${target.capability}` : "unknown"

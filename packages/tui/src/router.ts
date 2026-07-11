@@ -73,11 +73,16 @@ export const catalogRoutableTargets = (): ReadonlyArray<RoutableTarget> =>
 export const routerSettings = (config: TuiConfig): RouterConfig =>
   config.router ?? { enabled: false, disabledModels: [], disabledTargets: [] }
 
+/** A target is routable only when it carries both routing metrics. */
+const hasRoutingData = (target: RoutableTarget): boolean =>
+  target.routing?.capability !== undefined && target.routing?.avgCostPerTask !== undefined
+
 /**
  * Router targets currently enabled: every routable target of a configured
  * provider, minus whole-model opt-outs (`disabledModels`) and variant opt-outs
- * (`disabledTargets`). New models/variants are enabled by default because config
- * stores opt-outs only.
+ * (`disabledTargets`), and minus targets with no routing data (the router can't
+ * weigh a model it has no capability/cost for; it stays usable via `/model`).
+ * New models/variants are enabled by default because config stores opt-outs only.
  */
 export const enabledRouterTargets = (config: TuiConfig): ReadonlyArray<RoutableTarget> => {
   const settings = routerSettings(config)
@@ -87,6 +92,7 @@ export const enabledRouterTargets = (config: TuiConfig): ReadonlyArray<RoutableT
     .filter((model) => !disabledModels.has(modelKey(model)))
     .flatMap(modelRoutableTargets)
     .filter((target) => !disabledTargets.has(target.id))
+    .filter(hasRoutingData)
 }
 
 /**

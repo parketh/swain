@@ -69,18 +69,18 @@ describe("assembleSystemPrompt router block", () => {
     expect(prompt).toContain("avg cost unknown")
   })
 
-  test("guidance covers no-op, one-switch, escalation, sole-tool-call, and Agent.model", () => {
+  test("guidance covers the tiers, start timing, sole-tool-call, and Agent.model", () => {
     const prompt = assembleSystemPrompt({
       ...base,
       router: { targets, currentId: "anthropic:claude-sonnet-5:high" },
     })
-    expect(prompt).toContain("no-op")
-    expect(prompt).toContain("ONE switch")
+    for (const tier of ["Simple", "Routine", "Complex", "Critical", "DEFAULT"]) {
+      expect(prompt).toContain(tier)
+    }
     expect(prompt).toContain("START")
-    expect(prompt.toLowerCase()).toContain("escalation")
+    expect(prompt).toContain("do NOT switch to it")
     expect(prompt).toContain("ONLY tool call")
-    expect(prompt).toContain("dropped")
     expect(prompt).toContain("Agent")
-    expect(prompt).toContain("inherit the current model")
+    expect(prompt).toContain("inherit the current one")
   })
 })

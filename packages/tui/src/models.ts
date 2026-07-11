@@ -36,10 +36,10 @@ export interface RoutingProfile {
   readonly avgCostPerTask?: number
 }
 
-// PLACEHOLDER routing metadata per model variant. Replace the zeros with real
-// numbers: `capability` on a 0-100 scale, `avgCostPerTask` in USD.
-const PLACEHOLDER = 0
-const p = (): RoutingProfile => ({ capability: PLACEHOLDER, avgCostPerTask: PLACEHOLDER })
+// No published routing data for this variant. An empty profile (no capability or
+// cost) marks it "no data": the router excludes it rather than routing on
+// fabricated numbers, while it stays selectable manually via `/model`.
+const p = (): RoutingProfile => ({})
 
 // Data per Artificial Analysis (AA): https://artificialanalysis.ai
 const ROUTING: Record<string, Record<string, RoutingProfile>> = {

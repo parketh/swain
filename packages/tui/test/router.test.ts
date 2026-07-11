@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import {
   modelRoutableTargets,
-  parseTargetId,
   paretoFrontier,
+  parseTargetId,
   type RoutableTarget,
   targetId,
 } from "../src/router"
@@ -85,13 +85,22 @@ describe("paretoFrontier", () => {
     id,
     label: id,
     ...(capability !== undefined || avgCostPerTask !== undefined
-      ? { routing: { ...(capability !== undefined && { capability }), ...(avgCostPerTask !== undefined && { avgCostPerTask }) } }
+      ? {
+          routing: {
+            ...(capability !== undefined && { capability }),
+            ...(avgCostPerTask !== undefined && { avgCostPerTask }),
+          },
+        }
       : {}),
   })
   const ids = (targets: ReadonlyArray<RoutableTarget>) => targets.map((x) => x.id).sort()
 
   test("drops a target that is both pricier and less capable", () => {
-    const kept = paretoFrontier([t("cheap-weak", 30, 0.02), t("pricey-strong", 50, 0.5), t("dominated", 40, 0.6)])
+    const kept = paretoFrontier([
+      t("cheap-weak", 30, 0.02),
+      t("pricey-strong", 50, 0.5),
+      t("dominated", 40, 0.6),
+    ])
     expect(ids(kept)).toEqual(["cheap-weak", "pricey-strong"])
   })
 
@@ -111,7 +120,12 @@ describe("paretoFrontier", () => {
   })
 
   test("keeps targets missing either metric; they neither dominate nor are dominated", () => {
-    const kept = paretoFrontier([t("strong", 50, 0.1), t("no-cost", 90), t("no-cap", undefined, 0.01), t("none")])
+    const kept = paretoFrontier([
+      t("strong", 50, 0.1),
+      t("no-cost", 90),
+      t("no-cap", undefined, 0.01),
+      t("none"),
+    ])
     expect(ids(kept)).toEqual(["no-cap", "no-cost", "none", "strong"])
   })
 })
