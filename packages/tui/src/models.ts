@@ -41,14 +41,22 @@ export interface RoutingProfile {
 const PLACEHOLDER = 0
 const p = (): RoutingProfile => ({ capability: PLACEHOLDER, avgCostPerTask: PLACEHOLDER })
 
+// Data per Artificial Analysis (AA): https://artificialanalysis.ai
 const ROUTING: Record<string, Record<string, RoutingProfile>> = {
+  // AA does not publish Anthropic model effort-variant benchmarks, so we scale the 'Max' model
+  // score by effort-level benchmark scores (specifically Humanity's Last Exam) from Anthropic's
+  // Fable 5 System Card.
+  // https://www.anthropic.com/system-cards
   [AnthropicModel.Claude_Opus_4_8]: {
-    [AnthropicVariant.Low]: p(),
-    [AnthropicVariant.Medium]: p(),
-    [AnthropicVariant.High]: p(),
-    [AnthropicVariant.XHigh]: p(),
-    [AnthropicVariant.Max]: p(),
+    [AnthropicVariant.Low]: { capability: 48.6, avgCostPerTask: 0.41 },
+    [AnthropicVariant.Medium]: { capability: 53.4, avgCostPerTask: 0.62 },
+    [AnthropicVariant.High]: { capability: 53.9, avgCostPerTask: 0.77 },
+    [AnthropicVariant.XHigh]: { capability: 55.7, avgCostPerTask: 1.43 },
+    [AnthropicVariant.Max]: { capability: 56, avgCostPerTask: 1.8 },
   },
+  // AA does not publish seperate benchmarks for GPT-5.5 and GPT-5.5 Pro. The published benchmmarks
+  // are likely for the pro model given input and output token prices, so we only populate figures
+  // for the pro model.
   [OpenAIModel.GPT_5_5]: {
     [OpenAIVariant.Low]: p(),
     [OpenAIVariant.Medium]: p(),
@@ -56,21 +64,24 @@ const ROUTING: Record<string, Record<string, RoutingProfile>> = {
     [OpenAIVariant.XHigh]: p(),
   },
   [OpenAIModel.GPT_5_5_Pro]: {
-    [OpenAIVariant.Medium]: p(),
-    [OpenAIVariant.High]: p(),
-    [OpenAIVariant.XHigh]: p(),
+    [OpenAIVariant.Medium]: { capability: 50, avgCostPerTask: 0.34 },
+    [OpenAIVariant.High]: { capability: 53, avgCostPerTask: 0.61 },
+    [OpenAIVariant.XHigh]: { capability: 55, avgCostPerTask: 0.86 },
   },
+  // AA does not publish avgCostPerTask for DeepSeek High variants. Assumed same cost as Max variant
+  // given similar capability scores.
   [DeepSeekModel.V4_Flash]: {
-    [DeepSeekVariant.High]: p(),
-    [DeepSeekVariant.Max]: p(),
+    [DeepSeekVariant.High]: { capability: 37, avgCostPerTask: 0.02 },
+    [DeepSeekVariant.Max]: { capability: 40, avgCostPerTask: 0.02 },
   },
   [DeepSeekModel.V4_Pro]: {
-    [DeepSeekVariant.High]: p(),
-    [DeepSeekVariant.Max]: p(),
+    [DeepSeekVariant.High]: { capability: 41, avgCostPerTask: 0.04 },
+    [DeepSeekVariant.Max]: { capability: 44, avgCostPerTask: 0.04 },
   },
+  // AA does not publish data for Z.AI High variant
   [ZAIModel.GLM_5_2]: {
     [ZAIVariant.High]: p(),
-    [ZAIVariant.Max]: p(),
+    [ZAIVariant.Max]: { capability: 51, avgCostPerTask: 0.37 },
   },
 }
 
