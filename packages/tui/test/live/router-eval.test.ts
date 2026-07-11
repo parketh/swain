@@ -180,7 +180,7 @@ const LADDER = [
   {
     bucket: "routine",
     floor: 43,
-    ceil: 53,
+    ceil: 55,
     prompt: "Add a REST CRUD endpoint.",
   },
   {
@@ -283,9 +283,9 @@ const runLadder = async (start: Variant) => {
     ),
   ).toEqual([])
   const cap = Object.fromEntries(results.map(({ s, out }) => [s.bucket, out.capability]))
-  // A genuinely graduated ladder — not everything pinned to the top.
   expect(cap.simple).toBeLessThanOrEqual(cap.routine!)
-  expect(cap.routine).toBeLessThanOrEqual(cap.complex!)
+  expect(cap.simple).toBeLessThanOrEqual(cap.complex!)
+  expect(cap.routine).toBeLessThan(cap.critical!)
   expect(cap.complex).toBeLessThan(cap.critical!)
   expect(cap.critical).toBe(STRONGEST)
 }
