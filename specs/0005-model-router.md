@@ -690,3 +690,49 @@ bun test packages/llms/test packages/core/test packages/tui/test
 - Dynamic per-turn enum schemas for `SwitchModel.model` and `Agent.model`.
 - Cost caps or user-selectable routing objective profiles.
 - More detailed router telemetry beyond transcript switch events and session `pastModels`.
+
+---
+
+## Post-Implementation Changes
+
+Changes made after the implementation of this spec (commit `2e63d53`). These supersede the original spec where they conflict.
+
+### Lab / provider / model / variant taxonomy
+
+The catalog was refactored to separate a **lab** (who trains a model) from a **provider** (who serves it). A single model can be reachable through multiple providers — e.g. `gpt-5.5` is served by both the `openai` and `openai-codex` providers.
+
+- New shared enums live in `@swain/llms`:
+  - `packages/llms/src/schema/labs.ts` — `Lab` (`anthropic`, `openai`, `deepseek`, `zai`).
+  - `packages/llms/src/schema/providers.ts` — `Provider` (adds `openai-codex`, `pollinations`).
+- New per-lab model-card modules in `packages/llms/src/models/` (`anthropic.ts`, `openai.ts`, `deepseek.ts`, `zai.ts`, re-exported from `index.ts`) hold model ids, the effort/variant vocabulary, and each model's supported-variant list (`*ModelVariants`) as `as const satisfies` records.
+- The TUI catalog in `packages/tui/src/models.ts` now consumes these enums instead of defining model/variant strings inline.
+
+### Simplified model data
+
+The `RoutingProfile` from the Data Model section (benchmarks array, `relCostEstimate`, `relCostBasis`, per-MTok token costs, `contextWindow`, plus derived `benchmarkAvg`/`aggregateCost`) was replaced by a two-field profile:
+
+```ts
+export interface RoutingProfile {
+  readonly capability?: number     // 0–100 tier, higher is better
+  readonly avgCostPerTask?: number // weighted average USD/task, lower is cheaper
+}
+```
+
+- Figures are hard-coded from [Artificial Analysis](https://artificialanalysis.ai). Anthropic effort-variant capability is scaled from the `Max` variant using per-effort Humanity's Last Exam scores from Anthropic's system card, since AA does not publish per-effort Anthropic benchmarks. Gaps are documented inline (e.g. GPT-5.5 vs Pro, DeepSeek High cost).
+- The Task 2 aggregation helper (`benchmarkAvg`, `aggregateCost`, performance triple) is gone. The prompt renders `capability N, avg cost ~$X/task` directly.
+
+### Pareto-frontier target filtering
+
+`enabledRouterTargets` now also drops targets with no routing data (`hasRoutingData`), and `routerPromptTargets` filters the enabled set through `paretoFrontier` before rendering. A target is dropped if another target `dominates` it (≥ capability and ≤ cost, strictly better on one axis), so the router only ever sees non-dominated capability/cost tradeoffs. Targets without routing data stay usable via `/model` but are never shown to the router.
+
+### Tier-based routing prompt
+
+`ROUTER_GUIDANCE` was rewritten to classify each request into an explicit tier — **Simple**, **Routine**, **Complex** (default), **Critical** — and pick the routable target that best fits that tier by weighing capability and cost together, rather than free-form "pick the best model" guidance.
+
+### GPT-5.5 / 5.6 model cards
+
+Added OpenAI model cards for `gpt-5.6` family (`sol`, `terra`, `luna`), and fixed `gpt-5.5` figures.
+
+### Live routing eval harness
+
+`packages/tui/test/live/router-eval.test.ts` drives the real Codex `gpt-5.5` model as the router's picker and asserts the tier prompt right-sizes the choice — cheap tasks stay cheap, only critical work reaches the top, with a monotonic Simple ≤ Routine ≤ Complex < Critical ordering. It hits a live backend and costs tokens, so it lives under `test/live/`, is excluded from the default `test` script via `--path-ignore-patterns`, and runs explicitly via `bun run test:live` (needs `OPENAI_CODEX_ACCESS_TOKEN`). This partially realizes the eval harness deferred in Task 11.
