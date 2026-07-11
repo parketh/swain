@@ -1,8 +1,9 @@
 import type { Model, ProviderOptions } from "../schema"
+import { Provider } from "../schema"
 import type { OpenAICompatibleFacade } from "./openai-compatible"
 import { OpenAICompatible } from "./openai-compatible"
 
-export const DEEPSEEK_PROVIDER_ID = "deepseek"
+export const DEEPSEEK_PROVIDER_ID = Provider.DeepSeek
 export const DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 
 /** DeepSeek documents `temperature`/`top_p`; it does not document `seed`. */

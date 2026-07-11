@@ -19,7 +19,7 @@ import { sessionsDir, type TuiConfig } from "../src/config"
 import { type Controller, makeController } from "../src/controller"
 
 const testModel: Model = {
-  id: ModelId.make("claude-sonnet-5"),
+  id: ModelId.make("claude-opus-4-8"),
   provider: ProviderId.make("anthropic"),
   streamTurn: () => Stream.empty,
 }
@@ -94,7 +94,7 @@ describe("controller", () => {
     })
     controller = makeController({
       session,
-      activeModel: { provider: "anthropic", modelId: "claude-sonnet-5" },
+      activeModel: { provider: "anthropic", modelId: "claude-opus-4-8" },
       config,
       configPath: join(dir, "config.json"),
       llmLayer: llm.layer,
@@ -176,7 +176,7 @@ describe("controller", () => {
       modelId: "claude-opus-4-8",
       variant: "high",
     })
-    expect(ctx.pastModels).toEqual([{ provider: "anthropic", modelId: "claude-sonnet-5" }])
+    expect(ctx.pastModels).toEqual([{ provider: "anthropic", modelId: "claude-opus-4-8" }])
   })
 
   test("/clear starts a fresh conversation from the global default, not a routed model", async () => {
@@ -189,7 +189,7 @@ describe("controller", () => {
     })
     c.clearConversation()
     const ctx = c.getState().session.systemContext
-    expect(ctx.modelRef).toEqual({ provider: "anthropic", modelId: "claude-sonnet-5" })
+    expect(ctx.modelRef).toEqual({ provider: "anthropic", modelId: "claude-opus-4-8" })
     expect(ctx.pastModels).toEqual([])
   })
 
@@ -266,7 +266,7 @@ describe("controller command actions", () => {
     })
     controller = makeController({
       session,
-      activeModel: { provider: "anthropic", modelId: "claude-sonnet-5" },
+      activeModel: { provider: "anthropic", modelId: "claude-opus-4-8" },
       config: initialConfig,
       configPath: join(dir, "config.json"),
       llmLayer: scripted([textTurn("ok")]).layer,
@@ -307,7 +307,7 @@ describe("controller command actions", () => {
         model: testModel,
         currentDate: "2026-07-05",
       }),
-      activeModel: { provider: "anthropic", modelId: "claude-sonnet-5" },
+      activeModel: { provider: "anthropic", modelId: "claude-opus-4-8" },
       config: { providers: {} },
       configPath: join(dir, "config.json", "nested.json"),
       llmLayer: scripted([textTurn("ok")]).layer,
@@ -350,7 +350,7 @@ describe("controller command actions", () => {
         model: testModel,
         currentDate: "2026-07-05",
       }),
-      activeModel: { provider: "anthropic", modelId: "claude-sonnet-5" },
+      activeModel: { provider: "anthropic", modelId: "claude-opus-4-8" },
       config: { providers: {} },
       configPath: join(dir, "config.json"),
       history: ["earlier"],
@@ -474,7 +474,7 @@ describe("controller subagent drain", () => {
     seed(session, tasks)
     controller = makeController({
       session,
-      activeModel: { provider: "anthropic", modelId: "claude-sonnet-5" },
+      activeModel: { provider: "anthropic", modelId: "claude-opus-4-8" },
       config,
       configPath: join(dir, "config.json"),
       llmLayer,

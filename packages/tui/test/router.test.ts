@@ -45,6 +45,7 @@ describe("modelRoutableTargets", () => {
     const targets = modelRoutableTargets({
       provider: "openai",
       providerLabel: "OpenAI",
+      lab: "openai",
       modelId: "gpt-5.5",
       label: "ChatGPT 5.5",
       variants: [],
@@ -57,6 +58,7 @@ describe("modelRoutableTargets", () => {
     const targets = modelRoutableTargets({
       provider: "anthropic",
       providerLabel: "Anthropic",
+      lab: "anthropic",
       modelId: "claude-opus-4-8",
       label: "Claude Opus 4.8",
       variants: [

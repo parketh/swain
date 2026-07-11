@@ -2,10 +2,10 @@ import { Effect, Stream } from "effect"
 import type { AnthropicMessagesRequest, AnthropicOptions } from "../protocols"
 import { AnthropicMessages } from "../protocols"
 import type { LLMRequest, Model, ProviderOptions } from "../schema"
-import { ModelId, ProviderId } from "../schema"
+import { ModelId, Provider, ProviderId } from "../schema"
 import { Auth, Http } from "../transport"
 
-export const ANTHROPIC_PROVIDER_ID = "anthropic"
+export const ANTHROPIC_PROVIDER_ID = Provider.Anthropic
 export const ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1"
 
 export type { AnthropicOptions }

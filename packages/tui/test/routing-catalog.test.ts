@@ -2,8 +2,6 @@ import { describe, expect, test } from "bun:test"
 import { aggregateRouting, allCatalogModels, type RoutingProfile } from "../src/models"
 import { catalogRoutableTargets, modelRoutableTargets } from "../src/router"
 
-const EFFORT_PROVIDERS = new Set(["anthropic", "deepseek", "zai", "openai-codex"])
-
 describe("routing catalog", () => {
   test("every non-deprecated catalog model exposes at least one routable target", () => {
     for (const model of allCatalogModels()) {
@@ -42,13 +40,9 @@ describe("routing catalog", () => {
     expect(new Set(estimates).size).toBeGreaterThan(1)
   })
 
-  test("effort-controlled models expose a ladder; others expose a single default", () => {
+  test("every catalog model exposes a reasoning-effort ladder", () => {
     for (const model of allCatalogModels()) {
-      if (EFFORT_PROVIDERS.has(model.provider)) {
-        expect(model.variants.length).toBeGreaterThanOrEqual(2)
-      } else {
-        expect(model.variants.length).toBe(0)
-      }
+      expect(model.variants.length).toBeGreaterThanOrEqual(2)
     }
   })
 })

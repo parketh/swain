@@ -2,10 +2,10 @@ import { Effect, Stream } from "effect"
 import type { OpenAICodexOptions, OpenAICodexRequest } from "../protocols"
 import { OpenAICodexResponses } from "../protocols"
 import type { LLMRequest, Model, ProviderOptions } from "../schema"
-import { LLMError, ModelId, ProviderId } from "../schema"
+import { LLMError, ModelId, Provider, ProviderId } from "../schema"
 import { Auth, Http } from "../transport"
 
-export const OPENAI_CODEX_PROVIDER_ID = "openai-codex"
+export const OPENAI_CODEX_PROVIDER_ID = Provider.OpenAICodex
 export const OPENAI_CODEX_BASE_URL = "https://chatgpt.com/backend-api"
 export const OPENAI_CODEX_TOKEN_ENV = "OPENAI_CODEX_ACCESS_TOKEN"
 

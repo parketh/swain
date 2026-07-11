@@ -25,7 +25,7 @@ const DEFAULT_ORIGINATOR = "codex"
 /** Responses-specific request options read from `providerOptions.openaiCodex`. */
 export interface OpenAICodexOptions {
   readonly reasoning?: {
-    readonly effort?: "minimal" | "low" | "medium" | "high"
+    readonly effort?: "minimal" | "low" | "medium" | "high" | "xhigh"
     readonly summary?: "auto" | "concise" | "detailed"
   }
 }

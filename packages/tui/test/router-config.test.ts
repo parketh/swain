@@ -69,7 +69,8 @@ describe("enabledRouterTargets", () => {
     }
     const targets = enabledRouterTargets(config)
     expect(targets.some((t) => t.ref.modelId === "claude-opus-4-8")).toBe(false)
-    expect(targets.some((t) => t.ref.modelId === "claude-sonnet-5")).toBe(true)
+    // Other configured providers' targets are unaffected.
+    expect(targets.some((t) => t.ref.provider === "deepseek")).toBe(true)
   })
 
   test("a disabled target removes only that variant", () => {
@@ -103,9 +104,9 @@ describe("routerStatus", () => {
       providers: { openai: { apiKey: "sk-o" } },
       router: {
         enabled: true,
-        // Disable every openai model except a single no-variant one.
-        disabledModels: ["openai:gpt-5.5-pro", "openai:gpt-5.4-nano", "openai:gpt-5.4-mini"],
-        disabledTargets: [],
+        // Disable pro entirely and all but one of gpt-5.5's effort variants.
+        disabledModels: ["openai:gpt-5.5-pro"],
+        disabledTargets: ["openai:gpt-5.5:low", "openai:gpt-5.5:medium", "openai:gpt-5.5:high"],
       },
     }
     expect(enabledRouterTargets(config).length).toBe(1)

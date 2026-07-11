@@ -11,6 +11,7 @@ export {
   Usage,
 } from "./schema/events"
 export { ContentId, ModelId, ProtocolId, ProviderId, ToolCallId } from "./schema/ids"
+export { Lab } from "./schema/labs"
 export {
   AssistantContent,
   AssistantMessage,
@@ -38,3 +39,4 @@ export {
   type ModelLimits,
   type ProviderOptions,
 } from "./schema/options"
+export { Provider } from "./schema/providers"

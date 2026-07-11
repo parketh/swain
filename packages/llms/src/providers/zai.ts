@@ -1,8 +1,9 @@
 import type { Model, ProviderOptions } from "../schema"
+import { Provider } from "../schema"
 import type { OpenAICompatibleFacade } from "./openai-compatible"
 import { OpenAICompatible } from "./openai-compatible"
 
-export const ZAI_PROVIDER_ID = "zai"
+export const ZAI_PROVIDER_ID = Provider.ZAI
 export const ZAI_BASE_URL = "https://api.z.ai/api/paas/v4"
 
 /** Z.AI documents `temperature`/`top_p`; it does not document `seed`. */

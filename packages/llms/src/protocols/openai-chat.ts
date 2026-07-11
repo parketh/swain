@@ -17,8 +17,12 @@ import { ToolInput } from "./tool-input"
 
 export const OPENAI_CHAT_PATH = "/chat/completions"
 
-/** Graded reasoning effort for OpenAI-compatible deployments that support it. */
-export type OpenAIChatReasoningEffort = "high" | "max"
+/**
+ * Reasoning effort for OpenAI-compatible deployments. The superset across
+ * deployments: OpenAI accepts `none`–`xhigh`; DeepSeek/Z.AI only `high`/`max`.
+ * Each provider's own options type narrows this to what it actually supports.
+ */
+export type OpenAIChatReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh" | "max"
 
 /** Sampling knobs shared by OpenAI-compatible Chat Completions deployments. */
 export interface OpenAIChatOptions {

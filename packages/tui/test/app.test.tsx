@@ -35,7 +35,7 @@ const LEFT = "[D"
 const SHIFT_TAB = "[Z"
 
 const testModel: Model = {
-  id: ModelId.make("claude-sonnet-5"),
+  id: ModelId.make("claude-opus-4-8"),
   provider: ProviderId.make("anthropic"),
   streamTurn: () => Stream.empty,
 }
@@ -505,7 +505,7 @@ describe("App", () => {
     })
     controller = makeController({
       session,
-      activeModel: { provider: "anthropic", modelId: "claude-sonnet-5" },
+      activeModel: { provider: "anthropic", modelId: "claude-opus-4-8" },
       config,
       configPath: join(dir, "config.json"),
       llmLayer: scripted(turns),
@@ -541,7 +541,7 @@ describe("App", () => {
     )
     const c = makeController({
       session,
-      activeModel: { provider: "anthropic", modelId: "claude-sonnet-5" },
+      activeModel: { provider: "anthropic", modelId: "claude-opus-4-8" },
       config,
       configPath: join(dir, "config.json"),
       llmLayer: scripted([[]]),
@@ -556,7 +556,7 @@ describe("App", () => {
 
   test("renders the status line and an empty prompt", () => {
     const { lastFrame } = render(<App controller={makeCtrl()} />)
-    expect(lastFrame()).toContain("claude-sonnet-5")
+    expect(lastFrame()).toContain("claude-opus-4-8")
     expect(lastFrame()).toContain("ask")
     expect(lastFrame()).toContain("type a prompt")
   })
@@ -742,7 +742,7 @@ describe("App", () => {
     stdin.write("\r")
     await flush()
     expect(lastFrame()).toContain("Select a model")
-    expect(lastFrame()).toContain("claude-sonnet-5")
+    expect(lastFrame()).toContain("claude-opus-4-8")
   })
 
   test("/variants with no args opens the variant picker for the active model", async () => {
@@ -882,9 +882,7 @@ describe("App", () => {
     stdin.write("\r") // save credentials → auto-advance to the model picker
     await flush()
     expect(clean(lastFrame())).toContain("Select a model")
-    stdin.write("\x1b[B") // move to claude-sonnet-5, which offers a variant
-    await flush()
-    stdin.write("\r") // select it → auto-advance to the variant picker
+    stdin.write("\r") // select claude-opus-4-8 (offers variants) → variant picker
     await flush()
     expect(clean(lastFrame())).toContain("Select a variant")
     expect(clean(lastFrame())).toContain("Extra")
@@ -914,7 +912,7 @@ describe("App", () => {
         permissionMode: "ask",
         currentDate: "2026-07-05",
       }),
-      activeModel: { provider: "anthropic", modelId: "claude-sonnet-5" },
+      activeModel: { provider: "anthropic", modelId: "claude-opus-4-8" },
       config,
       configPath: join(dir, "config.json"),
       llmLayer: hanging,

@@ -1,8 +1,9 @@
 import type { Model, ProviderOptions } from "../schema"
+import { Provider } from "../schema"
 import type { OpenAICompatibleFacade } from "./openai-compatible"
 import { OpenAICompatible } from "./openai-compatible"
 
-export const POLLINATIONS_PROVIDER_ID = "pollinations"
+export const POLLINATIONS_PROVIDER_ID = Provider.Pollinations
 export const POLLINATIONS_BASE_URL = "https://text.pollinations.ai/openai"
 
 export interface PollinationsOptions {

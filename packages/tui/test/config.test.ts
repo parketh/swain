@@ -47,13 +47,13 @@ describe("config load/save", () => {
   test("saving persists the active model but never provider secrets", async () => {
     const path = join(dir, "sub", "config.json")
     const config: TuiConfig = {
-      activeModel: { provider: "anthropic", modelId: "claude-sonnet-5" },
+      activeModel: { provider: "anthropic", modelId: "claude-opus-4-8" },
       providers: { anthropic: { apiKey: "sk-abc" } },
     }
     await withFs(saveConfig(path, config))
     // config.json holds the active model...
     const reloaded = await withFs(loadConfig(path))
-    expect(reloaded.activeModel?.modelId).toBe("claude-sonnet-5")
+    expect(reloaded.activeModel?.modelId).toBe("claude-opus-4-8")
     // ...but not the credentials, and the raw file contains no key.
     expect(reloaded.providers).toEqual({})
     expect(readFileSync(path, "utf8")).not.toContain("sk-abc")
@@ -143,22 +143,22 @@ describe("resolveModelSelection", () => {
   })
 
   test("rejects an unknown variant", () => {
-    const result = resolveModelSelection("anthropic", "claude-sonnet-5", "nope", config)
+    const result = resolveModelSelection("anthropic", "claude-opus-4-8", "nope", config)
     expect(result.type).toBe("error")
     if (result.type === "error") expect(result.error.reason).toBe("unknown-variant")
   })
 
   test("returns a Model whose provider/id match the selection", () => {
-    const result = resolveModelSelection("anthropic", "claude-sonnet-5", undefined, config)
+    const result = resolveModelSelection("anthropic", "claude-opus-4-8", undefined, config)
     expect(result.type).toBe("ok")
     if (result.type === "ok") {
       expect(result.selection.model.provider as string).toBe("anthropic")
-      expect(result.selection.model.id as string).toBe("claude-sonnet-5")
+      expect(result.selection.model.id as string).toBe("claude-opus-4-8")
     }
   })
 
   test("lowers a codex effort variant to reasoning providerOptions", () => {
-    const result = resolveModelSelection("openai-codex", "gpt-5-codex", "high", config)
+    const result = resolveModelSelection("openai-codex", "gpt-5.5", "high", config)
     expect(result.type).toBe("ok")
     if (result.type === "ok") {
       expect(result.selection.requestOptions.providerOptions).toEqual({
@@ -168,7 +168,7 @@ describe("resolveModelSelection", () => {
   })
 
   test("lowers an anthropic effort variant to adaptive-thinking providerOptions", () => {
-    const result = resolveModelSelection("anthropic", "claude-sonnet-5", "high", config)
+    const result = resolveModelSelection("anthropic", "claude-opus-4-8", "high", config)
     expect(result.type).toBe("ok")
     if (result.type === "ok") {
       const opts = result.selection.requestOptions.providerOptions as {
@@ -178,7 +178,7 @@ describe("resolveModelSelection", () => {
     }
   })
 
-  test("a chat-compatible provider with no reasoning variants yields no reasoning options", () => {
+  test("selecting a model with no variant yields no reasoning options", () => {
     const result = resolveModelSelection("openai", "gpt-5.5", undefined, config)
     expect(result.type).toBe("ok")
     if (result.type === "ok") {
