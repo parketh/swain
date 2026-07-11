@@ -54,19 +54,18 @@ const ROUTING: Record<string, Record<string, RoutingProfile>> = {
     [AnthropicVariant.XHigh]: { capability: 55.7, avgCostPerTask: 1.43 },
     [AnthropicVariant.Max]: { capability: 56, avgCostPerTask: 1.8 },
   },
-  // AA does not publish seperate benchmarks for GPT-5.5 and GPT-5.5 Pro. The published benchmmarks
-  // are likely for the pro model given input and output token prices, so we only populate figures
-  // for the pro model.
   [OpenAIModel.GPT_5_5]: {
-    [OpenAIVariant.Low]: p(),
-    [OpenAIVariant.Medium]: p(),
-    [OpenAIVariant.High]: p(),
-    [OpenAIVariant.XHigh]: p(),
-  },
-  [OpenAIModel.GPT_5_5_Pro]: {
+    [OpenAIVariant.Low]: { capability: 43, avgCostPerTask: 0.19 },
     [OpenAIVariant.Medium]: { capability: 50, avgCostPerTask: 0.34 },
     [OpenAIVariant.High]: { capability: 53, avgCostPerTask: 0.61 },
     [OpenAIVariant.XHigh]: { capability: 55, avgCostPerTask: 0.86 },
+  },
+  // AA does not publish benchmarks for GPT-5.5 Pro which is in any case only used through for
+  // the ChatGPT web interface and not for Codex.
+  [OpenAIModel.GPT_5_5_Pro]: {
+    [OpenAIVariant.Medium]: p(),
+    [OpenAIVariant.High]: p(),
+    [OpenAIVariant.XHigh]: p(),
   },
   // AA does not publish avgCostPerTask for DeepSeek High variants. Assumed same cost as Max variant
   // given similar capability scores.
