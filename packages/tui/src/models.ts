@@ -67,6 +67,24 @@ const ROUTING: Record<string, Record<string, RoutingProfile>> = {
     [OpenAIVariant.High]: p(),
     [OpenAIVariant.XHigh]: p(),
   },
+  [OpenAIModel.GPT_5_6_Sol]: {
+    [OpenAIVariant.Low]: { capability: 49, avgCostPerTask: 0.2 },
+    [OpenAIVariant.Medium]: { capability: 54, avgCostPerTask: 0.31 },
+    [OpenAIVariant.High]: { capability: 56, avgCostPerTask: 0.45 },
+    [OpenAIVariant.XHigh]: { capability: 59, avgCostPerTask: 1.04 },
+  },
+  [OpenAIModel.GPT_5_6_Terra]: {
+    [OpenAIVariant.Low]: { capability: 40, avgCostPerTask: 0.1 },
+    [OpenAIVariant.Medium]: { capability: 46, avgCostPerTask: 0.13 },
+    [OpenAIVariant.High]: { capability: 49, avgCostPerTask: 0.24 },
+    [OpenAIVariant.XHigh]: { capability: 55, avgCostPerTask: 0.55 },
+  },
+  [OpenAIModel.GPT_5_6_Luna]: {
+    [OpenAIVariant.Low]: { capability: 33, avgCostPerTask: 0.04 },
+    [OpenAIVariant.Medium]: { capability: 38, avgCostPerTask: 0.05 },
+    [OpenAIVariant.High]: { capability: 46, avgCostPerTask: 0.09 },
+    [OpenAIVariant.XHigh]: { capability: 51, avgCostPerTask: 0.21 },
+  },
   // AA does not publish avgCostPerTask for DeepSeek High variants. Assumed same cost as Max variant
   // given similar capability scores.
   [DeepSeekModel.V4_Flash]: {

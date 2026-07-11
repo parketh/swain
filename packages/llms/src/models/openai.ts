@@ -6,6 +6,9 @@
 export const OpenAIModel = {
   GPT_5_5: "gpt-5.5",
   GPT_5_5_Pro: "gpt-5.5-pro",
+  GPT_5_6_Sol: "gpt-5.6-sol",
+  GPT_5_6_Terra: "gpt-5.6-terra",
+  GPT_5_6_Luna: "gpt-5.6-luna",
 } as const
 export type OpenAIModel = (typeof OpenAIModel)[keyof typeof OpenAIModel]
 
@@ -35,4 +38,22 @@ export const OpenAIModelVariants = {
     OpenAIVariant.XHigh,
   ],
   [OpenAIModel.GPT_5_5_Pro]: [OpenAIVariant.Medium, OpenAIVariant.High, OpenAIVariant.XHigh],
+  [OpenAIModel.GPT_5_6_Sol]: [
+    OpenAIVariant.Low,
+    OpenAIVariant.Medium,
+    OpenAIVariant.High,
+    OpenAIVariant.XHigh,
+  ],
+  [OpenAIModel.GPT_5_6_Terra]: [
+    OpenAIVariant.Low,
+    OpenAIVariant.Medium,
+    OpenAIVariant.High,
+    OpenAIVariant.XHigh,
+  ],
+  [OpenAIModel.GPT_5_6_Luna]: [
+    OpenAIVariant.Low,
+    OpenAIVariant.Medium,
+    OpenAIVariant.High,
+    OpenAIVariant.XHigh,
+  ],
 } as const satisfies Record<OpenAIModel, ReadonlyArray<OpenAIVariant>>
