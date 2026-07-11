@@ -104,8 +104,13 @@ describe("routerStatus", () => {
       providers: { openai: { apiKey: "sk-o" } },
       router: {
         enabled: true,
-        // Disable pro entirely and all but one of gpt-5.5's effort variants.
-        disabledModels: ["openai:gpt-5.5-pro"],
+        // Disable every other openai model, plus all but one of gpt-5.5's variants.
+        disabledModels: [
+          "openai:gpt-5.5-pro",
+          "openai:gpt-5.6-sol",
+          "openai:gpt-5.6-terra",
+          "openai:gpt-5.6-luna",
+        ],
         disabledTargets: ["openai:gpt-5.5:low", "openai:gpt-5.5:medium", "openai:gpt-5.5:high"],
       },
     }

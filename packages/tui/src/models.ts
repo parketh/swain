@@ -112,6 +112,9 @@ const PRICES: Record<string, { readonly input: number; readonly output: number }
   [AnthropicModel.Claude_Opus_4_8]: { input: 5, output: 25 },
   [OpenAIModel.GPT_5_5]: { input: 5, output: 30 },
   [OpenAIModel.GPT_5_5_Pro]: { input: 30, output: 180 },
+  [OpenAIModel.GPT_5_6_Sol]: { input: 5, output: 30 },
+  [OpenAIModel.GPT_5_6_Terra]: { input: 2.5, output: 15 },
+  [OpenAIModel.GPT_5_6_Luna]: { input: 1, output: 6 },
   [DeepSeekModel.V4_Flash]: { input: 0.14, output: 0.28 },
   [DeepSeekModel.V4_Pro]: { input: 0.44, output: 0.87 },
   [ZAIModel.GLM_5_2]: { input: 1.4, output: 4.4 },
@@ -232,6 +235,24 @@ const CATALOG: ReadonlyArray<ProviderSpec> = [
         label: "ChatGPT 5.5 Pro",
         variants: openaiVariants(OpenAIModel.GPT_5_5_Pro),
       },
+      {
+        id: OpenAIModel.GPT_5_6_Sol,
+        lab: Lab.OpenAI,
+        label: "ChatGPT 5.6 Sol",
+        variants: openaiVariants(OpenAIModel.GPT_5_6_Sol),
+      },
+      {
+        id: OpenAIModel.GPT_5_6_Terra,
+        lab: Lab.OpenAI,
+        label: "ChatGPT 5.6 Terra",
+        variants: openaiVariants(OpenAIModel.GPT_5_6_Terra),
+      },
+      {
+        id: OpenAIModel.GPT_5_6_Luna,
+        lab: Lab.OpenAI,
+        label: "ChatGPT 5.6 Luna",
+        variants: openaiVariants(OpenAIModel.GPT_5_6_Luna),
+      },
     ],
     build: (modelId, creds) =>
       OpenAIProvider.configure({
@@ -308,6 +329,24 @@ const CATALOG: ReadonlyArray<ProviderSpec> = [
         lab: Lab.OpenAI,
         label: "GPT-5.5",
         variants: codexVariants(OpenAIModel.GPT_5_5),
+      },
+      {
+        id: OpenAIModel.GPT_5_6_Sol,
+        lab: Lab.OpenAI,
+        label: "GPT-5.6 Sol",
+        variants: codexVariants(OpenAIModel.GPT_5_6_Sol),
+      },
+      {
+        id: OpenAIModel.GPT_5_6_Terra,
+        lab: Lab.OpenAI,
+        label: "GPT-5.6 Terra",
+        variants: codexVariants(OpenAIModel.GPT_5_6_Terra),
+      },
+      {
+        id: OpenAIModel.GPT_5_6_Luna,
+        lab: Lab.OpenAI,
+        label: "GPT-5.6 Luna",
+        variants: codexVariants(OpenAIModel.GPT_5_6_Luna),
       },
     ],
     build: (modelId, creds) =>
