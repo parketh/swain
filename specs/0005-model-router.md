@@ -225,7 +225,7 @@ Each subtask follows the same loop: write a failing test asserting the provider'
 
 **Model variants:**
 - Opus 4.8 and Sonnet 5 support adaptive thinking only. Manual budget-token thinking is rejected outright, so it is not used.
-- Effort is a soft guidance level with five rungs: `low`, `medium`, `high`, `xhigh`, and `max`, defaulting to `high`. Both models support all five. The product UI labels `xhigh` as "Extra".
+- Effort is a soft guidance level with five rungs: `low`, `medium`, `high`, `xhigh`, and `max`, defaulting to `high`. Both models support all five. The product UI labels `xhigh` as "extra".
 - Adaptive thinking must be enabled explicitly on Opus 4.8, and is on by default on Sonnet 5.
 - These models reject any non-default temperature, top-p, or top-k on every request. The protocol sends those unconditionally today, so it must stop sending them for these models — a latent bug this feature exposes.
 

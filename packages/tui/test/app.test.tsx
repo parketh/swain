@@ -753,7 +753,7 @@ describe("App", () => {
     await flush()
     expect(lastFrame()).toContain("Select a variant")
     expect(lastFrame()).toContain("default")
-    expect(lastFrame()).toContain("Extra")
+    expect(lastFrame()).toContain("extra")
   })
 
   test("the status line shows the router state", () => {
@@ -885,7 +885,7 @@ describe("App", () => {
     stdin.write("\r") // select claude-opus-4-8 (offers variants) → variant picker
     await flush()
     expect(clean(lastFrame())).toContain("Select a variant")
-    expect(clean(lastFrame())).toContain("Extra")
+    expect(clean(lastFrame())).toContain("extra")
   })
 
   test("Ctrl+C clears the input and arms exit instead of exiting on the first press", async () => {

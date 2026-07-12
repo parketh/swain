@@ -146,7 +146,7 @@ interface ProviderSpec {
   readonly build: (modelId: string, creds: ProviderConfig | undefined) => Model
 }
 
-const effortLabel = (effort: string): string => (effort === "xhigh" ? "Extra" : effort)
+const effortLabel = (effort: string): string => (effort === "xhigh" ? "extra" : effort)
 
 const withRouting = (modelId: string, effort: string, base: VariantSpec): VariantSpec => {
   const routing = routingFor(modelId, effort)
