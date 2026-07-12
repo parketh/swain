@@ -2,31 +2,43 @@
 
 > **swain** (_noun_): from Old Norse _sveinn_, a servant or attendant, someone who does work on your behalf.
 >
-> _...or perhaps, a_ "<ins>**S**</ins>oft<ins>**W**</ins>are <ins>**AI**</ins> e<ins>**N**</ins>gineer".
+> _...or perhaps, a_ "<ins>**s**</ins>oft<ins>**w**</ins>are <ins>**ai**</ins> e<ins>**n**</ins>gineer".
 
-Swain is an agent harness for coding. It is organized as a Bun workspace of Effect-native packages:
+**Swain is a meta-agent harness for coding.** Like a regular harness, it excels at a variety of long-form coding tasks such as "implement this feature", "add a test suite", or "refactor this code". 
 
-- `@swain/llms`: a protocol-first, SDK-free LLM provider library implementing streaming deltas, tool-call normalization, and a provider-neutral event contract.
-- `@swain/core`: the core agent harness, comprising the agentic loop, tools, memory, permissions, and file state management.
-- `@swain/tui`: an Ink-based interactive CLI for running the agent loop with streaming output, commands, file search, and provider connection.
+Unlike provider-vendored harnesses, Swain:
+- is **model-agnostic**, allowing users to move seamlessly between LLMs and model providers
+- uses **smart routing** to route requests to the best model for the task, reducing token usage without sacrificing response quality
+- enables **cross-model workflows**, fanning-out requests to multiple LLMs, and performing cross-model peer review to find consensus
 
-## Tech stack
+## Architecture
 
-- Bun
-- TypeScript (ESM)
-- Effect.js
-- Biome
-- Bun test runner
+Swain is written in Effect.js and disributed across three packages:
 
-## Structure
+- `@swain/llms`: LLM provider library implementing a provider-neutral LLM interface, streaming deltas, message protocol normalization, and shared transport.
+- `@swain/core`: the core agent harness, comprising the agentic loop, session state, tools, memory, permissions, and model routing.
+- `@swain/tui`: Ink-based interactive CLI for running the core agent loop; manages provider connections, slash commands, file search, and more.
 
 ```
 packages/
-  llms/    # provider-neutral LLM schema, protocols, provider facades, transport
-  core/    # Effect-native agent loop: session state, tools, permissions, files
-  tui/     # Ink-based interactive CLI over the core agent loop
-specs/     # numbered build journals and design records
+  llms/             # provider-neutral LLM interface, message protocols, transport
+  core/             # core agent loop: session state, tools, memory, routing, etc.
+  tui/              # interactive CLI over the core agent loop
+specs/              # numbered build journals and design records
+ARCHITECTURE.md     # technical architecture
+AGENTS.md           # minimal agent-facing instructions
+CLAUDE.md           # redirect to AGENTS.md 
 ```
+
+## Spec-driven development
+
+Swain uses spec-driven development to guide feature development.
+
+With agents, any well-defined spec can be trivially handed off for implementation. Specs therefore replace code as the primary artifact of software development. 
+
+New features should be described in a numbered spec in `specs/` before implementation. Post-implementation updates, particularly where they deviate from the plan, should be reflected in a `## Post-Implementation Changes` section. This keeps documentation and code in sync.
+
+Specs also serve as a living build journal, allowing anyone to understand how an agent harness like Swain is built from first principles.
 
 ## Docs
 
@@ -37,50 +49,36 @@ specs/     # numbered build journals and design records
 
 ```bash
 # install deps
-bun install      
+bun install
+
 # run checks
 bun run typecheck
 bun run format:check
 # run formatter
 bun run format
+
 # run tests
-bun test packages/llms/test packages/core/test packages/tui/test
+bun run test
+bun run test:live
 ```
 
 ## Running the TUI
 
 ```bash
 bun run packages/tui/bin/swain.tsx
+
 # optional overrides
 bun run packages/tui/bin/swain.tsx --model anthropic:claude-sonnet-4-5
 bun run packages/tui/bin/swain.tsx --permission-mode auto
 bun run packages/tui/bin/swain.tsx --resume <session-id>
 ```
 
-Inside the TUI: `/connect` stores provider credentials, `/model` and `/variants`
-pick the active model, `/plan` switches to plan mode, `/usage` shows counters,
-`/clear` starts a fresh session, and `/resume` reopens a saved one. Shift-Tab
-cycles the permission mode (`ask → auto → plan`).
-
-## Tasks and subagents
-
-The agent keeps a persisted per-session task list (its own to-do list) and can
-delegate work to non-blocking subagents. Session metadata, transcript, and the
-task graph (`tasks.json`) are stored under
-`${XDG_CONFIG_HOME:-~/.config}/swain/sessions/<project-slug>/<session-id>/`.
-
-Subagents run in their own context and report only a final result, injected back
-into the parent between turns as a task notification. Three built-in types are
-available: `Explore` and `Plan` are read-only; `GeneralPurpose` may implement
-changes, but only inside an isolated git worktree — v1 subagents never mutate the
-parent working tree directly. A retained worktree (one the child left changes in)
-is surfaced on the task and never auto-deleted.
-
-Provider credentials are stored (mode `0600`) in a global
-`${XDG_CONFIG_HOME:-~/.config}/swain/auth.json`, kept separate from the
-secret-free `config.json` (active model and settings) so the config file is safe
-to track in dotfiles. Use `/connect` inside the TUI to store them; legacy keys
-found in an older `config.json` are migrated into `auth.json` automatically on
-startup. After connecting, remove any real provider keys from a local `.env`.
-The `.env.example` variables remain for standalone package smoke tests and
-non-TUI callers that intentionally use provider env fallbacks.
+Some TUI commands: 
+- `/connect` stores provider credentials
+- `/model` and `/variants`
+pick the active model
+- `/plan` switches to plan mode
+- `/usage` shows counters
+- `/clear` starts a fresh session
+- `/resume` reopens a saved one
+- Shift-Tab cycles the permission mode (`ask → auto → plan`)

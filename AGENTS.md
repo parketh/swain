@@ -10,6 +10,7 @@ Swain is an Effect-native agent toolkit built as a Bun workspace. Discover imple
 - Verify before claiming done: `bun run typecheck`, `bun run format:check`, `bun test packages/llms/test`.
 - Small, logically-scoped commits with conventional prefixes (`feat:`, `fix:`, `chore:`, `docs:`, `test:`).
 - New build phases get a numbered plan in `specs/` before implementation.
+- Spec-driven development: features should be described in a spec in `specs/` before implementation. Post-implementation updates should be reflected in the spec in a `## Post-Implementation Changes` section.
 
 ## Pointers
 
