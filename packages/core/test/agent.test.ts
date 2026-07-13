@@ -327,6 +327,8 @@ describe("runTurn", () => {
     })
     expect(state.counters.turns).toBe(1)
     expect(state.counters.outputTokens).toBe(1)
+    // Provider usage is recorded as the context snapshot, anchored at the end.
+    expect(state.contextUsage).toEqual({ activeContextTokens: 2, measuredAtMessageIndex: 2 })
   })
 
   test("executes a tool call and submits the result to the next turn", async () => {

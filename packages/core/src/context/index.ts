@@ -1,4 +1,14 @@
-export { effectiveContextWindow, OUTPUT_RESERVE_CAP, outputReserve } from "./accounting"
+export {
+  AUTO_COMPACT_FRACTION,
+  activeContextTokens,
+  effectiveContextWindow,
+  estimateCurrentContextTokens,
+  OUTPUT_RESERVE_CAP,
+  outputReserve,
+  type RequestShape,
+  recordContextUsage,
+  shouldAutoCompact,
+} from "./accounting"
 export {
   CompactionError,
   type CompactionReason,

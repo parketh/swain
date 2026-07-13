@@ -10,6 +10,7 @@ import type {
 } from "@swain/llms"
 import { LLMClient, LLMTurnSummary, Message } from "@swain/llms"
 import { Context, Effect, Either, Option, Schema, Stream } from "effect"
+import { recordContextUsage } from "./context"
 import { AgentError } from "./errors"
 import { type ModelResolver, ModelResolverService } from "./model-resolver"
 import { assembleSystemPrompt, type RouterPromptTarget } from "./prompt"
@@ -385,6 +386,7 @@ const loop = (
     if (summary.usage !== undefined) {
       session.counters.inputTokens += summary.usage.inputTokens
       session.counters.outputTokens += summary.usage.outputTokens
+      recordContextUsage(session, summary.usage)
     }
 
     yield* ctx.emit({

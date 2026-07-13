@@ -8,6 +8,8 @@ export {
   submitPrompt,
 } from "./agent"
 export {
+  AUTO_COMPACT_FRACTION,
+  activeContextTokens,
   CompactionError,
   type CompactionReason,
   type CompactionResult,
@@ -15,10 +17,14 @@ export {
   compactSession,
   defaultTokenCounter,
   effectiveContextWindow,
+  estimateCurrentContextTokens,
   isValidlyPaired,
   OUTPUT_RESERVE_CAP,
   outputReserve,
+  type RequestShape,
+  recordContextUsage,
   selectCut,
+  shouldAutoCompact,
   type TokenCounter,
 } from "./context"
 export { AgentError, ToolError, type ToolErrorReason } from "./errors"
