@@ -15,3 +15,8 @@ export type ZAIVariant = (typeof ZAIVariant)[keyof typeof ZAIVariant]
 export const ZAIModelVariants = {
   [ZAIModel.GLM_5_2]: [ZAIVariant.High, ZAIVariant.Max],
 } as const satisfies Record<ZAIModel, ReadonlyArray<ZAIVariant>>
+
+/** Provider-recommended default effort per model, used when none is specified. */
+export const ZAIModelDefaultVariant = {
+  [ZAIModel.GLM_5_2]: ZAIVariant.High,
+} as const satisfies Record<ZAIModel, ZAIVariant>

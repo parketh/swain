@@ -17,3 +17,9 @@ export const DeepSeekModelVariants = {
   [DeepSeekModel.V4_Flash]: [DeepSeekVariant.High, DeepSeekVariant.Max],
   [DeepSeekModel.V4_Pro]: [DeepSeekVariant.High, DeepSeekVariant.Max],
 } as const satisfies Record<DeepSeekModel, ReadonlyArray<DeepSeekVariant>>
+
+/** Provider-recommended default effort per model, used when none is specified. */
+export const DeepSeekModelDefaultVariant = {
+  [DeepSeekModel.V4_Flash]: DeepSeekVariant.High,
+  [DeepSeekModel.V4_Pro]: DeepSeekVariant.High,
+} as const satisfies Record<DeepSeekModel, DeepSeekVariant>
