@@ -193,6 +193,25 @@ describe("controller", () => {
     expect(ctx.pastModels).toEqual([])
   })
 
+  test("currentModel follows a router switch while activeModel stays the global default", async () => {
+    const c = build(scripted([textTurn("ok")]))
+    expect(c.getState().currentModel).toEqual({ provider: "anthropic", modelId: "claude-opus-4-8" })
+    // A router SwitchModel updates only the session-local current model.
+    recordModelTransition(c.getState().session, {
+      model: { ...testModel, id: ModelId.make("deepseek-v4-pro") },
+      modelRef: { provider: "deepseek", modelId: "deepseek-v4-pro", variant: "max" },
+      requestOptions: {},
+    })
+    // Display/usage follow the conversation's current model...
+    expect(c.getState().currentModel).toEqual({
+      provider: "deepseek",
+      modelId: "deepseek-v4-pro",
+      variant: "max",
+    })
+    // ...but the global default (used for new sessions) is untouched.
+    expect(c.getState().activeModel).toEqual({ provider: "anthropic", modelId: "claude-opus-4-8" })
+  })
+
   test("resuming a routed session uses the persisted modelRef, not activeModel", async () => {
     const persisted = createSessionState({
       sessionId: "routed",

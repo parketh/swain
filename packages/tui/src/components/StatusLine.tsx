@@ -1,6 +1,7 @@
 import type { PermissionMode } from "@swain/core"
 import { Box, Text } from "ink"
 import type { ActiveModel } from "../config"
+import type { RouterStatus } from "../router"
 import { theme } from "../theme"
 import type { UsageSnapshot } from "../usage"
 
@@ -8,13 +9,19 @@ export interface StatusLineProps {
   readonly activeModel: ActiveModel
   readonly permissionMode: PermissionMode
   readonly usage: UsageSnapshot
-  readonly routerStatus: "off" | "inactive" | "on"
+  readonly routerStatus: RouterStatus
 }
 
-const ROUTER_COLOR: Record<StatusLineProps["routerStatus"], string> = {
+const ROUTER_COLOR: Record<RouterStatus, string> = {
   off: "gray",
-  inactive: "yellow",
+  "needs-setup": "yellow",
   on: "green",
+}
+
+const ROUTER_LABEL: Record<RouterStatus, string> = {
+  off: "off",
+  "needs-setup": "needs setup",
+  on: "on",
 }
 
 const MODE_COLOR: Record<PermissionMode, string> = {
@@ -38,7 +45,7 @@ export const StatusLine = ({
     <Text> · </Text>
     <Text color={MODE_COLOR[permissionMode]}>{permissionMode}</Text>
     <Text color={theme.muted}> · </Text>
-    <Text color={ROUTER_COLOR[routerStatus]}>router {routerStatus}</Text>
+    <Text color={ROUTER_COLOR[routerStatus]}>router {ROUTER_LABEL[routerStatus]}</Text>
     <Text color={theme.muted}>
       {" · "}
       {usage.totalTokens} tok

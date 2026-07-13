@@ -13,7 +13,12 @@ import { Context, Effect, Either, Option, Schema, Stream } from "effect"
 import { AgentError } from "./errors"
 import { type ModelResolver, ModelResolverService } from "./model-resolver"
 import { assembleSystemPrompt, type RouterPromptTarget } from "./prompt"
-import { modelRefKey, recordModelTransition, type SessionState } from "./state"
+import {
+  modelRefKey,
+  recordModelTransition,
+  type SessionModelRef,
+  type SessionState,
+} from "./state"
 import type { AgentType, Task } from "./tasks"
 import type { ToolContext, ToolRegistry } from "./tools"
 import {
@@ -32,6 +37,36 @@ const DEFAULT_MAX_ITERATIONS = 20
 
 export const submitPrompt = (session: SessionState, prompt: string, isMeta = false): void => {
   session.messages.push(Message.user(prompt, isMeta))
+}
+
+export const INTERRUPT_MESSAGE = "[Request interrupted by user]"
+export const INTERRUPT_MESSAGE_FOR_TOOL_USE = "[Request interrupted by user for tool use]"
+
+/**
+ * Records a user interruption without retracting the turn, mirroring Claude
+ * Code: the interrupted turn and any tasks it created are preserved. It repairs
+ * the trailing state so provider role-alternation stays valid — orphan
+ * `tool_use` blocks (assistant emitted tool calls that never ran) are answered
+ * with interrupted tool results — then commits any partial assistant text and
+ * appends an interrupt marker as the final assistant message.
+ */
+export const recordInterruption = (session: SessionState, partialText?: string): void => {
+  const messages = session.messages
+  const last = messages[messages.length - 1]
+  const pendingCalls =
+    last?.role === "assistant"
+      ? last.content.filter((block): block is ToolCall => block.type === "tool-call")
+      : []
+  if (pendingCalls.length > 0) {
+    messages.push(
+      Message.user(pendingCalls.map((call) => errorResult(call, INTERRUPT_MESSAGE_FOR_TOOL_USE))),
+    )
+    messages.push(Message.assistant([{ type: "text", text: INTERRUPT_MESSAGE }]))
+    return
+  }
+  const trimmed = partialText?.trim()
+  const text = trimmed ? `${trimmed}\n\n${INTERRUPT_MESSAGE}` : INTERRUPT_MESSAGE
+  messages.push(Message.assistant([{ type: "text", text }]))
 }
 
 /**
@@ -72,6 +107,7 @@ export type AgentEvent =
       readonly recoverable?: boolean
     }
   | { readonly type: "task-updated"; readonly tasks: ReadonlyArray<Task> }
+  | { readonly type: "model-switch"; readonly to: SessionModelRef }
   | {
       readonly type: "subagent-start"
       readonly agentId: string
@@ -373,18 +409,28 @@ const loop = (
         // message: no orphan tool_use (switch or sibling) survives, so no
         // tool_result is owed. Any siblings are dropped and reissued next turn.
         session.messages[session.messages.length - 1] = outcome.meta
+        // Signal the switch so the UI can reflect the new current model mid-turn
+        // (the turn continues on the target); session state is already updated.
+        yield* ctx.emit({ type: "model-switch", to: session.systemContext.modelRef })
         return yield* loop(session, ctx, iteration + 1, true)
       }
       // No-op or error: reply to each switch call and run the siblings normally.
-      const switchResults = switchCalls.map((call, index) => {
-        if (index > 0) return errorResult(call, "Only one model switch is allowed per user turn.")
-        return outcome.kind === "noop"
-          ? successResult(call, { status: "noop", model: outcome.model })
-          : errorResult(call, outcome.message)
-      })
+      const resultById = new Map<ToolCallId, ToolResultContent>(
+        switchCalls.map((call, index) => [
+          call.toolCallId,
+          index > 0
+            ? errorResult(call, "Only one model switch is allowed per user turn.")
+            : outcome.kind === "noop"
+              ? successResult(call, { status: "noop", model: outcome.model })
+              : errorResult(call, outcome.message),
+        ]),
+      )
       const siblings = summary.toolCalls.filter((call) => call.name !== SWITCH_MODEL_NAME)
       const siblingResults = yield* executeTools(siblings, ctx.emit)
-      session.messages.push(Message.user([...switchResults, ...siblingResults]))
+      siblings.forEach((call, index) => resultById.set(call.toolCallId, siblingResults[index]!))
+      // Preserve the assistant's original tool_call order in the results.
+      const results = summary.toolCalls.map((call) => resultById.get(call.toolCallId)!)
+      session.messages.push(Message.user(results))
       return yield* loop(session, ctx, iteration + 1, switched)
     }
 

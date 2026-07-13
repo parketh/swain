@@ -386,15 +386,11 @@ export const App = ({ controller }: AppProps) => {
       if (key.ctrl && input === "c") return
       if (key.shift && key.tab) return controller.cyclePermissionMode()
       if (key.escape) {
-        // While a turn is loading, Esc cancels it and returns the prompt to the
-        // editor for amendment; otherwise it just clears the input.
+        // While a turn is loading, Esc interrupts it but preserves the turn: the
+        // partial assistant text is committed and an interrupt marker appended.
+        // Otherwise it just clears the input.
         if (controller.getState().running) {
-          void controller.cancelTurn().then((restored) => {
-            if (restored !== undefined) {
-              setDraft(emptyDraft)
-              setInput(restored, restored.length)
-            }
-          })
+          void controller.cancelTurn(draft.assistant).then(() => setDraft(emptyDraft))
           return
         }
         return setInput("", 0)
@@ -656,7 +652,7 @@ export const App = ({ controller }: AppProps) => {
           <PromptInput value={value} cursor={cursor} />
         </Box>
         <StatusLine
-          activeModel={state.activeModel}
+          activeModel={state.currentModel}
           permissionMode={state.permissionMode}
           usage={controller.getUsage()}
           routerStatus={state.routerStatus}

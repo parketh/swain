@@ -527,7 +527,6 @@ export const freeModel = (): Model => Pollinations.model("openai-fast")
 
 /** Estimated USD cost for token usage, or undefined when the model is unpriced. */
 export const costUsd = (
-  _provider: string,
   modelId: string,
   inputTokens: number,
   outputTokens: number,

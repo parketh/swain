@@ -12,8 +12,10 @@ export const SwitchModelInput = Schema.Struct({
 })
 export type SwitchModelInput = typeof SwitchModelInput.Type
 
+// A successful switch is intercepted as control flow and never surfaces a tool
+// result, so the only result the model ever receives is the same-target no-op.
 export const SwitchModelResult = Schema.Struct({
-  status: Schema.Literal("switched", "noop"),
+  status: Schema.Literal("noop"),
   model: Schema.String,
 })
 

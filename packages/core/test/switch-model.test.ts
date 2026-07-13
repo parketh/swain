@@ -10,7 +10,7 @@ import {
   ToolCallId,
 } from "@swain/llms"
 import { Effect, Layer, Stream } from "effect"
-import { runTurn, submitPrompt } from "../src/agent"
+import { type AgentEvent, runTurn, submitPrompt } from "../src/agent"
 import {
   ModelResolveError,
   type ModelResolver,
@@ -171,6 +171,34 @@ describe("SwitchModel control flow", () => {
     expect(hasBlock(state, "user", (b) => b.type === "model-switch")).toBe(true)
     // No orphan SwitchModel tool_use survives into history.
     expect(hasBlock(state, "assistant", (b) => b.name === "SwitchModel")).toBe(false)
+  })
+
+  test("a valid switch emits a model-switch event with the new target", async () => {
+    const state = session()
+    submitPrompt(state, "hi")
+    const events: Array<AgentEvent> = []
+    await Effect.runPromise(
+      runTurn(state, {
+        router: { targets: [] },
+        onEvent: (event) =>
+          Effect.sync(() => {
+            events.push(event)
+          }),
+      }).pipe(
+        Effect.provide(
+          scriptedLayer([switchTurn("deepseek:deepseek-v4-pro:max", "escalate"), textTurn("done")]),
+        ),
+        Effect.provide(ctxLayer(state)),
+        Effect.provide(toolRegistryLayer(builtinTools)),
+        Effect.provide(resolverLayer()),
+      ),
+    )
+    expect(events.filter((e) => e.type === "model-switch")).toEqual([
+      {
+        type: "model-switch",
+        to: { provider: "deepseek", modelId: "deepseek-v4-pro", variant: "max" },
+      },
+    ])
   })
 
   test("a same-target switch is a no-op success with no switch history", async () => {
