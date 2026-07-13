@@ -330,6 +330,37 @@ export const App = ({ controller }: AppProps) => {
     setDialog(undefined)
   }
 
+  // Ctrl+C lives in its own always-active handler because the main input handler
+  // is disabled while a picker dialog owns input (isActive below). That keeps
+  // Ctrl+C working everywhere: interrupt a running turn, dismiss an open picker,
+  // or step toward exit at the prompt.
+  useInput((input, key) => {
+    if (!(key.ctrl && input === "c")) return
+    if (controller.getState().running) return controller.interrupt()
+    // The help screen and dialogs are dismissable overlays: the main handler
+    // already closes help on any key, so just let it; a dialog is closed here
+    // (its own handler ignores Ctrl+C) instead of being swallowed.
+    if (showHelp) return
+    if (dialog !== undefined) {
+      setSetupFlow(false)
+      setDialog(undefined)
+      return
+    }
+    if (ctrlCArmed.current) {
+      if (ctrlCTimer.current !== undefined) clearTimeout(ctrlCTimer.current)
+      exit()
+      return
+    }
+    setInput("", 0)
+    ctrlCArmed.current = true
+    setNotice("Press Ctrl+C again to exit")
+    ctrlCTimer.current = setTimeout(() => {
+      ctrlCArmed.current = false
+      ctrlCTimer.current = undefined
+      setNotice(undefined)
+    }, 2000)
+  })
+
   useInput(
     (input, key) => {
       debugKey(input, key as unknown as Record<string, unknown>)
@@ -351,26 +382,8 @@ export const App = ({ controller }: AppProps) => {
         setShowHelp(false)
         return
       }
-      if (key.ctrl && input === "c") {
-        if (controller.getState().running) {
-          controller.interrupt()
-          return
-        }
-        if (ctrlCArmed.current) {
-          if (ctrlCTimer.current !== undefined) clearTimeout(ctrlCTimer.current)
-          exit()
-          return
-        }
-        setInput("", 0)
-        ctrlCArmed.current = true
-        setNotice("Press Ctrl+C again to exit")
-        ctrlCTimer.current = setTimeout(() => {
-          ctrlCArmed.current = false
-          ctrlCTimer.current = undefined
-          setNotice(undefined)
-        }, 2000)
-        return
-      }
+      // Ctrl+C is handled by the dedicated always-active handler above.
+      if (key.ctrl && input === "c") return
       if (key.shift && key.tab) return controller.cyclePermissionMode()
       if (key.escape) {
         // While a turn is loading, Esc interrupts it but preserves the turn: the

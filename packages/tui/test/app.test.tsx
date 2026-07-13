@@ -916,6 +916,20 @@ describe("App", () => {
     expect(frame).toContain("Press Ctrl+C again to exit")
   })
 
+  test("Ctrl+C dismisses an open picker dialog instead of being swallowed", async () => {
+    const { stdin, lastFrame } = render(<App controller={makeCtrl()} />)
+    stdin.write("/model ")
+    await flush()
+    stdin.write("\r")
+    await flush()
+    expect(clean(lastFrame())).toContain("Select a model") // picker open
+    stdin.write("\x03") // Ctrl+C while the picker owns input
+    await flush()
+    // The picker is gone and the prompt is back, rather than Ctrl+C being eaten.
+    expect(clean(lastFrame())).not.toContain("Select a model")
+    expect(clean(lastFrame())).toContain("type a prompt")
+  })
+
   test("Esc interrupts a loading turn but preserves it with an interrupt marker", async () => {
     const hanging = Layer.succeed(LLMClient.Service, {
       request: LLMClient.request,
