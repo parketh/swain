@@ -17,6 +17,11 @@ export const ModelPicker = ({ models, active, onSelect, onCancel, width }: Model
   const [providerQuery, setProviderQuery] = useState("")
   const [chosen, setChosen] = useState<MergedModelOption | undefined>(undefined)
 
+  const back = () => {
+    setProviderQuery("")
+    setChosen(undefined)
+  }
+
   if (models.length === 0) {
     return (
       <Box flexDirection="column">
@@ -40,10 +45,8 @@ export const ModelPicker = ({ models, active, onSelect, onCancel, width }: Model
         query={providerQuery}
         onQueryChange={setProviderQuery}
         onSelect={(provider) => onSelect(provider, chosen.modelId)}
-        onCancel={() => {
-          setProviderQuery("")
-          setChosen(undefined)
-        }}
+        onCancel={back}
+        onLeft={back}
         width={width}
       />
     )
@@ -55,6 +58,11 @@ export const ModelPicker = ({ models, active, onSelect, onCancel, width }: Model
     label: model.modelId,
     description: model.providers.map((p) => p.providerLabel).join(", "),
   }))
+  // Right drills into the provider level; only meaningful when there's a choice.
+  const drill = (modelId: string): void => {
+    const model = merged.find((m) => m.modelId === modelId)
+    if (model !== undefined && model.providers.length > 1) setChosen(model)
+  }
   return (
     <ListSelect
       key="models"
@@ -71,6 +79,7 @@ export const ModelPicker = ({ models, active, onSelect, onCancel, width }: Model
         if (only !== undefined) return onSelect(only.provider, model.modelId)
         setChosen(model)
       }}
+      onRight={drill}
       onCancel={onCancel}
       width={width}
     />

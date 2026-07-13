@@ -806,6 +806,24 @@ describe("App", () => {
     })
   })
 
+  test("/model right/left arrows navigate between the model and provider levels", async () => {
+    const c = makeMultiProviderCtrl()
+    const { stdin, lastFrame } = render(<App controller={c} />)
+    stdin.write("/model ")
+    await flush()
+    stdin.write("\r")
+    await flush()
+    stdin.write("gpt-5.5") // filter down to the merged gpt-5.5 row
+    await flush()
+    stdin.write("\x1b[C") // Right → drill into the provider level
+    await flush()
+    expect(lastFrame()).toContain("Select a provider for gpt-5.5")
+    stdin.write("\x1b[D") // Left → back to the model level
+    await flush()
+    expect(lastFrame()).toContain("Select a model")
+    expect(lastFrame()).not.toContain("Select a provider")
+  })
+
   test("/model picking a single-provider model skips the provider step", async () => {
     const c = makeMultiProviderCtrl()
     const { stdin, lastFrame } = render(<App controller={c} />)

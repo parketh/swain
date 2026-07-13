@@ -20,6 +20,10 @@ export interface ListSelectProps<Value> {
   readonly onQueryChange: (query: string) => void
   readonly onSelect: (value: Value) => void
   readonly onCancel: () => void
+  /** Left arrow on the focused item; e.g. to step back up a nested menu level. */
+  readonly onLeft?: (value: Value) => void
+  /** Right arrow on the focused item; e.g. to drill into a nested menu level. */
+  readonly onRight?: (value: Value) => void
   /** Fills each row to this width so the floated menu occludes the transcript. */
   readonly width?: number
 }
@@ -46,6 +50,8 @@ export const ListSelect = <Value,>({
   onQueryChange,
   onSelect,
   onCancel,
+  onLeft,
+  onRight,
   width,
 }: ListSelectProps<Value>) => {
   const filtered = filterItems(items, query)
@@ -57,6 +63,16 @@ export const ListSelect = <Value,>({
     if (key.escape) return onCancel()
     if (key.upArrow) return setHighlight((h) => Math.max(0, h - 1))
     if (key.downArrow) return setHighlight((h) => Math.min(filtered.length - 1, h + 1))
+    if (key.leftArrow && onLeft !== undefined) {
+      const item = filtered[index]
+      if (item !== undefined) onLeft(item.value)
+      return
+    }
+    if (key.rightArrow && onRight !== undefined) {
+      const item = filtered[index]
+      if (item !== undefined) onRight(item.value)
+      return
+    }
     if (key.return) {
       const item = filtered[index]
       if (item !== undefined && item.disabled !== true) onSelect(item.value)
