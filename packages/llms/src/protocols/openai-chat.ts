@@ -258,9 +258,12 @@ const handleChunk = (state: DecodeState, raw: unknown): Effect.Effect<Array<LLME
     }
     const events: Array<LLMEvent> = []
     if (chunk.usage != null) {
+      const inputTokens = chunk.usage.prompt_tokens ?? 0
+      const outputTokens = chunk.usage.completion_tokens ?? 0
       state.usage = {
-        inputTokens: chunk.usage.prompt_tokens ?? 0,
-        outputTokens: chunk.usage.completion_tokens ?? 0,
+        inputTokens,
+        outputTokens,
+        activeContextTokens: inputTokens + outputTokens,
       }
     }
     const choice = chunk.choices?.[0]

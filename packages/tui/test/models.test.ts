@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { TuiConfig } from "../src/config"
-import { availableModels, mergeModelsByProvider } from "../src/models"
+import { availableModels, mergeModelsByProvider, resolveModelSelection } from "../src/models"
 
 describe("mergeModelsByProvider", () => {
   test("collapses a model served by multiple providers into one entry", () => {
@@ -38,5 +38,27 @@ describe("mergeModelsByProvider", () => {
     const firstSeen: string[] = []
     for (const m of source) if (!firstSeen.includes(m.modelId)) firstSeen.push(m.modelId)
     expect(merged.map((m) => m.modelId)).toEqual(firstSeen)
+  })
+})
+
+describe("resolveModelSelection limits", () => {
+  test("every configured catalog model resolves with context-window limits", () => {
+    const config: TuiConfig = {
+      providers: {
+        anthropic: { apiKey: "x" },
+        openai: { apiKey: "x" },
+        deepseek: { apiKey: "x" },
+        zai: { apiKey: "x" },
+        "openai-codex": { accessToken: "t" },
+      },
+    }
+    for (const model of availableModels(config)) {
+      const result = resolveModelSelection(model.provider, model.modelId, undefined, config)
+      expect(result.type).toBe("ok")
+      if (result.type === "ok") {
+        expect(result.selection.model.limits?.contextWindow).toBeGreaterThan(0)
+        expect(result.selection.model.limits?.maxOutputTokens).toBeGreaterThan(0)
+      }
+    }
   })
 })

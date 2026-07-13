@@ -57,7 +57,11 @@ const successfulEvents: Array<LLMEvent> = [
   { type: "tool-input-end", toolCallId: toolId, name: "lookup" },
   { type: "tool-call", toolCallId: toolId, name: "lookup", input: { query: "bun" } },
   { type: "provider-error", message: "minor fact", recoverable: true },
-  { type: "finish", reason: "tool-call", usage: { inputTokens: 10, outputTokens: 5 } },
+  {
+    type: "finish",
+    reason: "tool-call",
+    usage: { inputTokens: 10, outputTokens: 5, activeContextTokens: 15 },
+  },
 ]
 
 describe("LLM.request", () => {
@@ -127,7 +131,7 @@ describe("LLM turn runtime", () => {
     const summary = await Effect.runPromise(LLMTurnSummary.fromEvents(events))
     expect(summary.text).toBe("Hello world")
     expect(summary.finish.reason).toBe("stop")
-    expect(summary.usage).toEqual({ inputTokens: 12, outputTokens: 4 })
+    expect(summary.usage).toEqual({ inputTokens: 12, outputTokens: 4, activeContextTokens: 16 })
   })
 
   test("tracer covers the tool-call lifecycle", async () => {
@@ -239,7 +243,7 @@ describe("LLMTurnSummary.fromEvents", () => {
     expect(summary.providerErrors).toEqual([
       { type: "provider-error", message: "minor fact", recoverable: true },
     ])
-    expect(summary.usage).toEqual({ inputTokens: 10, outputTokens: 5 })
+    expect(summary.usage).toEqual({ inputTokens: 10, outputTokens: 5, activeContextTokens: 15 })
     expect(summary.finish.reason).toBe("tool-call")
   })
 

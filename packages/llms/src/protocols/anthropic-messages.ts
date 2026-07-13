@@ -279,11 +279,18 @@ const prepare = (
   )
 }
 
+interface WireUsage {
+  readonly input_tokens?: number
+  readonly output_tokens?: number
+  readonly cache_creation_input_tokens?: number
+  readonly cache_read_input_tokens?: number
+}
+
 interface WireChunk {
   readonly type?: string
   readonly index?: number
   readonly message?: {
-    readonly usage?: { readonly input_tokens?: number; readonly output_tokens?: number }
+    readonly usage?: WireUsage
   }
   readonly content_block?: {
     readonly type?: string
@@ -297,7 +304,7 @@ interface WireChunk {
     readonly partial_json?: string
     readonly stop_reason?: string | null
   }
-  readonly usage?: { readonly input_tokens?: number; readonly output_tokens?: number }
+  readonly usage?: WireUsage
   readonly error?: { readonly type?: string; readonly message?: string }
 }
 
@@ -341,6 +348,8 @@ interface DecodeState {
   finishReason: FinishReason | undefined
   inputTokens: number | undefined
   outputTokens: number | undefined
+  cacheCreationTokens: number | undefined
+  cacheReadTokens: number | undefined
 }
 
 const makeState = (): DecodeState => ({
@@ -352,6 +361,8 @@ const makeState = (): DecodeState => ({
   finishReason: undefined,
   inputTokens: undefined,
   outputTokens: undefined,
+  cacheCreationTokens: undefined,
+  cacheReadTokens: undefined,
 })
 
 const startBlock = (state: DecodeState, chunk: WireChunk, events: Array<LLMEvent>): void => {
@@ -438,18 +449,24 @@ const handleError = (chunk: WireChunk): Effect.Effect<Array<LLMEvent>, LLMError>
   ])
 }
 
+const applyUsage = (state: DecodeState, usage: WireUsage | undefined): void => {
+  if (usage === undefined) return
+  if (usage.input_tokens !== undefined) state.inputTokens = usage.input_tokens
+  if (usage.output_tokens !== undefined) state.outputTokens = usage.output_tokens
+  if (usage.cache_creation_input_tokens !== undefined) {
+    state.cacheCreationTokens = usage.cache_creation_input_tokens
+  }
+  if (usage.cache_read_input_tokens !== undefined) {
+    state.cacheReadTokens = usage.cache_read_input_tokens
+  }
+}
+
 const handleChunk = (state: DecodeState, raw: unknown): Effect.Effect<Array<LLMEvent>, LLMError> =>
   Effect.suspend(() => {
     const chunk = raw as WireChunk
     switch (chunk.type) {
       case "message_start": {
-        const usage = chunk.message?.usage
-        if (usage?.input_tokens !== undefined) {
-          state.inputTokens = usage.input_tokens
-        }
-        if (usage?.output_tokens !== undefined) {
-          state.outputTokens = usage.output_tokens
-        }
+        applyUsage(state, chunk.message?.usage)
         return Effect.succeed<Array<LLMEvent>>([])
       }
       case "content_block_start": {
@@ -468,12 +485,7 @@ const handleChunk = (state: DecodeState, raw: unknown): Effect.Effect<Array<LLME
         if (chunk.delta?.stop_reason != null) {
           state.finishReason = lowerStopReason(chunk.delta.stop_reason)
         }
-        if (chunk.usage?.output_tokens !== undefined) {
-          state.outputTokens = chunk.usage.output_tokens
-        }
-        if (chunk.usage?.input_tokens !== undefined) {
-          state.inputTokens = chunk.usage.input_tokens
-        }
+        applyUsage(state, chunk.usage)
         return Effect.succeed<Array<LLMEvent>>([])
       }
       case "error":
@@ -499,7 +511,15 @@ const flush = (state: DecodeState): Effect.Effect<Array<LLMEvent>, LLMError> =>
     events.push(...toolEvents)
     const usage =
       state.inputTokens !== undefined || state.outputTokens !== undefined
-        ? { inputTokens: state.inputTokens ?? 0, outputTokens: state.outputTokens ?? 0 }
+        ? {
+            inputTokens: state.inputTokens ?? 0,
+            outputTokens: state.outputTokens ?? 0,
+            activeContextTokens:
+              (state.inputTokens ?? 0) +
+              (state.outputTokens ?? 0) +
+              (state.cacheCreationTokens ?? 0) +
+              (state.cacheReadTokens ?? 0),
+          }
         : undefined
     events.push({
       type: "finish",

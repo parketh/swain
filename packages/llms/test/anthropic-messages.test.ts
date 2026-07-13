@@ -229,10 +229,43 @@ describe("AnthropicMessages.decode", () => {
       { type: "text-delta", contentId: "text-1", text: "Hello" },
       { type: "text-delta", contentId: "text-1", text: " world" },
       { type: "text-end", contentId: "text-1" },
-      { type: "finish", reason: "stop", usage: { inputTokens: 12, outputTokens: 4 } },
+      {
+        type: "finish",
+        reason: "stop",
+        usage: { inputTokens: 12, outputTokens: 4, activeContextTokens: 16 },
+      },
     ])
     const summary = await Effect.runPromise(LLMTurnSummary.fromEvents(events))
     expect(summary.text).toBe("Hello world")
+  })
+
+  test("cache tokens roll into activeContextTokens", async () => {
+    const chunks: Array<unknown> = [
+      {
+        type: "message_start",
+        message: {
+          usage: {
+            input_tokens: 12,
+            output_tokens: 1,
+            cache_creation_input_tokens: 100,
+            cache_read_input_tokens: 900,
+          },
+        },
+      },
+      { type: "content_block_start", index: 0, content_block: { type: "text" } },
+      { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "hi" } },
+      { type: "content_block_stop", index: 0 },
+      { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 4 } },
+      { type: "message_stop" },
+    ]
+    const events = await decodeAll(chunks)
+    const finish = events.at(-1)
+    // 12 input + 4 output + 100 cache-creation + 900 cache-read.
+    expect(finish).toEqual({
+      type: "finish",
+      reason: "stop",
+      usage: { inputTokens: 12, outputTokens: 4, activeContextTokens: 1016 },
+    })
   })
 
   test("tool-use partial JSON produces input lifecycle events and final tool-call", async () => {
@@ -246,7 +279,11 @@ describe("AnthropicMessages.decode", () => {
       { type: "tool-input-delta", toolCallId: "toolu_01", text: '"bun"}' },
       { type: "tool-input-end", toolCallId: "toolu_01", name: "lookup" },
       { type: "tool-call", toolCallId: "toolu_01", name: "lookup", input: { query: "bun" } },
-      { type: "finish", reason: "tool-call", usage: { inputTokens: 30, outputTokens: 15 } },
+      {
+        type: "finish",
+        reason: "tool-call",
+        usage: { inputTokens: 30, outputTokens: 15, activeContextTokens: 45 },
+      },
     ])
   })
 
@@ -260,7 +297,11 @@ describe("AnthropicMessages.decode", () => {
       { type: "text-start", contentId: "text-1" },
       { type: "text-delta", contentId: "text-1", text: "The answer is 4." },
       { type: "text-end", contentId: "text-1" },
-      { type: "finish", reason: "stop", usage: { inputTokens: 20, outputTokens: 9 } },
+      {
+        type: "finish",
+        reason: "stop",
+        usage: { inputTokens: 20, outputTokens: 9, activeContextTokens: 29 },
+      },
     ])
     const summary = await Effect.runPromise(LLMTurnSummary.fromEvents(events))
     expect(summary.reasoning).toBe("Consider carefully.")
@@ -273,7 +314,7 @@ describe("AnthropicMessages.decode", () => {
     expect(finish).toEqual({
       type: "finish",
       reason: "length",
-      usage: { inputTokens: 6, outputTokens: 2 },
+      usage: { inputTokens: 6, outputTokens: 2, activeContextTokens: 8 },
     })
   })
 

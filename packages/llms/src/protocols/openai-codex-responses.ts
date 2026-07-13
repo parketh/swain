@@ -355,9 +355,12 @@ const recordCompletion = (state: DecodeState, chunk: WireChunk, reason: FinishRe
   state.finishReason = reason
   const usage = chunk.response?.usage
   if (usage !== undefined) {
+    const inputTokens = usage.input_tokens ?? 0
+    const outputTokens = usage.output_tokens ?? 0
     state.usage = {
-      inputTokens: usage.input_tokens ?? 0,
-      outputTokens: usage.output_tokens ?? 0,
+      inputTokens,
+      outputTokens,
+      activeContextTokens: inputTokens + outputTokens,
     }
   }
 }
