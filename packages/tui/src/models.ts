@@ -2,15 +2,19 @@ import type { GenerationOptions, Model, ProviderOptions } from "@swain/llms"
 import { Lab, Provider } from "@swain/llms"
 import {
   AnthropicModel,
+  AnthropicModelDefaultVariant,
   AnthropicModelVariants,
   AnthropicVariant,
   DeepSeekModel,
+  DeepSeekModelDefaultVariant,
   DeepSeekModelVariants,
   DeepSeekVariant,
   OpenAIModel,
+  OpenAIModelDefaultVariant,
   OpenAIModelVariants,
   OpenAIVariant,
   ZAIModel,
+  ZAIModelDefaultVariant,
   ZAIModelVariants,
   ZAIVariant,
 } from "@swain/llms/models"
@@ -126,6 +130,8 @@ interface VariantSpec {
   readonly providerOptions?: ProviderOptions
   readonly generation?: GenerationOptions
   readonly routing?: RoutingProfile
+  /** The provider-recommended default, applied when a model is picked with no variant. */
+  readonly default?: boolean
 }
 
 interface ModelSpec {
@@ -160,6 +166,7 @@ const anthropicVariants = (model: AnthropicModel): ReadonlyArray<VariantSpec> =>
       id: effort,
       label: effortLabel(effort),
       providerOptions: { anthropic: { thinking: { type: "adaptive", effort } } },
+      ...(effort === AnthropicModelDefaultVariant[model] && { default: true }),
     }),
   )
 
@@ -170,6 +177,7 @@ const openaiVariants = (model: OpenAIModel): ReadonlyArray<VariantSpec> =>
       id: effort,
       label: effortLabel(effort),
       providerOptions: { openai: { reasoningEffort: effort } },
+      ...(effort === OpenAIModelDefaultVariant[model] && { default: true }),
     }),
   )
 
@@ -180,20 +188,25 @@ const codexVariants = (model: OpenAIModel): ReadonlyArray<VariantSpec> =>
       id: effort,
       label: effortLabel(effort),
       providerOptions: { openaiCodex: { reasoning: { effort } } },
+      ...(effort === OpenAIModelDefaultVariant[model] && { default: true }),
     }),
   )
 
 // DeepSeek/Z.AI graded reasoning: a thinking flag plus the effort level.
-const gradedVariants = (
+// Generic over the efforts tuple so `defaultEffort` must be one of the listed
+// efforts (a default outside `efforts` is a compile error).
+const gradedVariants = <E extends readonly string[]>(
   modelId: string,
   providerKey: string,
-  efforts: ReadonlyArray<"high" | "max">,
+  efforts: E,
+  defaultEffort: E[number],
 ): ReadonlyArray<VariantSpec> =>
   efforts.map((effort) =>
     withRouting(modelId, effort, {
       id: effort,
       label: effort,
       providerOptions: { [providerKey]: { thinking: true, reasoningEffort: effort } },
+      ...(effort === defaultEffort && { default: true }),
     }),
   )
 
@@ -274,6 +287,7 @@ const CATALOG: ReadonlyArray<ProviderSpec> = [
           DeepSeekModel.V4_Flash,
           Provider.DeepSeek,
           DeepSeekModelVariants[DeepSeekModel.V4_Flash],
+          DeepSeekModelDefaultVariant[DeepSeekModel.V4_Flash],
         ),
       },
       {
@@ -284,6 +298,7 @@ const CATALOG: ReadonlyArray<ProviderSpec> = [
           DeepSeekModel.V4_Pro,
           Provider.DeepSeek,
           DeepSeekModelVariants[DeepSeekModel.V4_Pro],
+          DeepSeekModelDefaultVariant[DeepSeekModel.V4_Pro],
         ),
       },
     ],
@@ -307,6 +322,7 @@ const CATALOG: ReadonlyArray<ProviderSpec> = [
           ZAIModel.GLM_5_2,
           Provider.ZAI,
           ZAIModelVariants[ZAIModel.GLM_5_2],
+          ZAIModelDefaultVariant[ZAIModel.GLM_5_2],
         ),
       },
     ],
@@ -378,6 +394,8 @@ export interface ModelVariantOption {
   readonly id: string
   readonly label: string
   readonly routing?: RoutingProfile
+  /** The provider-recommended default variant for this model. */
+  readonly default?: boolean
 }
 
 export interface ModelOption {
@@ -415,6 +433,7 @@ const toModelOptions = (spec: ProviderSpec): ReadonlyArray<ModelOption> =>
         id: v.id,
         label: v.label,
         ...(v.routing !== undefined && { routing: v.routing }),
+        ...(v.default === true && { default: true }),
       })),
     }))
 
@@ -555,6 +574,17 @@ export const resolveModelSelection = (
 /** Default model id for a configured provider, used for startup fallback. */
 export const defaultModelId = (provider: string): string | undefined =>
   specById(provider)?.models.find((m) => m.deprecated !== true)?.id
+
+/**
+ * The provider-recommended default variant for a model, or `undefined` when the
+ * model has no variants (or no marked default). Applied when a model is selected
+ * without an explicit variant so the effort defaults to the recommended level
+ * rather than an unspecified/no-override request.
+ */
+export const defaultVariantId = (provider: string, modelId: string): string | undefined =>
+  specById(provider)
+    ?.models.find((m) => m.id === modelId)
+    ?.variants.find((v) => v.default === true)?.id
 
 /**
  * Keyless, free model for background chores (e.g. summarizing sessions) when the

@@ -24,6 +24,8 @@ export interface ListSelectProps<Value> {
   readonly onLeft?: (value: Value) => void
   /** Right arrow on the focused item; e.g. to drill into a nested menu level. */
   readonly onRight?: (value: Value) => void
+  /** Row the cursor starts on (unfiltered index); defaults to the first row. */
+  readonly initialIndex?: number
   /** Fills each row to this width so the floated menu occludes the transcript. */
   readonly width?: number
 }
@@ -52,10 +54,11 @@ export const ListSelect = <Value,>({
   onCancel,
   onLeft,
   onRight,
+  initialIndex,
   width,
 }: ListSelectProps<Value>) => {
   const filtered = filterItems(items, query)
-  const [highlight, setHighlight] = useState(0)
+  const [highlight, setHighlight] = useState(initialIndex ?? 0)
   const index = Math.min(highlight, Math.max(0, filtered.length - 1))
 
   useInput((input, key) => {

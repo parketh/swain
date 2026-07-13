@@ -49,6 +49,7 @@ import { modelResolverLayer } from "./model-resolver"
 import {
   availableModels,
   connectableProviders,
+  defaultVariantId,
   freeModel,
   type ModelOption,
   type ProviderOption,
@@ -811,7 +812,7 @@ export const makeController = (deps: ControllerDeps): Controller => {
       case "model": {
         const [provider, modelId, variant] = result.args.trim().split(/\s+/)
         if (provider !== undefined && provider !== "" && modelId !== undefined && modelId !== "") {
-          await applySelection(provider, modelId, variant)
+          await applySelection(provider, modelId, variant ?? defaultVariantId(provider, modelId))
         }
         return
       }
@@ -874,6 +875,8 @@ export const makeController = (deps: ControllerDeps): Controller => {
       notify()
     },
 
+    // The variant arrives already resolved from the picker (or explicit `none`);
+    // default-filling for variant-less entry points lives in `/model` and startup.
     selectModel: (provider, modelId, variant) => applySelection(provider, modelId, variant),
     setVariant: (variant) => applySelection(activeModel.provider, activeModel.modelId, variant),
 

@@ -16,7 +16,7 @@ import {
 } from "./config"
 import { makeController, type RequestOptions } from "./controller"
 import { historyPath, loadHistory } from "./history"
-import { availableModels, resolveModelSelection } from "./models"
+import { availableModels, defaultVariantId, resolveModelSelection } from "./models"
 import { queryTerminalBackground } from "./terminalBackground"
 import { applyTerminalBackground } from "./theme"
 
@@ -125,10 +125,18 @@ export const run = async (options: RunOptions = {}): Promise<void> => {
   const isAvailable = (candidate: ActiveModel): boolean =>
     models.some((m) => m.provider === candidate.provider && m.modelId === candidate.modelId)
 
+  // Seed a model that came without a variant with its recommended default so the
+  // initial request uses the recommended effort rather than no override.
+  const withDefaultVariant = (provider: string, modelId: string): ActiveModel => {
+    const variant = defaultVariantId(provider, modelId)
+    return { provider, modelId, ...(variant !== undefined && { variant }) }
+  }
   let requested: ActiveModel | undefined
   if (flags.model !== undefined) {
     const [provider, modelId] = flags.model.split(":")
-    if (provider !== undefined && modelId !== undefined) requested = { provider, modelId }
+    if (provider !== undefined && modelId !== undefined) {
+      requested = withDefaultVariant(provider, modelId)
+    }
   }
   if (
     requested === undefined &&
@@ -139,7 +147,7 @@ export const run = async (options: RunOptions = {}): Promise<void> => {
   }
   if (requested === undefined && models.length > 0) {
     const first = models[0]
-    if (first !== undefined) requested = { provider: first.provider, modelId: first.modelId }
+    if (first !== undefined) requested = withDefaultVariant(first.provider, first.modelId)
   }
 
   let model = placeholderModel

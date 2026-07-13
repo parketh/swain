@@ -57,3 +57,15 @@ export const OpenAIModelVariants = {
     OpenAIVariant.XHigh,
   ],
 } as const satisfies Record<OpenAIModel, ReadonlyArray<OpenAIVariant>>
+
+/**
+ * Provider-recommended default effort per model, used when none is specified.
+ * `medium` is the OpenAI API default for `reasoning_effort`.
+ */
+export const OpenAIModelDefaultVariant = {
+  [OpenAIModel.GPT_5_5]: OpenAIVariant.Medium,
+  [OpenAIModel.GPT_5_5_Pro]: OpenAIVariant.Medium,
+  [OpenAIModel.GPT_5_6_Sol]: OpenAIVariant.Medium,
+  [OpenAIModel.GPT_5_6_Terra]: OpenAIVariant.Medium,
+  [OpenAIModel.GPT_5_6_Luna]: OpenAIVariant.Medium,
+} as const satisfies Record<OpenAIModel, OpenAIVariant>

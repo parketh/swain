@@ -24,3 +24,8 @@ export const AnthropicModelVariants = {
     AnthropicVariant.Max,
   ],
 } as const satisfies Record<AnthropicModel, ReadonlyArray<AnthropicVariant>>
+
+/** Provider-recommended default effort per model, used when none is specified. */
+export const AnthropicModelDefaultVariant = {
+  [AnthropicModel.Claude_Opus_4_8]: AnthropicVariant.High,
+} as const satisfies Record<AnthropicModel, AnthropicVariant>
