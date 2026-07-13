@@ -418,6 +418,43 @@ const toModelOptions = (spec: ProviderSpec): ReadonlyArray<ModelOption> =>
       })),
     }))
 
+/** A model shown once in the picker, carrying every provider that serves it. */
+export interface MergedModelOption {
+  readonly modelId: string
+  readonly label: string
+  readonly lab: Lab
+  readonly providers: ReadonlyArray<ModelOption>
+}
+
+/**
+ * Collapses per-provider `ModelOption`s that share a `modelId` into one entry
+ * carrying every serving provider, preserving first-seen catalog order. A model
+ * offered by two providers (e.g. gpt-5.5 via OpenAI and OpenAI Codex) becomes a
+ * single row whose `providers` drive an optional second selection step.
+ */
+export const mergeModelsByProvider = (
+  models: ReadonlyArray<ModelOption>,
+): ReadonlyArray<MergedModelOption> => {
+  const byId = new Map<
+    string,
+    { modelId: string; label: string; lab: Lab; providers: ModelOption[] }
+  >()
+  for (const model of models) {
+    const existing = byId.get(model.modelId)
+    if (existing === undefined) {
+      byId.set(model.modelId, {
+        modelId: model.modelId,
+        label: model.label,
+        lab: model.lab,
+        providers: [model],
+      })
+    } else {
+      existing.providers.push(model)
+    }
+  }
+  return Array.from(byId.values())
+}
+
 /** Every routable catalog model (non-deprecated), independent of configuration. */
 export const allCatalogModels = (): ReadonlyArray<ModelOption> => CATALOG.flatMap(toModelOptions)
 

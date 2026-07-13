@@ -1,0 +1,42 @@
+import { describe, expect, test } from "bun:test"
+import type { TuiConfig } from "../src/config"
+import { availableModels, mergeModelsByProvider } from "../src/models"
+
+describe("mergeModelsByProvider", () => {
+  test("collapses a model served by multiple providers into one entry", () => {
+    // OpenAI and OpenAI Codex both serve gpt-5.5 / gpt-5.6-sol / gpt-5.6-terra.
+    const config: TuiConfig = {
+      providers: { openai: { apiKey: "x" }, "openai-codex": { accessToken: "t" } },
+    }
+    const merged = mergeModelsByProvider(availableModels(config))
+
+    const gpt55 = merged.find((m) => m.modelId === "gpt-5.5")
+    expect(gpt55).toBeDefined()
+    expect(gpt55?.providers.map((p) => p.provider).sort()).toEqual(["openai", "openai-codex"])
+
+    // Every modelId appears at most once after merging.
+    const ids = merged.map((m) => m.modelId)
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+
+  test("keeps single-provider models as a lone entry", () => {
+    const config: TuiConfig = { providers: { openai: { apiKey: "x" } } }
+    const merged = mergeModelsByProvider(availableModels(config))
+
+    // gpt-5.6-luna is OpenAI-only.
+    const luna = merged.find((m) => m.modelId === "gpt-5.6-luna")
+    expect(luna?.providers).toHaveLength(1)
+    expect(luna?.providers[0]?.provider).toBe("openai")
+  })
+
+  test("preserves first-seen catalog order", () => {
+    const config: TuiConfig = {
+      providers: { openai: { apiKey: "x" }, "openai-codex": { accessToken: "t" } },
+    }
+    const source = availableModels(config)
+    const merged = mergeModelsByProvider(source)
+    const firstSeen: string[] = []
+    for (const m of source) if (!firstSeen.includes(m.modelId)) firstSeen.push(m.modelId)
+    expect(merged.map((m) => m.modelId)).toEqual(firstSeen)
+  })
+})
