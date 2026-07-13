@@ -58,6 +58,22 @@ describe("searchFiles", () => {
     expect(results.some((r) => r.path === "../other")).toBe(true)
     expect(results.every((r) => r.path.startsWith("../"))).toBe(true)
   })
+
+  test("finds files nested in subfolders for a bare query", () => {
+    const results = searchFiles(project(), "agent")
+    expect(results.some((r) => r.path === "src/agent.ts")).toBe(true)
+  })
+
+  test("does not descend into ignored directories when searching", () => {
+    const results = searchFiles(project(), "agent")
+    expect(results.every((r) => !r.path.includes("node_modules"))).toBe(true)
+  })
+
+  test("an empty query browses one level rather than recursing", () => {
+    const results = searchFiles(project(), "")
+    expect(results.some((r) => r.path === "src")).toBe(true)
+    expect(results.some((r) => r.path === "src/agent.ts")).toBe(false)
+  })
 })
 
 describe("replaceToken", () => {
