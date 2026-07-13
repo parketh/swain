@@ -111,4 +111,34 @@ describe("OpenAICodex automatic token refresh", () => {
     await runTurn({ credentialResolver: () => ({ accessToken: EXPIRED }) }, layer)
     expect(requests.some((r) => r.url.includes("/oauth/token"))).toBe(false)
   })
+
+  test("concurrent expired-token turns coalesce into a single token exchange", async () => {
+    // A slow token endpoint keeps the owner's refresh in flight while the second
+    // turn enters, so they must share one exchange rather than each rotating the
+    // refresh token and invalidating the other.
+    let tokenExchanges = 0
+    const layer = Layer.succeed(
+      HttpClient.HttpClient,
+      HttpClient.make((request) => {
+        const isToken = request.url.includes("/oauth/token")
+        if (isToken) tokenExchanges += 1
+        const body = isToken
+          ? JSON.stringify({ access_token: FRESH, refresh_token: "rt_new" })
+          : "data: [DONE]\n\n"
+        const contentType = isToken ? "application/json" : "text/event-stream"
+        const respond = Effect.succeed(
+          HttpClientResponse.fromWeb(
+            request,
+            new Response(body, { status: 200, headers: { "content-type": contentType } }),
+          ),
+        )
+        return isToken ? respond.pipe(Effect.delay("20 millis")) : respond
+      }),
+    )
+    const config = {
+      credentialResolver: () => ({ accessToken: EXPIRED, refreshToken: "rt_shared" }),
+    }
+    await Promise.all([runTurn(config, layer), runTurn(config, layer)])
+    expect(tokenExchanges).toBe(1)
+  })
 })

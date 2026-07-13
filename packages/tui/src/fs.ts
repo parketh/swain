@@ -3,6 +3,8 @@ import * as NodePath from "node:path"
 
 const IGNORED = new Set([".git", "node_modules", "dist", ".swain"])
 const DEFAULT_LIMIT = 20
+/** Bounds the recursive walk so a huge tree can't stall the prompt. */
+const MAX_VISITED = 10_000
 
 export interface FileToken {
   /** Text following `@`, i.e. the path/filename query. */
@@ -44,11 +46,42 @@ const rank = (name: string, needle: string): number => {
   return -1
 }
 
+interface Entry {
+  readonly abs: string
+  readonly isDirectory: boolean
+}
+
+/** Immediate, non-ignored children of `dir`; empty if it can't be read. */
+const listEntries = (dir: string): ReadonlyArray<Entry> => {
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((e) => !IGNORED.has(e.name))
+      .map((e) => ({ abs: NodePath.join(dir, e.name), isDirectory: e.isDirectory() }))
+  } catch {
+    return []
+  }
+}
+
+/** Depth-first walk of `base`, pruning ignored dirs and capped at MAX_VISITED. */
+const walkEntries = (base: string): ReadonlyArray<Entry> => {
+  const out: Entry[] = []
+  const stack = [base]
+  while (stack.length > 0 && out.length < MAX_VISITED) {
+    for (const entry of listEntries(stack.pop()!)) {
+      out.push(entry)
+      if (entry.isDirectory) stack.push(entry.abs)
+    }
+  }
+  return out
+}
+
 /**
- * Lists files/directories in the directory indicated by the token's path
- * segment, matching the final segment by prefix (ranked first) then substring.
- * Results are returned relative to `workingDirectory`, including `../` prefixes
- * for `@../…` queries. Listing never reads file contents and needs no approval.
+ * Finds files/directories for the token's final segment. An empty segment
+ * (`@`, `@src/`, `@../`) browses that one directory; a non-empty segment
+ * recursively searches the subtree, matching each entry's name by prefix
+ * (ranked first) then substring. Results are returned relative to
+ * `workingDirectory`, including `../` prefixes for `@../…` queries. Listing
+ * never reads file contents and needs no approval.
  */
 export const searchFiles = (
   workingDirectory: string,
@@ -60,29 +93,28 @@ export const searchFiles = (
   const namePart = slash === -1 ? query : query.slice(slash + 1)
   const base = NodePath.resolve(workingDirectory, dirPart)
 
-  let entries: ReadonlyArray<{ name: string; isDirectory: boolean }>
-  try {
-    entries = readdirSync(base, { withFileTypes: true }).map((e) => ({
-      name: e.name,
-      isDirectory: e.isDirectory(),
-    }))
-  } catch {
-    return []
-  }
+  const entries = namePart === "" ? listEntries(base) : walkEntries(base)
+  const depth = (p: string): number => p.split(NodePath.sep).length
 
   return (
     entries
-      .filter((entry) => !IGNORED.has(entry.name))
-      .map((entry) => ({ entry, score: rank(entry.name, namePart) }))
+      .map((entry) => ({
+        entry,
+        score: rank(NodePath.basename(entry.abs), namePart),
+        path: NodePath.relative(workingDirectory, entry.abs),
+      }))
       .filter(({ score }) => score >= 0)
-      .sort((a, b) => a.score - b.score || a.entry.name.localeCompare(b.entry.name))
+      // Drop the working directory itself when listing a parent via `@../`.
+      .filter(({ path }) => path !== "")
+      .sort(
+        (a, b) =>
+          a.score - b.score || depth(a.path) - depth(b.path) || a.path.localeCompare(b.path),
+      )
       .slice(0, limit)
-      .map(({ entry }) => ({
-        path: NodePath.relative(workingDirectory, NodePath.join(base, entry.name)),
+      .map(({ entry, path }) => ({
+        path,
         kind: entry.isDirectory ? ("directory" as const) : ("file" as const),
       }))
-      // Drop the working directory itself when listing a parent via `@../`.
-      .filter((match) => match.path !== "")
   )
 }
 

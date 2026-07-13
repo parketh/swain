@@ -415,15 +415,22 @@ const loop = (
         return yield* loop(session, ctx, iteration + 1, true)
       }
       // No-op or error: reply to each switch call and run the siblings normally.
-      const switchResults = switchCalls.map((call, index) => {
-        if (index > 0) return errorResult(call, "Only one model switch is allowed per user turn.")
-        return outcome.kind === "noop"
-          ? successResult(call, { status: "noop", model: outcome.model })
-          : errorResult(call, outcome.message)
-      })
+      const resultById = new Map<ToolCallId, ToolResultContent>(
+        switchCalls.map((call, index) => [
+          call.toolCallId,
+          index > 0
+            ? errorResult(call, "Only one model switch is allowed per user turn.")
+            : outcome.kind === "noop"
+              ? successResult(call, { status: "noop", model: outcome.model })
+              : errorResult(call, outcome.message),
+        ]),
+      )
       const siblings = summary.toolCalls.filter((call) => call.name !== SWITCH_MODEL_NAME)
       const siblingResults = yield* executeTools(siblings, ctx.emit)
-      session.messages.push(Message.user([...switchResults, ...siblingResults]))
+      siblings.forEach((call, index) => resultById.set(call.toolCallId, siblingResults[index]!))
+      // Preserve the assistant's original tool_call order in the results.
+      const results = summary.toolCalls.map((call) => resultById.get(call.toolCallId)!)
+      session.messages.push(Message.user(results))
       return yield* loop(session, ctx, iteration + 1, switched)
     }
 

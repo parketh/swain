@@ -67,7 +67,7 @@ describe("recordInterruption", () => {
       content: [
         {
           type: "tool-result",
-          toolCallId: "call-1",
+          toolCallId: ToolCallId.make("call-1"),
           name: "Read",
           result: { type: "text", value: INTERRUPT_MESSAGE_FOR_TOOL_USE },
           isError: true,
