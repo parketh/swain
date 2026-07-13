@@ -134,13 +134,15 @@ export const routerPromptTargets = (config: TuiConfig): ReadonlyArray<RouterProm
     }),
   }))
 
-export type RouterStatus = "off" | "inactive" | "on"
+export type RouterStatus = "off" | "needs-setup" | "on"
 
 /**
- * Router runtime state: `off` when the master toggle is disabled, `inactive`
- * when on but fewer than two enabled connected targets exist, otherwise `on`.
+ * Router runtime state: `off` when the master toggle is disabled; `on` when at
+ * least two non-dominated targets survive Pareto filtering (i.e. what the model
+ * actually sees, `routerPromptTargets`); otherwise `needs-setup` — enabled but
+ * without enough targets carrying capability/cost data to route meaningfully.
  */
 export const routerStatus = (config: TuiConfig): RouterStatus => {
   if (routerSettings(config).enabled !== true) return "off"
-  return enabledRouterTargets(config).length >= 2 ? "on" : "inactive"
+  return routerPromptTargets(config).length >= 2 ? "on" : "needs-setup"
 }
