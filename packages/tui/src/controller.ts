@@ -875,10 +875,9 @@ export const makeController = (deps: ControllerDeps): Controller => {
       notify()
     },
 
-    // No explicit variant → apply the provider-recommended default rather than
-    // sending no reasoning override (`setVariant(undefined)` still opts out).
-    selectModel: (provider, modelId, variant) =>
-      applySelection(provider, modelId, variant ?? defaultVariantId(provider, modelId)),
+    // The variant arrives already resolved from the picker (or explicit `none`);
+    // default-filling for variant-less entry points lives in `/model` and startup.
+    selectModel: (provider, modelId, variant) => applySelection(provider, modelId, variant),
     setVariant: (variant) => applySelection(activeModel.provider, activeModel.modelId, variant),
 
     connectProvider: async (provider, creds) => {

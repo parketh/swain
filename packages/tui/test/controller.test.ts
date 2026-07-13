@@ -167,15 +167,22 @@ describe("controller", () => {
     })
   })
 
-  test("selecting a model with no variant applies the recommended default", async () => {
+  test("/model with no variant applies the recommended default", async () => {
     const llm = scripted([textTurn("ok")])
     const c = build(llm)
-    await c.selectModel("anthropic", "claude-opus-4-8")
+    await c.executeCommand({ type: "command", name: "model", args: "anthropic claude-opus-4-8" })
     expect(c.getState().activeModel.variant).toBe("high")
     await c.submitPrompt("hi")
     expect(llm.requests.at(-1)?.providerOptions).toEqual({
       anthropic: { thinking: { type: "adaptive", effort: "high" } },
     })
+  })
+
+  test("selecting a model with an explicit variant applies exactly that variant", async () => {
+    const llm = scripted([textTurn("ok")])
+    const c = build(llm)
+    await c.selectModel("anthropic", "claude-opus-4-8", "max")
+    expect(c.getState().activeModel.variant).toBe("max")
   })
 
   test("/model records a session-local transition into pastModels", async () => {

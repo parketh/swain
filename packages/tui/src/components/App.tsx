@@ -503,13 +503,10 @@ export const App = ({ controller }: AppProps) => {
     <ModelPicker
       models={state.availableModels}
       active={state.activeModel}
-      onSelect={(provider, modelId) => {
-        void controller.selectModel(provider, modelId)
-        // During onboarding, advance to the variant picker when the chosen
-        // model offers variants; otherwise finish setup.
-        if (setupFlow && variantsFor(provider, modelId).length > 0) {
-          return setDialog({ kind: "variants" })
-        }
+      onSelect={(provider, modelId, variant) => {
+        // ModelPicker walks model → provider → variant, so the variant arrives
+        // here already chosen; a model with no variants passes it undefined.
+        void controller.selectModel(provider, modelId, variant)
         setSetupFlow(false)
         setDialog(undefined)
       }}

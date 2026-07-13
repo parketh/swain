@@ -811,11 +811,15 @@ describe("App", () => {
     expect(lastFrame()).toContain("OpenAI Codex")
     stdin.write("codex") // filter to the Codex provider
     await flush()
-    stdin.write("\r")
+    stdin.write("\r") // pick provider → third step (variant)
+    await flush()
+    expect(lastFrame()).toContain("Select a variant for gpt-5.5")
+    stdin.write("\r") // pick the recommended variant → commit
     await flush()
     expect(c.getState().activeModel).toMatchObject({
       provider: "openai-codex",
       modelId: "gpt-5.5",
+      variant: "medium",
     })
   })
 
@@ -837,6 +841,29 @@ describe("App", () => {
     expect(lastFrame()).not.toContain("Select a provider")
   })
 
+  test("/model right/left arrows navigate the full model → provider → variant path", async () => {
+    const c = makeMultiProviderCtrl()
+    const { stdin, lastFrame } = render(<App controller={c} />)
+    stdin.write("/model ")
+    await flush()
+    stdin.write("\r")
+    await flush()
+    stdin.write("gpt-5.5") // merged multi-provider row
+    await flush()
+    stdin.write("\x1b[C") // Right → provider level
+    await flush()
+    expect(lastFrame()).toContain("Select a provider for gpt-5.5")
+    stdin.write("\x1b[C") // Right → variant level
+    await flush()
+    expect(lastFrame()).toContain("Select a variant for gpt-5.5")
+    stdin.write("\x1b[D") // Left → back to provider level
+    await flush()
+    expect(lastFrame()).toContain("Select a provider for gpt-5.5")
+    stdin.write("\x1b[D") // Left → back to model level
+    await flush()
+    expect(lastFrame()).toContain("Select a model")
+  })
+
   test("/model picking a single-provider model skips the provider step", async () => {
     const c = makeMultiProviderCtrl()
     const { stdin, lastFrame } = render(<App controller={c} />)
@@ -846,12 +873,16 @@ describe("App", () => {
     await flush()
     stdin.write("luna") // gpt-5.6-luna is OpenAI-only
     await flush()
-    stdin.write("\r")
+    stdin.write("\r") // single provider → straight to the variant step
     await flush()
     expect(lastFrame()).not.toContain("Select a provider")
+    expect(lastFrame()).toContain("Select a variant for gpt-5.6-luna")
+    stdin.write("\r") // pick the recommended variant → commit
+    await flush()
     expect(c.getState().activeModel).toMatchObject({
       provider: "openai",
       modelId: "gpt-5.6-luna",
+      variant: "medium",
     })
   })
 
@@ -862,7 +893,7 @@ describe("App", () => {
     stdin.write("\r")
     await flush()
     expect(lastFrame()).toContain("Select a variant")
-    expect(lastFrame()).toContain("default")
+    expect(lastFrame()).toContain("recommended")
     expect(lastFrame()).toContain("extra")
   })
 
