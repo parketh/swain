@@ -33,3 +33,21 @@ describe("Transcript model-switch rendering", () => {
     expect(items.some((i) => i.kind === "text" && i.role === "user")).toBe(false)
   })
 })
+
+const compactionMessage: Message = {
+  role: "user",
+  isMeta: true,
+  content: [{ type: "compaction", reason: "manual", compactedMessages: 12, summary: "## Goal\n…" }],
+  // biome-ignore lint/suspicious/noExplicitAny: compaction content isn't in the narrow Message helper types
+} as any
+
+describe("Transcript compaction rendering", () => {
+  test("a compaction block becomes a compaction boundary item, not a user prompt", () => {
+    const items = buildItems([compactionMessage], emptyDraft)
+    expect(items).toHaveLength(1)
+    const item = items[0]!
+    expect(item.kind).toBe("compaction")
+    if (item.kind === "compaction") expect(item.compactedMessages).toBe(12)
+    expect(items.some((i) => i.kind === "text" && i.role === "user")).toBe(false)
+  })
+})

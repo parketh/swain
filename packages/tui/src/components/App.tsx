@@ -712,6 +712,7 @@ export const App = ({ controller }: AppProps) => {
           permissionMode={state.permissionMode}
           usage={controller.getUsage()}
           routerStatus={state.routerStatus}
+          autoCompactionDisabled={state.session.compaction.autoEnabled === false}
         />
       </Box>
     </Box>

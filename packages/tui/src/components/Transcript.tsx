@@ -220,7 +220,11 @@ interface SwitchItem {
   readonly reason: string
   readonly requestedBy: "router" | "user"
 }
-type Item = TextItem | ToolItem | ErrorItem | NotificationItem | SwitchItem
+interface CompactionItem {
+  readonly kind: "compaction"
+  readonly compactedMessages: number
+}
+type Item = TextItem | ToolItem | ErrorItem | NotificationItem | SwitchItem | CompactionItem
 
 const switchRefKey = (ref: { provider: string; modelId: string; variant?: string }): string =>
   ref.variant !== undefined && ref.variant !== ""
@@ -295,6 +299,8 @@ export const buildItems = (
           reason: block.reason,
           requestedBy: block.requestedBy,
         })
+      } else if (block.type === "compaction") {
+        items.push({ kind: "compaction", compactedMessages: block.compactedMessages })
       } else if (block.type === "tool-call" && !isHiddenTool(block.name)) {
         const result = results.get(String(block.toolCallId))
         if (result === undefined && draftIds.has(String(block.toolCallId))) continue
@@ -389,6 +395,16 @@ const NodeRow = ({ node }: { node: Node }) => {
       <Row marker="⇄" color={theme.primaryDim}>
         <Text color={theme.muted}>
           {verb} {node.from} → {node.to} — {node.reason}
+        </Text>
+      </Row>
+    )
+  }
+  if (node.kind === "compaction") {
+    return (
+      <Row marker="≡" color={theme.primaryDim}>
+        <Text color={theme.muted}>
+          Compacted {node.compactedMessages} earlier message
+          {node.compactedMessages === 1 ? "" : "s"} into a summary
         </Text>
       </Row>
     )

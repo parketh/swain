@@ -10,6 +10,8 @@ export interface StatusLineProps {
   readonly permissionMode: PermissionMode
   readonly usage: UsageSnapshot
   readonly routerStatus: RouterStatus
+  /** Auto compaction was disabled after a failure; manual `/compact` still works. */
+  readonly autoCompactionDisabled?: boolean
 }
 
 const ROUTER_COLOR: Record<RouterStatus, string> = {
@@ -35,6 +37,7 @@ export const StatusLine = ({
   permissionMode,
   usage,
   routerStatus,
+  autoCompactionDisabled,
 }: StatusLineProps) => (
   <Box>
     <Text color={theme.muted}>{activeModel.provider}/</Text>
@@ -51,6 +54,7 @@ export const StatusLine = ({
       {usage.totalTokens} tok
       {usage.costUsd !== undefined ? ` (${formatCost(usage.costUsd)})` : ""}
     </Text>
+    {autoCompactionDisabled === true ? <Text color="yellow"> · auto-compact off</Text> : null}
   </Box>
 )
 

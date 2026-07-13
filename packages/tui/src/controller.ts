@@ -5,6 +5,8 @@ import {
   type AgentEvent,
   type AgentType,
   type Approval,
+  type CompactionReason,
+  compactSession,
   submitPrompt as coreSubmitPrompt,
   createSessionState,
   listTasks,
@@ -175,6 +177,8 @@ export interface Controller {
   resolveApproval(id: number, decision: PermissionDecision): void
   submitPrompt(text: string): Promise<void>
   executeCommand(result: CommandParseResult): Promise<void>
+  /** Runs one full compaction on the live session, summarizing older context. */
+  compact(reason: CompactionReason): Promise<void>
   /** Global prompt history, most recent last. */
   getHistory(): ReadonlyArray<string>
   /** Records a submitted prompt to global history and persists it. */
@@ -701,6 +705,22 @@ export const makeController = (deps: ControllerDeps): Controller => {
     }
   }
 
+  const compact = async (reason: CompactionReason): Promise<void> => {
+    if (running) return
+    running = true
+    notify()
+    try {
+      await runtime.runPromise(compactSession(session, { reason }))
+      if (persist) await runtime.runPromise(saveSession(session, sessionsDirFor(session)))
+    } catch (error) {
+      const message = (error as { message?: string }).message ?? String(error)
+      emitEvent({ type: "agent-error", source: "agent", message: `Compaction failed: ${message}` })
+    } finally {
+      running = false
+      notify()
+    }
+  }
+
   const setActiveMode = (mode: PermissionMode): void => {
     Object.assign(session.systemContext, { permissionMode: mode })
   }
@@ -803,6 +823,9 @@ export const makeController = (deps: ControllerDeps): Controller => {
       case "clear":
         clearConversation()
         return
+      case "compact":
+        await compact("manual")
+        return
       case "plan": {
         setActiveMode("plan")
         notify()
@@ -869,6 +892,7 @@ export const makeController = (deps: ControllerDeps): Controller => {
 
     submitPrompt,
     executeCommand,
+    compact,
 
     cyclePermissionMode: () => {
       setActiveMode(NEXT_MODE[session.systemContext.permissionMode])
