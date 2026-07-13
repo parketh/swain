@@ -193,11 +193,13 @@ const codexVariants = (model: OpenAIModel): ReadonlyArray<VariantSpec> =>
   )
 
 // DeepSeek/Z.AI graded reasoning: a thinking flag plus the effort level.
-const gradedVariants = (
+// Generic over the efforts tuple so `defaultEffort` must be one of the listed
+// efforts (a default outside `efforts` is a compile error).
+const gradedVariants = <E extends readonly string[]>(
   modelId: string,
   providerKey: string,
-  efforts: ReadonlyArray<"high" | "max">,
-  defaultEffort: "high" | "max",
+  efforts: E,
+  defaultEffort: E[number],
 ): ReadonlyArray<VariantSpec> =>
   efforts.map((effort) =>
     withRouting(modelId, effort, {
