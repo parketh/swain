@@ -269,6 +269,35 @@ describe("controller", () => {
     })
   })
 
+  test("resuming a session restores its compaction summary", async () => {
+    const persisted = createSessionState({
+      sessionId: "compacted",
+      workingDirectory: dir,
+      model: { ...testModel, id: ModelId.make("claude-opus-4-8") },
+      modelRef: { provider: "anthropic", modelId: "claude-opus-4-8" },
+      currentDate: "2026-07-05",
+      messages: [
+        {
+          role: "user",
+          isMeta: true,
+          content: [
+            { type: "compaction", reason: "manual", compactedMessages: 4, summary: "## Goal\nX" },
+          ],
+          // biome-ignore lint/suspicious/noExplicitAny: compaction content isn't in the narrow helper types
+        } as any,
+      ],
+      compaction: { autoEnabled: false, summary: "## Goal\nX" },
+    })
+    await Effect.runPromise(
+      saveSession(persisted, sessionsDir(join(dir, "config.json"), dir)).pipe(
+        Effect.provide(BunContext.layer),
+      ),
+    )
+    const c = build(scripted([textTurn("ok")]))
+    await c.resumeSession("compacted")
+    expect(c.getState().session.compaction).toEqual({ autoEnabled: false, summary: "## Goal\nX" })
+  })
+
   test("an Ask request is forwarded to the UI and resolves with the selected answers", async () => {
     const c = build(
       scripted([
