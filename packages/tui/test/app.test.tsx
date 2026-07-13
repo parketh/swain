@@ -762,6 +762,68 @@ describe("App", () => {
     expect(lastFrame()).toContain("claude-opus-4-8")
   })
 
+  const makeMultiProviderCtrl = (): Controller => {
+    const session = createSessionState({
+      workingDirectory: dir,
+      model: testModel,
+      permissionMode: "ask",
+      currentDate: "2026-07-05",
+    })
+    const c = makeController({
+      session,
+      activeModel: { provider: "openai", modelId: "gpt-5.5" },
+      // Both providers serve gpt-5.5, so it merges into one row with a 2nd step.
+      config: { providers: { openai: { apiKey: "x" }, "openai-codex": { accessToken: "t" } } },
+      configPath: join(dir, "config.json"),
+      llmLayer: scripted([[]]),
+      persist: false,
+    })
+    built.push(c)
+    return c
+  }
+
+  test("/model picking a multi-provider model opens a provider step", async () => {
+    const c = makeMultiProviderCtrl()
+    const { stdin, lastFrame } = render(<App controller={c} />)
+    stdin.write("/model ")
+    await flush()
+    stdin.write("\r")
+    await flush()
+    stdin.write("gpt-5.5") // filter down to the merged gpt-5.5 row
+    await flush()
+    stdin.write("\r") // pick the model → second step
+    await flush()
+    expect(lastFrame()).toContain("Select a provider for gpt-5.5")
+    expect(lastFrame()).toContain("OpenAI")
+    expect(lastFrame()).toContain("OpenAI Codex")
+    stdin.write("codex") // filter to the Codex provider
+    await flush()
+    stdin.write("\r")
+    await flush()
+    expect(c.getState().activeModel).toMatchObject({
+      provider: "openai-codex",
+      modelId: "gpt-5.5",
+    })
+  })
+
+  test("/model picking a single-provider model skips the provider step", async () => {
+    const c = makeMultiProviderCtrl()
+    const { stdin, lastFrame } = render(<App controller={c} />)
+    stdin.write("/model ")
+    await flush()
+    stdin.write("\r")
+    await flush()
+    stdin.write("luna") // gpt-5.6-luna is OpenAI-only
+    await flush()
+    stdin.write("\r")
+    await flush()
+    expect(lastFrame()).not.toContain("Select a provider")
+    expect(c.getState().activeModel).toMatchObject({
+      provider: "openai",
+      modelId: "gpt-5.6-luna",
+    })
+  })
+
   test("/variants with no args opens the variant picker for the active model", async () => {
     const { stdin, lastFrame } = render(<App controller={makeCtrl()} />)
     stdin.write("/variants ")
