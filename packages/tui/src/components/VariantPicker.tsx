@@ -25,18 +25,18 @@ export const VariantPicker = ({
   width,
 }: VariantPickerProps) => {
   const [query, setQuery] = useState("")
-  const recommended = variants.find((v) => v.default === true)?.id
+  const defaultId = variants.find((v) => v.default === true)?.id
   const items: ReadonlyArray<ListSelectItem<string>> = [
     ...variants.map((variant) => ({
       value: variant.id,
       label: variant.label,
-      ...(variant.default === true && { description: "recommended" }),
+      ...(variant.default === true && { description: "default" }),
     })),
     { value: NONE, label: "none", description: "no reasoning override" },
   ]
-  // Start the cursor on the current variant, else the recommended default, so
-  // Enter picks the sensible choice rather than the first (lowest) effort.
-  const startValue = current ?? recommended ?? NONE
+  // Start the cursor on the current variant, else the default, so Enter picks
+  // the sensible choice rather than the first (lowest) effort.
+  const startValue = current ?? defaultId ?? NONE
   const initialIndex = Math.max(
     0,
     items.findIndex((item) => item.value === startValue),
@@ -45,7 +45,7 @@ export const VariantPicker = ({
     <ListSelect
       title={title}
       items={items}
-      selected={current ?? recommended ?? NONE}
+      selected={current ?? defaultId ?? NONE}
       initialIndex={initialIndex}
       query={query}
       onQueryChange={setQuery}

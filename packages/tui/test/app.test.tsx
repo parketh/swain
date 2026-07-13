@@ -814,7 +814,7 @@ describe("App", () => {
     stdin.write("\r") // pick provider → third step (variant)
     await flush()
     expect(lastFrame()).toContain("Select a variant for gpt-5.5")
-    stdin.write("\r") // pick the recommended variant → commit
+    stdin.write("\r") // pick the default variant → commit
     await flush()
     expect(c.getState().activeModel).toMatchObject({
       provider: "openai-codex",
@@ -877,7 +877,7 @@ describe("App", () => {
     await flush()
     expect(lastFrame()).not.toContain("Select a provider")
     expect(lastFrame()).toContain("Select a variant for gpt-5.6-luna")
-    stdin.write("\r") // pick the recommended variant → commit
+    stdin.write("\r") // pick the default variant → commit
     await flush()
     expect(c.getState().activeModel).toMatchObject({
       provider: "openai",
@@ -893,7 +893,7 @@ describe("App", () => {
     stdin.write("\r")
     await flush()
     expect(lastFrame()).toContain("Select a variant")
-    expect(lastFrame()).toContain("recommended")
+    expect(lastFrame()).toContain("default")
     expect(lastFrame()).toContain("extra")
   })
 

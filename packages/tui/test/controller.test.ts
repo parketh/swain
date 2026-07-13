@@ -167,7 +167,7 @@ describe("controller", () => {
     })
   })
 
-  test("/model with no variant applies the recommended default", async () => {
+  test("/model with no variant applies the default variant", async () => {
     const llm = scripted([textTurn("ok")])
     const c = build(llm)
     await c.executeCommand({ type: "command", name: "model", args: "anthropic claude-opus-4-8" })
