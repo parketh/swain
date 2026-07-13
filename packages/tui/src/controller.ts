@@ -18,6 +18,7 @@ import {
   type PermissionMode,
   pendingParentNotifications,
   readPersistedModelRef,
+  recordInterruption,
   recordModelTransition,
   removeTaskWorktrees,
   resetDanglingTasks,
@@ -71,7 +72,10 @@ export interface RequestOptions {
 export interface TuiState {
   readonly session: SessionState
   readonly permissionMode: PermissionMode
+  /** Global default model (config); seeds new sessions and drives the "connect a provider" check. */
   readonly activeModel: ActiveModel
+  /** The conversation's current model, which can diverge from `activeModel` after a router switch. */
+  readonly currentModel: ActiveModel
   readonly connectableProviders: ReadonlyArray<ProviderOption>
   readonly availableModels: ReadonlyArray<ModelOption>
   readonly routerStatus: RouterStatus
@@ -198,12 +202,12 @@ export interface Controller {
   ensureSummaries(): Promise<void>
   interrupt(): void
   /**
-   * Cancels the running turn and retracts it: the in-flight prompt and any
-   * partial assistant/tool messages are removed from the session, and the
-   * original prompt text is returned so the UI can restore it for editing.
-   * Resolves to `undefined` when nothing was running.
+   * Cancels the running turn but preserves it (like Claude Code): the partial
+   * assistant text (`partialText`) is committed, any orphan tool calls are
+   * answered, and an interrupt marker is appended. Tasks the turn created are
+   * kept. No-op when nothing is running.
    */
-  cancelTurn(): Promise<string | undefined>
+  cancelTurn(partialText?: string): Promise<void>
   dispose(): void
 }
 
@@ -216,7 +220,19 @@ export const makeController = (deps: ControllerDeps): Controller => {
   const persist = deps.persist ?? true
 
   let session = deps.session
+  // Global default model, used to seed new sessions and persisted to config.
+  // The conversation's *current* model can diverge from this after a router
+  // SwitchModel, so display/usage read `currentModel()` (the live session ref)
+  // rather than this variable.
   let activeModel = deps.activeModel
+  const currentModel = (): ActiveModel => {
+    const ref = session.systemContext.modelRef
+    return {
+      provider: ref.provider,
+      modelId: ref.modelId,
+      ...(ref.variant !== undefined && { variant: ref.variant }),
+    }
+  }
   let config = deps.config
   let requestOptions: RequestOptions = deps.requestOptions ?? {}
   let history = deps.history ?? []
@@ -621,9 +637,6 @@ export const makeController = (deps: ControllerDeps): Controller => {
 
   let currentAbort: AbortController | undefined
   let currentFiber: Fiber.RuntimeFiber<void, unknown> | undefined
-  // Snapshot of `session.messages.length` before the running prompt was pushed,
-  // plus the prompt text, so a cancel can retract the turn and restore the text.
-  let pendingPrompt: { readonly text: string; readonly retractAt: number } | undefined
 
   const runTurnNow = async (): Promise<void> => {
     const env = await ensureSessionEnv()
@@ -649,6 +662,9 @@ export const makeController = (deps: ControllerDeps): Controller => {
           ) {
             void refreshTasks()
           }
+          // A router SwitchModel changes the current model mid-turn; refresh so
+          // the status line reflects the new target immediately.
+          if (event.type === "model-switch") notify()
         }),
       // Request options now travel through session.systemContext.requestOptions,
       // so a mid-turn SwitchModel can replace them. The router context is passed
@@ -734,12 +750,9 @@ export const makeController = (deps: ControllerDeps): Controller => {
   }
 
   const submitPrompt = async (text: string): Promise<void> => {
-    const retractAt = session.messages.length
     coreSubmitPrompt(session, text)
-    pendingPrompt = { text, retractAt }
     notify()
     await runTurnNow()
-    pendingPrompt = undefined
   }
 
   const clearConversation = (): void => {
@@ -817,13 +830,14 @@ export const makeController = (deps: ControllerDeps): Controller => {
       session,
       permissionMode: session.systemContext.permissionMode,
       activeModel,
+      currentModel: currentModel(),
       connectableProviders: connectableCache,
       availableModels: availableCache,
       routerStatus: routerStatus(config),
       running,
     }),
     getRequestOptions: () => requestOptions,
-    getUsage: () => usageSnapshot(session, activeModel),
+    getUsage: () => usageSnapshot(session, currentModel()),
     getTasks: () => currentTasks,
     getSubagents: () => currentSubagents,
     getHistory: () => history,
@@ -992,18 +1006,18 @@ export const makeController = (deps: ControllerDeps): Controller => {
       if (currentFiber !== undefined) runtime.runFork(Fiber.interrupt(currentFiber))
     },
 
-    cancelTurn: async () => {
-      if (!running) return undefined
-      const pending = pendingPrompt
+    cancelTurn: async (partialText?: string) => {
+      if (!running) return
       const fiber = currentFiber
       currentAbort?.abort()
-      // Await full interruption before truncating so the loop can't push more
-      // messages past the retract point after we've cut it.
+      // Await full interruption before repairing history so the loop can't push
+      // more messages after we've recorded the interruption.
       if (fiber !== undefined) await runtime.runPromise(Fiber.interrupt(fiber))
-      if (pending === undefined) return undefined
-      session.messages.length = pending.retractAt
+      // Preserve the interrupted turn (and any tasks it created), like Claude
+      // Code: keep the partial output and append an interrupt marker rather than
+      // retracting the turn.
+      recordInterruption(session, partialText)
       notify()
-      return pending.text
     },
 
     dispose: () => {
