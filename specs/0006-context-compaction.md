@@ -525,3 +525,17 @@ bun test packages/tui/test
 - UI for browsing persisted tool-result files.
 - Post-compaction fresh reread of recently accessed files, capped by file count and token budget.
 - Session cleanup for old `tool-results/` artifacts.
+
+## Post-Implementation Changes
+
+Deviations from the plan made during implementation, and why:
+
+- **Overflow error reason.** Reused the existing `context-length-exceeded` `LLMErrorReason` instead of adding a new `context-overflow`; the plan wrote `context-overflow` only "for example".
+- **Overflow normalization site.** Centralized in `packages/llms/src/transport/http.ts` (`isContextOverflow` matches the HTTP 400 error body), which covers every provider since all overflow responses arrive as a 400 through `Http.streamSseJson`. Also handled the Anthropic in-stream `invalid_request_error` path. The OpenAI Chat/Codex in-stream error paths were left unchanged because their overflow surfaces as an HTTP 400, already normalized.
+- **Model limits location.** Instead of a `limits` field on each per-model `ModelSpec`, placeholder limits live in one auditable `LIMITS` map in `packages/tui/src/models.ts`, keyed by model id and attached to the built `Model` in `resolveModelSelection`. This keeps every serving provider of a shared model on one entry and is easier to audit/update.
+- **`ModelLimits` already existed.** `packages/llms/src/schema/options.ts` already carried `ModelLimits`/`Model.limits`, so no llms schema change was needed for context windows — only population in the TUI catalog.
+- **Token counter.** `estimateJson` uses `length/2` (dense JSON). The plan's separate `length/4` JSON fallback was not exposed as a distinct method; `estimateText` (`length/4`) covers prose.
+- **Summary request shape.** The six-section template lives in the summary system prompt and the prefix messages are sent as-is (ending on a user message); no extra instruction message is appended, preserving provider role alternation.
+- **Context accounting persistence.** `contextUsage` is intentionally not persisted; on resume it is `undefined`, so accounting re-estimates the full current history (permitted by the plan).
+- **Token counter built before Task 2.** `token-counter.ts` and the model-window helpers in `accounting.ts` were created as part of the Task 5 tracer slice because full compaction depends on them; the remaining accounting helpers landed in Task 2.
+- **Independent tool-result body clearing (Task 4)** remains deferred as planned; task numbering skips 4.
