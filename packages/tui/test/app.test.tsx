@@ -916,7 +916,7 @@ describe("App", () => {
     expect(frame).toContain("Press Ctrl+C again to exit")
   })
 
-  test("Esc cancels a loading turn and restores the prompt for editing", async () => {
+  test("Esc interrupts a loading turn but preserves it with an interrupt marker", async () => {
     const hanging = Layer.succeed(LLMClient.Service, {
       request: LLMClient.request,
       streamTurn: () => Stream.never,
@@ -943,11 +943,17 @@ describe("App", () => {
     await flush()
     expect(c.getState().running).toBe(true)
     expect(c.getState().session.messages).toHaveLength(1) // user prompt pushed
-    stdin.write("\x1b") // Esc cancels the loading turn
+    stdin.write("\x1b") // Esc interrupts the loading turn
     await flush()
     await flush()
     expect(c.getState().running).toBe(false)
-    expect(c.getState().session.messages).toHaveLength(0) // turn retracted
-    expect(clean(lastFrame())).toContain("hello there") // prompt restored to editor
+    // The turn is preserved: the user prompt stays and an interrupt marker is appended.
+    const messages = c.getState().session.messages
+    expect(messages).toHaveLength(2)
+    expect(messages[1]).toEqual({
+      role: "assistant",
+      content: [{ type: "text", text: "[Request interrupted by user]" }],
+    })
+    expect(clean(lastFrame())).toContain("Request interrupted by user")
   })
 })

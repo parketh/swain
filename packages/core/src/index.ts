@@ -1,4 +1,12 @@
-export { type AgentEvent, type RunTurnOptions, runTurn, submitPrompt } from "./agent"
+export {
+  type AgentEvent,
+  INTERRUPT_MESSAGE,
+  INTERRUPT_MESSAGE_FOR_TOOL_USE,
+  type RunTurnOptions,
+  recordInterruption,
+  runTurn,
+  submitPrompt,
+} from "./agent"
 export { AgentError, ToolError, type ToolErrorReason } from "./errors"
 export {
   ModelResolveError,
