@@ -17,12 +17,12 @@ import {
 import {
   Anthropic as AnthropicProvider,
   DeepSeek as DeepSeekProvider,
-  OpenAICodex as OpenAICodexProvider,
   OpenAI as OpenAIProvider,
   Pollinations,
   ZAI as ZAIProvider,
 } from "@swain/llms/providers"
 import { Data } from "effect"
+import { buildCodexModel } from "./codex-auth"
 import type { ProviderConfig, TuiConfig } from "./config"
 import { redactKey } from "./config"
 
@@ -342,25 +342,10 @@ const CATALOG: ReadonlyArray<ProviderSpec> = [
         label: "GPT-5.6 Terra",
         variants: codexVariants(OpenAIModel.GPT_5_6_Terra),
       },
-      {
-        id: OpenAIModel.GPT_5_6_Luna,
-        lab: Lab.OpenAI,
-        label: "GPT-5.6 Luna",
-        variants: codexVariants(OpenAIModel.GPT_5_6_Luna),
-      },
+      // GPT-5.6 Luna is API-only: the ChatGPT-account Codex backend rejects it
+      // ("not supported when using Codex with a ChatGPT account")
     ],
-    build: (modelId, creds) =>
-      OpenAICodexProvider.configure({
-        ...(creds?.accessToken !== undefined
-          ? {
-              credentialResolver: () => ({
-                accessToken: creds.accessToken!,
-                ...(creds.accountId !== undefined && { accountId: creds.accountId }),
-              }),
-            }
-          : {}),
-        ...(creds?.baseURL !== undefined && { baseURL: creds.baseURL }),
-      }).model(modelId),
+    build: (modelId, creds) => buildCodexModel(modelId, creds),
   },
 ]
 
