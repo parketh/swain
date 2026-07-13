@@ -1,8 +1,9 @@
 import type { Model, ProviderOptions } from "../schema"
+import { Provider } from "../schema"
 import type { OpenAICompatibleFacade } from "./openai-compatible"
 import { OpenAICompatible } from "./openai-compatible"
 
-export const OPENAI_PROVIDER_ID = "openai"
+export const OPENAI_PROVIDER_ID = Provider.OpenAI
 export const OPENAI_BASE_URL = "https://api.openai.com/v1"
 
 /** OpenAI-specific request options; sampling knobs apply only to models that accept them. */

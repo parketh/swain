@@ -187,6 +187,22 @@ describe("tool registry and caller", () => {
     expect(llmTool.outputSchema?.type).toBe("object")
   })
 
+  test("toLLMTool gives a zero-arg tool a valid object parameters schema", () => {
+    // Schema.Struct({}) alone compiles to a typeless anyOf, which strict
+    // function-calling APIs (OpenAI Responses/Codex) reject.
+    const noArg = defineTool({
+      name: "NoArg",
+      description: "takes nothing",
+      inputSchema: Schema.Struct({}),
+      outputSchema: Schema.Struct({ ok: Schema.Boolean }),
+      readOnly: true,
+      call: () => Effect.succeed({ ok: true }),
+    })
+    const llmTool = toLLMTool(noArg)
+    expect(llmTool.inputSchema.type).toBe("object")
+    expect(llmTool.inputSchema).not.toHaveProperty("anyOf")
+  })
+
   test("valid call returns output as a ToolResultContent", async () => {
     const result = await runCall(toolCall("Doubler", { value: 21 }), [doubler])
     expect(result.type).toBe("tool-result")

@@ -35,7 +35,7 @@ const LEFT = "[D"
 const SHIFT_TAB = "[Z"
 
 const testModel: Model = {
-  id: ModelId.make("claude-sonnet-5"),
+  id: ModelId.make("claude-opus-4-8"),
   provider: ProviderId.make("anthropic"),
   streamTurn: () => Stream.empty,
 }
@@ -505,7 +505,7 @@ describe("App", () => {
     })
     controller = makeController({
       session,
-      activeModel: { provider: "anthropic", modelId: "claude-sonnet-5" },
+      activeModel: { provider: "anthropic", modelId: "claude-opus-4-8" },
       config,
       configPath: join(dir, "config.json"),
       llmLayer: scripted(turns),
@@ -541,7 +541,7 @@ describe("App", () => {
     )
     const c = makeController({
       session,
-      activeModel: { provider: "anthropic", modelId: "claude-sonnet-5" },
+      activeModel: { provider: "anthropic", modelId: "claude-opus-4-8" },
       config,
       configPath: join(dir, "config.json"),
       llmLayer: scripted([[]]),
@@ -556,9 +556,26 @@ describe("App", () => {
 
   test("renders the status line and an empty prompt", () => {
     const { lastFrame } = render(<App controller={makeCtrl()} />)
-    expect(lastFrame()).toContain("claude-sonnet-5")
+    expect(lastFrame()).toContain("claude-opus-4-8")
     expect(lastFrame()).toContain("ask")
     expect(lastFrame()).toContain("type a prompt")
+  })
+
+  test("a turn error stays visible after the turn ends", async () => {
+    const turn: ReadonlyArray<LLMEvent> = [
+      { type: "provider-error", message: "boom-visible" },
+      { type: "finish", reason: "stop", usage: { inputTokens: 0, outputTokens: 0 } },
+    ]
+    const { stdin, lastFrame } = render(<App controller={makeCtrl([turn])} />)
+    await flush()
+    stdin.write("hello")
+    await flush()
+    stdin.write("\r")
+    await flush()
+    await flush()
+    // The error is never committed to session.messages, so it must survive the
+    // post-turn draft clear rather than flashing and vanishing.
+    expect(clean(lastFrame() ?? "")).toContain("boom-visible")
   })
 
   test("typing /he shows /help and highlights the command token", async () => {
@@ -742,7 +759,7 @@ describe("App", () => {
     stdin.write("\r")
     await flush()
     expect(lastFrame()).toContain("Select a model")
-    expect(lastFrame()).toContain("claude-sonnet-5")
+    expect(lastFrame()).toContain("claude-opus-4-8")
   })
 
   test("/variants with no args opens the variant picker for the active model", async () => {
@@ -753,7 +770,22 @@ describe("App", () => {
     await flush()
     expect(lastFrame()).toContain("Select a variant")
     expect(lastFrame()).toContain("default")
-    expect(lastFrame()).toContain("extended thinking")
+    expect(lastFrame()).toContain("extra")
+  })
+
+  test("the status line shows the router state", () => {
+    const { lastFrame } = render(<App controller={makeCtrl()} />)
+    expect(clean(lastFrame())).toContain("router off")
+  })
+
+  test("/router opens the router dialog with bracketed enabled variants", async () => {
+    const { stdin, lastFrame } = render(<App controller={makeCtrl()} />)
+    stdin.write("/router ")
+    await flush()
+    stdin.write("\r")
+    await flush()
+    expect(clean(lastFrame())).toContain("Router configuration")
+    expect(clean(lastFrame())).toContain("[low, medium, high")
   })
 
   test("/connect opens a provider picker with every static provider", async () => {
@@ -867,12 +899,10 @@ describe("App", () => {
     stdin.write("\r") // save credentials → auto-advance to the model picker
     await flush()
     expect(clean(lastFrame())).toContain("Select a model")
-    stdin.write("\x1b[B") // move to claude-sonnet-5, which offers a variant
-    await flush()
-    stdin.write("\r") // select it → auto-advance to the variant picker
+    stdin.write("\r") // select claude-opus-4-8 (offers variants) → variant picker
     await flush()
     expect(clean(lastFrame())).toContain("Select a variant")
-    expect(clean(lastFrame())).toContain("extended thinking")
+    expect(clean(lastFrame())).toContain("extra")
   })
 
   test("Ctrl+C clears the input and arms exit instead of exiting on the first press", async () => {
@@ -886,7 +916,7 @@ describe("App", () => {
     expect(frame).toContain("Press Ctrl+C again to exit")
   })
 
-  test("Esc cancels a loading turn and restores the prompt for editing", async () => {
+  test("Esc interrupts a loading turn but preserves it with an interrupt marker", async () => {
     const hanging = Layer.succeed(LLMClient.Service, {
       request: LLMClient.request,
       streamTurn: () => Stream.never,
@@ -899,7 +929,7 @@ describe("App", () => {
         permissionMode: "ask",
         currentDate: "2026-07-05",
       }),
-      activeModel: { provider: "anthropic", modelId: "claude-sonnet-5" },
+      activeModel: { provider: "anthropic", modelId: "claude-opus-4-8" },
       config,
       configPath: join(dir, "config.json"),
       llmLayer: hanging,
@@ -913,11 +943,17 @@ describe("App", () => {
     await flush()
     expect(c.getState().running).toBe(true)
     expect(c.getState().session.messages).toHaveLength(1) // user prompt pushed
-    stdin.write("\x1b") // Esc cancels the loading turn
+    stdin.write("\x1b") // Esc interrupts the loading turn
     await flush()
     await flush()
     expect(c.getState().running).toBe(false)
-    expect(c.getState().session.messages).toHaveLength(0) // turn retracted
-    expect(clean(lastFrame())).toContain("hello there") // prompt restored to editor
+    // The turn is preserved: the user prompt stays and an interrupt marker is appended.
+    const messages = c.getState().session.messages
+    expect(messages).toHaveLength(2)
+    expect(messages[1]).toEqual({
+      role: "assistant",
+      content: [{ type: "text", text: "[Request interrupted by user]" }],
+    })
+    expect(clean(lastFrame())).toContain("Request interrupted by user")
   })
 })

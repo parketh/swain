@@ -1,14 +1,19 @@
 import type { Model, ProviderOptions } from "../schema"
+import { Provider } from "../schema"
 import type { OpenAICompatibleFacade } from "./openai-compatible"
 import { OpenAICompatible } from "./openai-compatible"
 
-export const DEEPSEEK_PROVIDER_ID = "deepseek"
+export const DEEPSEEK_PROVIDER_ID = Provider.DeepSeek
 export const DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 
 /** DeepSeek documents `temperature`/`top_p`; it does not document `seed`. */
 export interface DeepSeekOptions {
   readonly temperature?: number
   readonly topP?: number
+  /** Enable reasoning; DeepSeek silently ignores sampling params while reasoning. */
+  readonly thinking?: boolean
+  /** Reasoning depth; only `high` and `max` are distinct (lower clamps to `high`). */
+  readonly reasoningEffort?: "high" | "max"
 }
 
 export interface DeepSeekConfig {

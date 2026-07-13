@@ -64,6 +64,23 @@ export class ToolProgress extends Context.Tag("@swain/core/ToolProgress")<
 >() {}
 
 /**
+ * JSON Schema for a tool's `parameters`. A zero-arg tool (`Schema.Struct({})`)
+ * compiles to a typeless `anyOf`, which strict function-calling APIs (the OpenAI
+ * Responses/Codex endpoint) reject — `parameters` must be `type: "object"`.
+ * Coerce any non-object result to the canonical empty object schema.
+ */
+const parametersSchema = (schema: AnyTool["inputSchema"]): JsonSchemaObject => {
+  const json = JSONSchema.make(schema) as unknown as Record<string, unknown>
+  return (json.type === "object"
+    ? json
+    : {
+        type: "object",
+        properties: {},
+        additionalProperties: false,
+      }) as unknown as JsonSchemaObject
+}
+
+/**
  * Adapts a callable core `Tool` into a non-callable `@swain/llms` tool
  * definition, deriving JSON Schema for the model-facing invocation contract.
  */
@@ -71,7 +88,7 @@ export const toLLMTool = (tool: AnyTool): LLMTool =>
   LLMTool.define({
     name: tool.name,
     description: tool.description,
-    inputSchema: JSONSchema.make(tool.inputSchema) as unknown as JsonSchemaObject,
+    inputSchema: parametersSchema(tool.inputSchema),
     outputSchema: JSONSchema.make(tool.outputSchema) as unknown as JsonSchemaObject,
   })
 

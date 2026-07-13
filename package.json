@@ -8,6 +8,7 @@
     "typecheck": "bun run --cwd packages/llms typecheck && bun run --cwd packages/core typecheck && bun run --cwd packages/tui typecheck",
     "format": "bun run --cwd packages/llms format && bun run --cwd packages/core format && bun run --cwd packages/tui format",
     "format:check": "bun run --cwd packages/llms format:check && bun run --cwd packages/core format:check && bun run --cwd packages/tui format:check",
-    "test": "bun test packages/llms/test packages/core/test packages/tui/test"
+    "test": "bun test packages/llms/test packages/core/test packages/tui/test --path-ignore-patterns='**/live/**'",
+    "test:live": "bun test packages/tui/test/live"
   }
 }

@@ -95,6 +95,24 @@ describe("message constructors", () => {
     expect(message.content).toEqual([result])
     expect(Either.isRight(Schema.decodeUnknownEither(Message)(message))).toBe(true)
   })
+
+  test("a meta model-switch user message round-trips through decode", () => {
+    const message = Message.user(
+      [
+        {
+          type: "model-switch",
+          from: { provider: "anthropic", modelId: "claude-opus-4-8", variant: "high" },
+          to: { provider: "deepseek", modelId: "deepseek-v4-pro", variant: "max" },
+          reason: "escalating for a correctness-sensitive step",
+          requestedBy: "router",
+        },
+      ],
+      true,
+    )
+    expect(message.isMeta).toBe(true)
+    const decoded = Schema.decodeUnknownEither(Message)(JSON.parse(JSON.stringify(message)))
+    expect(Either.isRight(decoded)).toBe(true)
+  })
 })
 
 describe("tools", () => {

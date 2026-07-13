@@ -13,7 +13,7 @@ import type {
   ToolResultContent,
   UserMessage,
 } from "../schema"
-import { ContentId, LLMError, ToolCallId } from "../schema"
+import { ContentId, LLMError, renderModelSwitch, ToolCallId } from "../schema"
 import type { ToolInputAssembler } from "./tool-input"
 import { ToolInput } from "./tool-input"
 
@@ -37,15 +37,31 @@ export interface AnthropicMessagesConfig {
   readonly defaultMaxTokens?: number
 }
 
+/** Adaptive-thinking effort ladder for models that support it (Opus 4.8, Sonnet 5). */
+export type AnthropicEffort = "low" | "medium" | "high" | "xhigh" | "max"
+
+/**
+ * Adaptive extended thinking. `type` is always `"adaptive"` (manual budget-token
+ * thinking is rejected by these models). `effort` is a soft guidance level;
+ * `display` selects how much of the thinking is surfaced.
+ */
+export interface AnthropicThinking {
+  readonly type: "adaptive"
+  readonly effort?: AnthropicEffort
+  readonly display?: "concise" | "detailed"
+}
+
 /**
  * Anthropic-specific request options read from `providerOptions.anthropic`.
- * Sampling support varies by model; current Claude models reject `temperature`
- * combined with `topP`.
+ * Sampling support varies by model; adaptive-thinking models (Opus 4.8,
+ * Sonnet 5) reject any non-default `temperature`/`topP`/`topK`, so those are
+ * dropped whenever `thinking` is present.
  */
 export interface AnthropicOptions {
   readonly temperature?: number
   readonly topP?: number
   readonly topK?: number
+  readonly thinking?: AnthropicThinking
   /**
    * Enable prompt caching via `cache_control: { type: "ephemeral" }` breakpoints
    * on the tools, system prompt, and the final message. Defaults to `true`;
@@ -113,6 +129,8 @@ const lowerUserMessage = (message: UserMessage): Record<string, unknown> => {
   for (const block of message.content) {
     if (block.type === "tool-result") {
       toolResults.push(lowerToolResult(block))
+    } else if (block.type === "model-switch") {
+      texts.push({ type: "text", text: renderModelSwitch(block) })
     } else {
       texts.push({ type: "text", text: block.text })
     }
@@ -191,6 +209,17 @@ const prepare = (
 ): Effect.Effect<PreparedAnthropicRequest, LLMError> => {
   const options = (request.providerOptions?.anthropic ?? {}) as AnthropicOptions
   const caching = options.caching !== false
+  const thinking = options.thinking
+  // Adaptive-thinking models reject non-default sampling params on every
+  // request, so drop them whenever thinking is enabled.
+  const sampling =
+    thinking !== undefined
+      ? {}
+      : {
+          ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
+          ...(options.topP !== undefined ? { top_p: options.topP } : {}),
+          ...(options.topK !== undefined ? { top_k: options.topK } : {}),
+        }
   return lowerMessages(request.messages).pipe(
     Effect.map((lowered) => {
       const messages = caching ? markLastMessage(lowered) : lowered
@@ -230,9 +259,18 @@ const prepare = (
           ...(request.generation?.stop !== undefined
             ? { stop_sequences: [...request.generation.stop] }
             : {}),
-          ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
-          ...(options.topP !== undefined ? { top_p: options.topP } : {}),
-          ...(options.topK !== undefined ? { top_k: options.topK } : {}),
+          ...(thinking !== undefined
+            ? {
+                thinking: {
+                  type: thinking.type,
+                  ...(thinking.display !== undefined ? { display: thinking.display } : {}),
+                },
+                ...(thinking.effort !== undefined
+                  ? { output_config: { effort: thinking.effort } }
+                  : {}),
+              }
+            : {}),
+          ...sampling,
         },
       }
     }),

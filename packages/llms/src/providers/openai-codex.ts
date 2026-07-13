@@ -1,13 +1,21 @@
+import type { HttpClient } from "@effect/platform"
 import { Effect, Stream } from "effect"
 import type { OpenAICodexOptions, OpenAICodexRequest } from "../protocols"
 import { OpenAICodexResponses } from "../protocols"
 import type { LLMRequest, Model, ProviderOptions } from "../schema"
-import { LLMError, ModelId, ProviderId } from "../schema"
+import { LLMError, ModelId, Provider, ProviderId } from "../schema"
 import { Auth, Http } from "../transport"
 
-export const OPENAI_CODEX_PROVIDER_ID = "openai-codex"
+export const OPENAI_CODEX_PROVIDER_ID = Provider.OpenAICodex
 export const OPENAI_CODEX_BASE_URL = "https://chatgpt.com/backend-api"
 export const OPENAI_CODEX_TOKEN_ENV = "OPENAI_CODEX_ACCESS_TOKEN"
+
+/** OAuth client id shared with the ChatGPT/Codex CLI; required by the token endpoint. */
+export const OPENAI_CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
+export const OPENAI_CODEX_TOKEN_URL = "https://auth.openai.com/oauth/token"
+
+/** Refresh once the access token is within this margin of its `exp`. */
+const REFRESH_SKEW_MS = 60_000
 
 /** JWT payload claim carrying the ChatGPT account id. */
 const ACCOUNT_CLAIM = "https://api.openai.com/auth"
@@ -16,7 +24,16 @@ export type { OpenAICodexOptions }
 
 export interface OpenAICodexCredentials {
   readonly accessToken: string
+  /** OAuth refresh token; when present, an expired access token is refreshed automatically. */
+  readonly refreshToken?: string
   /** Derived from the token's `chatgpt_account_id` claim when omitted. */
+  readonly accountId?: string
+}
+
+/** New credentials handed back to the caller after an automatic refresh, so it can persist them. */
+export interface RefreshedCodexCredentials {
+  readonly accessToken: string
+  readonly refreshToken: string
   readonly accountId?: string
 }
 
@@ -27,6 +44,12 @@ export type OpenAICodexCredentialResolver =
 export interface OpenAICodexProviderConfig {
   /** Returns reusable ChatGPT/Codex subscription credentials; resolved lazily per turn. */
   readonly credentialResolver?: OpenAICodexCredentialResolver
+  /**
+   * Called after an expired access token is refreshed, with the rotated
+   * credentials, so the caller can persist them. Persistence errors are ignored
+   * (they never fail the turn).
+   */
+  readonly onCredentialsRefreshed?: (credentials: RefreshedCodexCredentials) => void | Promise<void>
   readonly baseURL?: string
   readonly headers?: Record<string, string>
   readonly originator?: string
@@ -59,6 +82,58 @@ const accountIdFromToken = (token: string): string | undefined => {
     return undefined
   }
 }
+
+/** Absolute expiry (epoch ms) from the token's `exp` claim, or `undefined` if unreadable. */
+const expiryMsFromToken = (token: string): number | undefined => {
+  const payload = token.split(".")[1]
+  if (payload === undefined || payload === "") return undefined
+  try {
+    const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as {
+      exp?: unknown
+    }
+    return typeof claims.exp === "number" ? claims.exp * 1000 : undefined
+  } catch {
+    return undefined
+  }
+}
+
+interface TokenResponse {
+  readonly access_token?: unknown
+  readonly refresh_token?: unknown
+  readonly id_token?: unknown
+}
+
+/** Exchanges a refresh token for a fresh access token via the OpenAI OAuth endpoint. */
+const refreshAccessToken = (
+  refreshToken: string,
+): Effect.Effect<RefreshedCodexCredentials, LLMError, HttpClient.HttpClient> =>
+  Http.postForm({
+    url: OPENAI_CODEX_TOKEN_URL,
+    form: {
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+      client_id: OPENAI_CODEX_CLIENT_ID,
+    },
+  }).pipe(
+    Effect.flatMap((json) => {
+      const tokens = json as TokenResponse
+      const accessToken = tokens.access_token
+      if (typeof accessToken !== "string" || accessToken === "") {
+        return Effect.fail(authFailed("token refresh response is missing access_token"))
+      }
+      const nextRefresh =
+        typeof tokens.refresh_token === "string" && tokens.refresh_token !== ""
+          ? tokens.refresh_token
+          : refreshToken
+      const idToken = typeof tokens.id_token === "string" ? tokens.id_token : accessToken
+      const accountId = accountIdFromToken(idToken) ?? accountIdFromToken(accessToken)
+      return Effect.succeed({
+        accessToken,
+        refreshToken: nextRefresh,
+        ...(accountId !== undefined && { accountId }),
+      })
+    }),
+  )
 
 interface ResolvedCredentials {
   readonly accessToken: string
@@ -93,20 +168,46 @@ const envCredentials = (): Effect.Effect<OpenAICodexCredentials, LLMError> =>
     return Effect.succeed({ accessToken: token })
   })
 
-const resolveCredentials = (
+const rawCredentials = (
   resolver: OpenAICodexCredentialResolver | undefined,
-): Effect.Effect<ResolvedCredentials, LLMError> => {
-  const raw =
-    resolver === undefined
-      ? envCredentials()
-      : Effect.isEffect(resolver)
-        ? resolver
-        : Effect.tryPromise({
-            try: async () => await resolver(),
-            catch: (cause) => authFailed(`credential resolver failed: ${String(cause)}`),
-          })
-  return Effect.flatMap(raw, normalizeCredentials)
-}
+): Effect.Effect<OpenAICodexCredentials, LLMError> =>
+  resolver === undefined
+    ? envCredentials()
+    : Effect.isEffect(resolver)
+      ? resolver
+      : Effect.tryPromise({
+          try: async () => await resolver(),
+          catch: (cause) => authFailed(`credential resolver failed: ${String(cause)}`),
+        })
+
+/**
+ * Resolves credentials for a turn, refreshing the access token first when it is
+ * expired (or within the skew margin) and a refresh token is available. Rotated
+ * credentials are handed to `onCredentialsRefreshed` for persistence.
+ */
+const resolveCredentials = (
+  config: OpenAICodexProviderConfig,
+): Effect.Effect<ResolvedCredentials, LLMError, HttpClient.HttpClient> =>
+  Effect.gen(function* () {
+    const raw = yield* rawCredentials(config.credentialResolver)
+    const expiry = expiryMsFromToken(raw.accessToken)
+    const stale = expiry !== undefined && expiry <= Date.now() + REFRESH_SKEW_MS
+    if (raw.refreshToken === undefined || !stale) {
+      return yield* normalizeCredentials(raw)
+    }
+    const refreshed = yield* refreshAccessToken(raw.refreshToken)
+    if (config.onCredentialsRefreshed !== undefined) {
+      const persist = config.onCredentialsRefreshed
+      yield* Effect.promise(async () => {
+        try {
+          await persist(refreshed)
+        } catch {
+          // Persistence is best-effort; a write failure must not fail the turn.
+        }
+      })
+    }
+    return yield* normalizeCredentials(refreshed)
+  })
 
 const toProtocolRequest = (modelId: string, request: LLMRequest): OpenAICodexRequest => ({
   modelId,
@@ -136,7 +237,7 @@ const configure = (config: OpenAICodexProviderConfig = {}): OpenAICodexFacade =>
       streamTurn: (request) =>
         Stream.unwrap(
           Effect.gen(function* () {
-            const credentials = yield* resolveCredentials(config.credentialResolver)
+            const credentials = yield* resolveCredentials(config)
             const prepared = OpenAICodexResponses.prepare(toProtocolRequest(modelId, request), {
               accessToken: credentials.accessToken,
               accountId: credentials.accountId,

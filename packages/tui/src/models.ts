@@ -1,20 +1,137 @@
 import type { GenerationOptions, Model, ProviderOptions } from "@swain/llms"
-import { Anthropic, DeepSeek, OpenAI, OpenAICodex, Pollinations, ZAI } from "@swain/llms/providers"
+import { Lab, Provider } from "@swain/llms"
+import {
+  AnthropicModel,
+  AnthropicModelVariants,
+  AnthropicVariant,
+  DeepSeekModel,
+  DeepSeekModelVariants,
+  DeepSeekVariant,
+  OpenAIModel,
+  OpenAIModelVariants,
+  OpenAIVariant,
+  ZAIModel,
+  ZAIModelVariants,
+  ZAIVariant,
+} from "@swain/llms/models"
+import {
+  Anthropic as AnthropicProvider,
+  DeepSeek as DeepSeekProvider,
+  OpenAI as OpenAIProvider,
+  Pollinations,
+  ZAI as ZAIProvider,
+} from "@swain/llms/providers"
 import { Data } from "effect"
+import { buildCodexModel } from "./codex-auth"
 import type { ProviderConfig, TuiConfig } from "./config"
 import { redactKey } from "./config"
 
 export type CredentialField = "apiKey" | "baseURL" | "accountId" | "accessToken"
+
+/** Router comparison signals for a single model variant. */
+export interface RoutingProfile {
+  /** Rough 0-100 capability tier; higher is better. */
+  readonly capability?: number
+  /** Weighted average cost per task in USD; higher effort ≈ higher cost. */
+  readonly avgCostPerTask?: number
+}
+
+// No published routing data for this variant. An empty profile (no capability or
+// cost) marks it "no data": the router excludes it rather than routing on
+// fabricated numbers, while it stays selectable manually via `/model`.
+const p = (): RoutingProfile => ({})
+
+// Data per Artificial Analysis (AA): https://artificialanalysis.ai
+const ROUTING: Record<string, Record<string, RoutingProfile>> = {
+  // AA does not publish Anthropic model effort-variant benchmarks, so we scale the 'Max' model
+  // score by effort-level benchmark scores (specifically Humanity's Last Exam) from Anthropic's
+  // Fable 5 System Card.
+  // https://www.anthropic.com/system-cards
+  [AnthropicModel.Claude_Opus_4_8]: {
+    [AnthropicVariant.Low]: { capability: 48.6, avgCostPerTask: 0.41 },
+    [AnthropicVariant.Medium]: { capability: 53.4, avgCostPerTask: 0.62 },
+    [AnthropicVariant.High]: { capability: 53.9, avgCostPerTask: 0.77 },
+    [AnthropicVariant.XHigh]: { capability: 55.7, avgCostPerTask: 1.43 },
+    [AnthropicVariant.Max]: { capability: 56, avgCostPerTask: 1.8 },
+  },
+  [OpenAIModel.GPT_5_5]: {
+    [OpenAIVariant.Low]: { capability: 43, avgCostPerTask: 0.19 },
+    [OpenAIVariant.Medium]: { capability: 50, avgCostPerTask: 0.34 },
+    [OpenAIVariant.High]: { capability: 53, avgCostPerTask: 0.61 },
+    [OpenAIVariant.XHigh]: { capability: 55, avgCostPerTask: 0.86 },
+  },
+  // AA does not publish benchmarks for GPT-5.5 Pro which is in any case only used through for
+  // the ChatGPT web interface and not for Codex.
+  [OpenAIModel.GPT_5_5_Pro]: {
+    [OpenAIVariant.Medium]: p(),
+    [OpenAIVariant.High]: p(),
+    [OpenAIVariant.XHigh]: p(),
+  },
+  [OpenAIModel.GPT_5_6_Sol]: {
+    [OpenAIVariant.Low]: { capability: 49, avgCostPerTask: 0.2 },
+    [OpenAIVariant.Medium]: { capability: 54, avgCostPerTask: 0.31 },
+    [OpenAIVariant.High]: { capability: 56, avgCostPerTask: 0.45 },
+    [OpenAIVariant.XHigh]: { capability: 59, avgCostPerTask: 1.04 },
+  },
+  [OpenAIModel.GPT_5_6_Terra]: {
+    [OpenAIVariant.Low]: { capability: 40, avgCostPerTask: 0.1 },
+    [OpenAIVariant.Medium]: { capability: 46, avgCostPerTask: 0.13 },
+    [OpenAIVariant.High]: { capability: 49, avgCostPerTask: 0.24 },
+    [OpenAIVariant.XHigh]: { capability: 55, avgCostPerTask: 0.55 },
+  },
+  [OpenAIModel.GPT_5_6_Luna]: {
+    [OpenAIVariant.Low]: { capability: 33, avgCostPerTask: 0.04 },
+    [OpenAIVariant.Medium]: { capability: 38, avgCostPerTask: 0.05 },
+    [OpenAIVariant.High]: { capability: 46, avgCostPerTask: 0.09 },
+    [OpenAIVariant.XHigh]: { capability: 51, avgCostPerTask: 0.21 },
+  },
+  // AA does not publish avgCostPerTask for DeepSeek High variants. Assumed same cost as Max variant
+  // given similar capability scores.
+  [DeepSeekModel.V4_Flash]: {
+    [DeepSeekVariant.High]: { capability: 37, avgCostPerTask: 0.02 },
+    [DeepSeekVariant.Max]: { capability: 40, avgCostPerTask: 0.02 },
+  },
+  [DeepSeekModel.V4_Pro]: {
+    [DeepSeekVariant.High]: { capability: 41, avgCostPerTask: 0.04 },
+    [DeepSeekVariant.Max]: { capability: 44, avgCostPerTask: 0.04 },
+  },
+  // AA does not publish data for Z.AI High variant
+  [ZAIModel.GLM_5_2]: {
+    [ZAIVariant.High]: p(),
+    [ZAIVariant.Max]: { capability: 51, avgCostPerTask: 0.37 },
+  },
+}
+
+/** Routing signals for a model variant, or `undefined` when none are recorded. */
+const routingFor = (modelId: string, variant: string): RoutingProfile | undefined =>
+  ROUTING[modelId]?.[variant]
+
+// Published list prices per 1M tokens (USD), for the usage-cost display only
+// (distinct from routing's avgCostPerTask). Standard tier.
+const PRICES: Record<string, { readonly input: number; readonly output: number }> = {
+  [AnthropicModel.Claude_Opus_4_8]: { input: 5, output: 25 },
+  [OpenAIModel.GPT_5_5]: { input: 5, output: 30 },
+  [OpenAIModel.GPT_5_5_Pro]: { input: 30, output: 180 },
+  [OpenAIModel.GPT_5_6_Sol]: { input: 5, output: 30 },
+  [OpenAIModel.GPT_5_6_Terra]: { input: 2.5, output: 15 },
+  [OpenAIModel.GPT_5_6_Luna]: { input: 1, output: 6 },
+  [DeepSeekModel.V4_Flash]: { input: 0.14, output: 0.28 },
+  [DeepSeekModel.V4_Pro]: { input: 0.44, output: 0.87 },
+  [ZAIModel.GLM_5_2]: { input: 1.4, output: 4.4 },
+}
 
 interface VariantSpec {
   readonly id: string
   readonly label: string
   readonly providerOptions?: ProviderOptions
   readonly generation?: GenerationOptions
+  readonly routing?: RoutingProfile
 }
 
 interface ModelSpec {
   readonly id: string
+  /** The lab that created this model, independent of the serving provider. */
+  readonly lab: Lab
   readonly label: string
   readonly variants: ReadonlyArray<VariantSpec>
   readonly deprecated?: boolean
@@ -29,106 +146,206 @@ interface ProviderSpec {
   readonly build: (modelId: string, creds: ProviderConfig | undefined) => Model
 }
 
-const codexEffort = (effort: "low" | "medium" | "high"): VariantSpec => ({
-  id: effort,
-  label: effort,
-  providerOptions: { openaiCodex: { reasoning: { effort } } },
-})
+const effortLabel = (effort: string): string => (effort === "xhigh" ? "extra" : effort)
+
+const withRouting = (modelId: string, effort: string, base: VariantSpec): VariantSpec => {
+  const routing = routingFor(modelId, effort)
+  return { ...base, ...(routing !== undefined && { routing }) }
+}
+
+// Anthropic adaptive-thinking variants for a model's supported effort levels.
+const anthropicVariants = (model: AnthropicModel): ReadonlyArray<VariantSpec> =>
+  AnthropicModelVariants[model].map((effort) =>
+    withRouting(model, effort, {
+      id: effort,
+      label: effortLabel(effort),
+      providerOptions: { anthropic: { thinking: { type: "adaptive", effort } } },
+    }),
+  )
+
+// OpenAI reasoning-effort variants via the chat API's `reasoning_effort`.
+const openaiVariants = (model: OpenAIModel): ReadonlyArray<VariantSpec> =>
+  OpenAIModelVariants[model].map((effort) =>
+    withRouting(model, effort, {
+      id: effort,
+      label: effortLabel(effort),
+      providerOptions: { openai: { reasoningEffort: effort } },
+    }),
+  )
+
+// The Codex provider serves the same OpenAI models via the Responses API.
+const codexVariants = (model: OpenAIModel): ReadonlyArray<VariantSpec> =>
+  OpenAIModelVariants[model].map((effort) =>
+    withRouting(model, effort, {
+      id: effort,
+      label: effortLabel(effort),
+      providerOptions: { openaiCodex: { reasoning: { effort } } },
+    }),
+  )
+
+// DeepSeek/Z.AI graded reasoning: a thinking flag plus the effort level.
+const gradedVariants = (
+  modelId: string,
+  providerKey: string,
+  efforts: ReadonlyArray<"high" | "max">,
+): ReadonlyArray<VariantSpec> =>
+  efforts.map((effort) =>
+    withRouting(modelId, effort, {
+      id: effort,
+      label: effort,
+      providerOptions: { [providerKey]: { thinking: true, reasoningEffort: effort } },
+    }),
+  )
 
 const CATALOG: ReadonlyArray<ProviderSpec> = [
   {
-    id: "anthropic",
+    id: Provider.Anthropic,
     label: "Anthropic",
     popular: true,
     requiredFields: ["apiKey"],
     models: [
-      { id: "claude-opus-4-8", label: "Claude Opus 4.8", variants: [] },
       {
-        id: "claude-sonnet-5",
-        label: "Claude Sonnet 5",
-        variants: [
-          {
-            id: "thinking",
-            label: "extended thinking",
-            providerOptions: { anthropic: { thinking: { type: "enabled", budgetTokens: 8192 } } },
-          },
-        ],
+        id: AnthropicModel.Claude_Opus_4_8,
+        lab: Lab.Anthropic,
+        label: "Claude Opus 4.8",
+        variants: anthropicVariants(AnthropicModel.Claude_Opus_4_8),
       },
     ],
     build: (modelId, creds) =>
-      Anthropic.configure({
+      AnthropicProvider.configure({
         ...(creds?.apiKey !== undefined && { apiKey: creds.apiKey }),
         ...(creds?.baseURL !== undefined && { baseURL: creds.baseURL }),
       }).model(modelId),
   },
   {
-    id: "openai",
+    id: Provider.OpenAI,
     label: "OpenAI",
     popular: true,
     requiredFields: ["apiKey"],
     models: [
-      { id: "gpt-5.5", label: "ChatGPT 5.5", variants: [] },
-      { id: "gpt-5.5-pro", label: "ChatGPT 5.5 Pro", variants: [] },
-      { id: "gpt-5.4-nano", label: "ChatGPT 5.4 nano", variants: [] },
-      { id: "gpt-5.4-mini", label: "ChatGPT 5.4 mini", variants: [] },
+      {
+        id: OpenAIModel.GPT_5_5,
+        lab: Lab.OpenAI,
+        label: "ChatGPT 5.5",
+        variants: openaiVariants(OpenAIModel.GPT_5_5),
+      },
+      {
+        id: OpenAIModel.GPT_5_5_Pro,
+        lab: Lab.OpenAI,
+        label: "ChatGPT 5.5 Pro",
+        variants: openaiVariants(OpenAIModel.GPT_5_5_Pro),
+      },
+      {
+        id: OpenAIModel.GPT_5_6_Sol,
+        lab: Lab.OpenAI,
+        label: "ChatGPT 5.6 Sol",
+        variants: openaiVariants(OpenAIModel.GPT_5_6_Sol),
+      },
+      {
+        id: OpenAIModel.GPT_5_6_Terra,
+        lab: Lab.OpenAI,
+        label: "ChatGPT 5.6 Terra",
+        variants: openaiVariants(OpenAIModel.GPT_5_6_Terra),
+      },
+      {
+        id: OpenAIModel.GPT_5_6_Luna,
+        lab: Lab.OpenAI,
+        label: "ChatGPT 5.6 Luna",
+        variants: openaiVariants(OpenAIModel.GPT_5_6_Luna),
+      },
     ],
     build: (modelId, creds) =>
-      OpenAI.configure({
+      OpenAIProvider.configure({
         ...(creds?.apiKey !== undefined && { apiKey: creds.apiKey }),
         ...(creds?.baseURL !== undefined && { baseURL: creds.baseURL }),
       }).chat(modelId),
   },
   {
-    id: "deepseek",
+    id: Provider.DeepSeek,
     label: "DeepSeek",
     popular: false,
     requiredFields: ["apiKey"],
     models: [
-      { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash", variants: [] },
-      { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro", variants: [] },
+      {
+        id: DeepSeekModel.V4_Flash,
+        lab: Lab.DeepSeek,
+        label: "DeepSeek V4 Flash",
+        variants: gradedVariants(
+          DeepSeekModel.V4_Flash,
+          Provider.DeepSeek,
+          DeepSeekModelVariants[DeepSeekModel.V4_Flash],
+        ),
+      },
+      {
+        id: DeepSeekModel.V4_Pro,
+        lab: Lab.DeepSeek,
+        label: "DeepSeek V4 Pro",
+        variants: gradedVariants(
+          DeepSeekModel.V4_Pro,
+          Provider.DeepSeek,
+          DeepSeekModelVariants[DeepSeekModel.V4_Pro],
+        ),
+      },
     ],
     build: (modelId, creds) =>
-      DeepSeek.configure({
+      DeepSeekProvider.configure({
         ...(creds?.apiKey !== undefined && { apiKey: creds.apiKey }),
         ...(creds?.baseURL !== undefined && { baseURL: creds.baseURL }),
       }).chat(modelId),
   },
   {
-    id: "zai",
+    id: Provider.ZAI,
     label: "Z.AI",
     popular: false,
     requiredFields: ["apiKey"],
-    models: [{ id: "glm-5.2", label: "GLM 5.2", variants: [] }],
+    models: [
+      {
+        id: ZAIModel.GLM_5_2,
+        lab: Lab.ZAI,
+        label: "GLM 5.2",
+        variants: gradedVariants(
+          ZAIModel.GLM_5_2,
+          Provider.ZAI,
+          ZAIModelVariants[ZAIModel.GLM_5_2],
+        ),
+      },
+    ],
     build: (modelId, creds) =>
-      ZAI.configure({
+      ZAIProvider.configure({
         ...(creds?.apiKey !== undefined && { apiKey: creds.apiKey }),
         ...(creds?.baseURL !== undefined && { baseURL: creds.baseURL }),
       }).chat(modelId),
   },
   {
-    id: "openai-codex",
+    // Codex is a second provider serving OpenAI's models (a 2:1 mapping): it
+    // exposes gpt-5.5 with the same reasoning ladder via the Responses API.
+    id: Provider.OpenAICodex,
     label: "OpenAI Codex",
     popular: false,
     requiredFields: ["accessToken"],
     models: [
       {
-        id: "gpt-5-codex",
-        label: "GPT-5 Codex",
-        variants: [codexEffort("low"), codexEffort("medium"), codexEffort("high")],
+        id: OpenAIModel.GPT_5_5,
+        lab: Lab.OpenAI,
+        label: "GPT-5.5",
+        variants: codexVariants(OpenAIModel.GPT_5_5),
       },
+      {
+        id: OpenAIModel.GPT_5_6_Sol,
+        lab: Lab.OpenAI,
+        label: "GPT-5.6 Sol",
+        variants: codexVariants(OpenAIModel.GPT_5_6_Sol),
+      },
+      {
+        id: OpenAIModel.GPT_5_6_Terra,
+        lab: Lab.OpenAI,
+        label: "GPT-5.6 Terra",
+        variants: codexVariants(OpenAIModel.GPT_5_6_Terra),
+      },
+      // GPT-5.6 Luna is API-only: the ChatGPT-account Codex backend rejects it
+      // ("not supported when using Codex with a ChatGPT account")
     ],
-    build: (modelId, creds) =>
-      OpenAICodex.configure({
-        ...(creds?.accessToken !== undefined
-          ? {
-              credentialResolver: () => ({
-                accessToken: creds.accessToken!,
-                ...(creds.accountId !== undefined && { accountId: creds.accountId }),
-              }),
-            }
-          : {}),
-        ...(creds?.baseURL !== undefined && { baseURL: creds.baseURL }),
-      }).model(modelId),
+    build: (modelId, creds) => buildCodexModel(modelId, creds),
   },
 ]
 
@@ -160,11 +377,14 @@ export interface ProviderOption {
 export interface ModelVariantOption {
   readonly id: string
   readonly label: string
+  readonly routing?: RoutingProfile
 }
 
 export interface ModelOption {
   readonly provider: string
   readonly providerLabel: string
+  /** The lab that created this model, independent of the serving provider. */
+  readonly lab: Lab
   readonly modelId: string
   readonly label: string
   readonly variants: ReadonlyArray<ModelVariantOption>
@@ -188,10 +408,18 @@ const toModelOptions = (spec: ProviderSpec): ReadonlyArray<ModelOption> =>
     .map((model) => ({
       provider: spec.id,
       providerLabel: spec.label,
+      lab: model.lab,
       modelId: model.id,
       label: model.label,
-      variants: model.variants.map((v) => ({ id: v.id, label: v.label })),
+      variants: model.variants.map((v) => ({
+        id: v.id,
+        label: v.label,
+        ...(v.routing !== undefined && { routing: v.routing }),
+      })),
     }))
+
+/** Every routable catalog model (non-deprecated), independent of configuration. */
+export const allCatalogModels = (): ReadonlyArray<ModelOption> => CATALOG.flatMap(toModelOptions)
 
 /** Every static provider the TUI knows how to configure. */
 export const allProviders = (
@@ -297,36 +525,14 @@ export const defaultModelId = (provider: string): string | undefined =>
  */
 export const freeModel = (): Model => Pollinations.model("openai-fast")
 
-// Published list prices per 1M tokens (USD), keyed by `${provider}/${modelId}`.
-// Standard tier, sourced from each provider's 2026-07 pricing docs. Prompt-cache
-// and batch discounts aren't modelled — and swain doesn't track cache-hit
-// tokens — so a computed cost is an upper bound on the real bill.
-interface ModelPrice {
-  readonly input: number
-  readonly output: number
-}
-
-const PRICES: Record<string, ModelPrice> = {
-  "anthropic/claude-opus-4-8": { input: 5, output: 25 },
-  "anthropic/claude-sonnet-5": { input: 3, output: 15 },
-  "openai/gpt-5.5": { input: 5, output: 30 },
-  "openai/gpt-5.5-pro": { input: 30, output: 180 },
-  "openai/gpt-5.4-mini": { input: 0.75, output: 4.5 },
-  "openai/gpt-5.4-nano": { input: 0.2, output: 1.25 },
-  "deepseek/deepseek-v4-flash": { input: 0.14, output: 0.28 },
-  "deepseek/deepseek-v4-pro": { input: 0.44, output: 0.87 },
-  "zai/glm-5.2": { input: 1.4, output: 4.4 },
-  "openai-codex/gpt-5-codex": { input: 1.25, output: 10 },
-}
-
 /** Estimated USD cost for token usage, or undefined when the model is unpriced. */
 export const costUsd = (
-  provider: string,
+  _provider: string,
   modelId: string,
   inputTokens: number,
   outputTokens: number,
 ): number | undefined => {
-  const price = PRICES[`${provider}/${modelId}`]
+  const price = PRICES[modelId]
   if (price === undefined) return undefined
   return (inputTokens * price.input + outputTokens * price.output) / 1_000_000
 }

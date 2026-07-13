@@ -11,17 +11,32 @@ import type {
   ToolResultValue,
   Usage,
 } from "../schema"
-import { ContentId, LLMError, ToolCallId } from "../schema"
+import { ContentId, LLMError, renderModelSwitch, ToolCallId } from "../schema"
 import type { ToolInputAssembler } from "./tool-input"
 import { ToolInput } from "./tool-input"
 
 export const OPENAI_CHAT_PATH = "/chat/completions"
+
+/**
+ * Reasoning effort for OpenAI-compatible deployments. The superset across
+ * deployments: OpenAI accepts `none`–`xhigh`; DeepSeek/Z.AI only `high`/`max`.
+ * Each provider's own options type narrows this to what it actually supports.
+ */
+export type OpenAIChatReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh" | "max"
 
 /** Sampling knobs shared by OpenAI-compatible Chat Completions deployments. */
 export interface OpenAIChatOptions {
   readonly temperature?: number
   readonly topP?: number
   readonly seed?: number
+  /**
+   * Enable reasoning via a top-level `thinking: { type: "enabled" }` flag.
+   * DeepSeek V4 and Z.AI GLM-5.2 gate reasoning behind this flag; pair it with
+   * `reasoningEffort` to grade the depth.
+   */
+  readonly thinking?: boolean
+  /** Reasoning depth sent as `reasoning_effort`; only `high` and `max` are distinct. */
+  readonly reasoningEffort?: OpenAIChatReasoningEffort
   /**
    * Explicit prompt-cache routing key sent as `prompt_cache_key`. OpenAI-style
    * prompt caching is unconditionally automatic (there is no enable flag); this
@@ -82,6 +97,8 @@ const lowerMessages = (
             tool_call_id: block.toolCallId,
             content: lowerToolResult(block.result),
           })
+        } else if (block.type === "model-switch") {
+          texts.push(renderModelSwitch(block))
         } else {
           texts.push(block.text)
         }
@@ -142,6 +159,8 @@ const prepare = (
     ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
     ...(options.topP !== undefined ? { top_p: options.topP } : {}),
     ...(options.seed !== undefined ? { seed: options.seed } : {}),
+    ...(options.thinking === true ? { thinking: { type: "enabled" } } : {}),
+    ...(options.reasoningEffort !== undefined ? { reasoning_effort: options.reasoningEffort } : {}),
     ...(options.promptCacheKey !== undefined ? { prompt_cache_key: options.promptCacheKey } : {}),
   }
   return { path: OPENAI_CHAT_PATH, body }

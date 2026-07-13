@@ -21,7 +21,8 @@
     "typecheck": "tsc --noEmit",
     "format": "biome check --write .",
     "format:check": "biome check .",
-    "test": "bun test test"
+    "test": "bun test test --path-ignore-patterns='**/live/**'",
+    "test:live": "bun --env-file=../../.env test test/live"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.2",

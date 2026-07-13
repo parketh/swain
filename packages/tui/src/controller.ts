@@ -17,9 +17,13 @@ import {
   type PermissionDecision,
   type PermissionMode,
   pendingParentNotifications,
+  readPersistedModelRef,
+  recordInterruption,
+  recordModelTransition,
   removeTaskWorktrees,
   resetDanglingTasks,
   runTurn,
+  type SessionModelRef,
   type SessionState,
   type SubagentEvent,
   saveSession,
@@ -41,6 +45,7 @@ import {
   type TuiConfig,
 } from "./config"
 import { appendHistory, historyPath, saveHistory } from "./history"
+import { modelResolverLayer } from "./model-resolver"
 import {
   availableModels,
   connectableProviders,
@@ -49,6 +54,13 @@ import {
   type ProviderOption,
   resolveModelSelection,
 } from "./models"
+import {
+  modelKey,
+  type RouterStatus,
+  routerPromptTargets,
+  routerSettings,
+  routerStatus,
+} from "./router"
 import { type LLMClientService, makeRuntime, toolContextLayer } from "./runtime"
 import { type UsageSnapshot, usageSnapshot } from "./usage"
 
@@ -60,10 +72,34 @@ export interface RequestOptions {
 export interface TuiState {
   readonly session: SessionState
   readonly permissionMode: PermissionMode
+  /** Global default model (config); seeds new sessions and drives the "connect a provider" check. */
   readonly activeModel: ActiveModel
+  /** The conversation's current model, which can diverge from `activeModel` after a router switch. */
+  readonly currentModel: ActiveModel
   readonly connectableProviders: ReadonlyArray<ProviderOption>
   readonly availableModels: ReadonlyArray<ModelOption>
+  readonly routerStatus: RouterStatus
   readonly running: boolean
+}
+
+/** A connected model row for the /router dialog, with per-variant enablement. */
+export interface RouterModelView {
+  readonly provider: string
+  readonly modelId: string
+  readonly label: string
+  readonly providerLabel: string
+  readonly enabled: boolean
+  readonly variants: ReadonlyArray<{
+    readonly id: string
+    readonly label: string
+    readonly enabled: boolean
+  }>
+}
+
+export interface RouterView {
+  readonly enabled: boolean
+  readonly status: RouterStatus
+  readonly models: ReadonlyArray<RouterModelView>
 }
 
 export interface PendingQuestion {
@@ -146,6 +182,14 @@ export interface Controller {
   selectModel(provider: string, modelId: string, variant?: string): Promise<void>
   setVariant(variant?: string): Promise<void>
   connectProvider(provider: string, creds: ProviderConfig): Promise<ConnectResult>
+  /** Connected models with router enablement, for the /router dialog. */
+  getRouterView(): RouterView
+  /** Toggles the global router master switch. */
+  setRouterEnabled(enabled: boolean): Promise<void>
+  /** Toggles a whole model in/out of routing (all its variants). */
+  toggleRouterModel(provider: string, modelId: string): Promise<void>
+  /** Toggles a single variant target in/out of routing. */
+  toggleRouterTarget(targetId: string): Promise<void>
   refreshAvailableModels(): void
   clearConversation(): void
   resumeSession(sessionId: string): Promise<void>
@@ -158,12 +202,12 @@ export interface Controller {
   ensureSummaries(): Promise<void>
   interrupt(): void
   /**
-   * Cancels the running turn and retracts it: the in-flight prompt and any
-   * partial assistant/tool messages are removed from the session, and the
-   * original prompt text is returned so the UI can restore it for editing.
-   * Resolves to `undefined` when nothing was running.
+   * Cancels the running turn but preserves it (like Claude Code): the partial
+   * assistant text (`partialText`) is committed, any orphan tool calls are
+   * answered, and an interrupt marker is appended. Tasks the turn created are
+   * kept. No-op when nothing is running.
    */
-  cancelTurn(): Promise<string | undefined>
+  cancelTurn(partialText?: string): Promise<void>
   dispose(): void
 }
 
@@ -176,7 +220,19 @@ export const makeController = (deps: ControllerDeps): Controller => {
   const persist = deps.persist ?? true
 
   let session = deps.session
+  // Global default model, used to seed new sessions and persisted to config.
+  // The conversation's *current* model can diverge from this after a router
+  // SwitchModel, so display/usage read `currentModel()` (the live session ref)
+  // rather than this variable.
   let activeModel = deps.activeModel
+  const currentModel = (): ActiveModel => {
+    const ref = session.systemContext.modelRef
+    return {
+      provider: ref.provider,
+      modelId: ref.modelId,
+      ...(ref.variant !== undefined && { variant: ref.variant }),
+    }
+  }
   let config = deps.config
   let requestOptions: RequestOptions = deps.requestOptions ?? {}
   let history = deps.history ?? []
@@ -581,9 +637,6 @@ export const makeController = (deps: ControllerDeps): Controller => {
 
   let currentAbort: AbortController | undefined
   let currentFiber: Fiber.RuntimeFiber<void, unknown> | undefined
-  // Snapshot of `session.messages.length` before the running prompt was pushed,
-  // plus the prompt text, so a cancel can retract the turn and restore the text.
-  let pendingPrompt: { readonly text: string; readonly retractAt: number } | undefined
 
   const runTurnNow = async (): Promise<void> => {
     const env = await ensureSessionEnv()
@@ -609,9 +662,21 @@ export const makeController = (deps: ControllerDeps): Controller => {
           ) {
             void refreshTasks()
           }
+          // A router SwitchModel changes the current model mid-turn; refresh so
+          // the status line reflects the new target immediately.
+          if (event.type === "model-switch") notify()
         }),
-      ...requestOptions,
-    }).pipe(Effect.provide(ctxLayer), Effect.provide(env.layers))
+      // Request options now travel through session.systemContext.requestOptions,
+      // so a mid-turn SwitchModel can replace them. The router context is passed
+      // only when routing is active; its presence exposes SwitchModel.
+      ...(routerStatus(config) === "on" && {
+        router: { targets: routerPromptTargets(config) },
+      }),
+    }).pipe(
+      Effect.provide(ctxLayer),
+      Effect.provide(env.layers),
+      Effect.provide(modelResolverLayer(() => config)),
+    )
     const fiber = runtime.runFork(effect)
     currentFiber = fiber
     try {
@@ -666,7 +731,18 @@ export const makeController = (deps: ControllerDeps): Controller => {
       emitEvent({ type: "agent-error", source: "agent", message: result.error.message })
       return
     }
-    Object.assign(session.systemContext, { model: result.selection.model })
+    const modelRef: SessionModelRef = {
+      provider,
+      modelId,
+      ...(variant !== undefined && { variant }),
+    }
+    // Record a session-local transition so /model "steers" the conversation:
+    // the previous target moves into pastModels and this becomes current.
+    recordModelTransition(session, {
+      model: result.selection.model,
+      modelRef,
+      requestOptions: result.selection.requestOptions,
+    })
     activeModel = { provider, modelId, ...(variant !== undefined && { variant }) }
     requestOptions = result.selection.requestOptions
     await persistConfig({ ...config, activeModel })
@@ -674,19 +750,33 @@ export const makeController = (deps: ControllerDeps): Controller => {
   }
 
   const submitPrompt = async (text: string): Promise<void> => {
-    const retractAt = session.messages.length
     coreSubmitPrompt(session, text)
-    pendingPrompt = { text, retractAt }
     notify()
     await runTurnNow()
-    pendingPrompt = undefined
   }
 
   const clearConversation = (): void => {
     const previous = session
+    // A new conversation starts from the global default (activeModel), not the
+    // previous session's possibly auto-routed current model. Resolve it fresh so
+    // the model and request options match the default rather than a routed target.
+    const resolved = resolveModelSelection(
+      activeModel.provider,
+      activeModel.modelId,
+      activeModel.variant,
+      config,
+    )
+    const model = resolved.type === "ok" ? resolved.selection.model : previous.systemContext.model
+    if (resolved.type === "ok") requestOptions = resolved.selection.requestOptions
     session = createSessionState({
       workingDirectory: previous.workingDirectory,
-      model: previous.systemContext.model,
+      model,
+      modelRef: {
+        provider: activeModel.provider,
+        modelId: activeModel.modelId,
+        ...(activeModel.variant !== undefined && { variant: activeModel.variant }),
+      },
+      requestOptions,
       permissionMode: previous.systemContext.permissionMode,
       currentDate: previous.systemContext.currentDate,
     })
@@ -740,12 +830,14 @@ export const makeController = (deps: ControllerDeps): Controller => {
       session,
       permissionMode: session.systemContext.permissionMode,
       activeModel,
+      currentModel: currentModel(),
       connectableProviders: connectableCache,
       availableModels: availableCache,
+      routerStatus: routerStatus(config),
       running,
     }),
     getRequestOptions: () => requestOptions,
-    getUsage: () => usageSnapshot(session, activeModel),
+    getUsage: () => usageSnapshot(session, currentModel()),
     getTasks: () => currentTasks,
     getSubagents: () => currentSubagents,
     getHistory: () => history,
@@ -793,6 +885,52 @@ export const makeController = (deps: ControllerDeps): Controller => {
       return persistConfig(next)
     },
 
+    getRouterView: () => {
+      const settings = routerSettings(config)
+      const disabledModels = new Set(settings.disabledModels)
+      const disabledTargets = new Set(settings.disabledTargets)
+      const models: ReadonlyArray<RouterModelView> = availableCache.map((model) => ({
+        provider: model.provider,
+        modelId: model.modelId,
+        label: model.label,
+        providerLabel: model.providerLabel,
+        enabled: !disabledModels.has(modelKey(model)),
+        variants: model.variants.map((variant) => ({
+          id: variant.id,
+          label: variant.label,
+          enabled: !disabledTargets.has(`${modelKey(model)}:${variant.id}`),
+        })),
+      }))
+      return { enabled: settings.enabled, status: routerStatus(config), models }
+    },
+
+    setRouterEnabled: async (enabled) => {
+      const settings = routerSettings(config)
+      await persistConfig({ ...config, router: { ...settings, enabled } })
+      notify()
+    },
+
+    toggleRouterModel: async (provider, modelId) => {
+      const settings = routerSettings(config)
+      const key = modelKey({ provider, modelId })
+      const disabled = settings.disabledModels.includes(key)
+      const disabledModels = disabled
+        ? settings.disabledModels.filter((m) => m !== key)
+        : [...settings.disabledModels, key]
+      await persistConfig({ ...config, router: { ...settings, disabledModels } })
+      notify()
+    },
+
+    toggleRouterTarget: async (targetId) => {
+      const settings = routerSettings(config)
+      const disabled = settings.disabledTargets.includes(targetId)
+      const disabledTargets = disabled
+        ? settings.disabledTargets.filter((t) => t !== targetId)
+        : [...settings.disabledTargets, targetId]
+      await persistConfig({ ...config, router: { ...settings, disabledTargets } })
+      notify()
+    },
+
     refreshAvailableModels: () => {
       refreshDerived()
       notify()
@@ -801,26 +939,47 @@ export const makeController = (deps: ControllerDeps): Controller => {
     clearConversation,
 
     resumeSession: async (sessionId) => {
-      const result = resolveModelSelection(
-        activeModel.provider,
-        activeModel.modelId,
-        activeModel.variant,
-        config,
-      )
+      const dir = sessionsDirFor(session)
+      // Resume on the conversation's own persisted model, not the global default.
+      // Fall back to activeModel for legacy sessions or if the target no longer
+      // resolves (e.g. its provider was disconnected).
+      const persistedRef = await runtime.runPromise(readPersistedModelRef(dir, sessionId))
+      const target = persistedRef ?? {
+        provider: activeModel.provider,
+        modelId: activeModel.modelId,
+        ...(activeModel.variant !== undefined && { variant: activeModel.variant }),
+      }
+      let result = resolveModelSelection(target.provider, target.modelId, target.variant, config)
+      if (result.type === "error" && persistedRef !== undefined) {
+        result = resolveModelSelection(
+          activeModel.provider,
+          activeModel.modelId,
+          activeModel.variant,
+          config,
+        )
+      }
       if (result.type === "error") {
         emitEvent({ type: "agent-error", source: "agent", message: result.error.message })
         return
       }
+      const selection = result.selection
+      const modelRef: SessionModelRef = {
+        provider: selection.provider,
+        modelId: selection.modelId,
+        ...(selection.variant !== undefined && { variant: selection.variant }),
+      }
       const loaded = await runtime.runPromise(
         loadSession({
           sessionId,
-          model: result.selection.model,
-          sessionsDir: sessionsDirFor(session),
+          model: selection.model,
+          modelRef,
+          requestOptions: selection.requestOptions,
+          sessionsDir: dir,
         }),
       )
       await teardownSessionEnv()
       session = loaded
-      requestOptions = result.selection.requestOptions
+      requestOptions = selection.requestOptions
       notify()
       await startSession()
     },
@@ -847,18 +1006,18 @@ export const makeController = (deps: ControllerDeps): Controller => {
       if (currentFiber !== undefined) runtime.runFork(Fiber.interrupt(currentFiber))
     },
 
-    cancelTurn: async () => {
-      if (!running) return undefined
-      const pending = pendingPrompt
+    cancelTurn: async (partialText?: string) => {
+      if (!running) return
       const fiber = currentFiber
       currentAbort?.abort()
-      // Await full interruption before truncating so the loop can't push more
-      // messages past the retract point after we've cut it.
+      // Await full interruption before repairing history so the loop can't push
+      // more messages after we've recorded the interruption.
       if (fiber !== undefined) await runtime.runPromise(Fiber.interrupt(fiber))
-      if (pending === undefined) return undefined
-      session.messages.length = pending.retractAt
+      // Preserve the interrupted turn (and any tasks it created), like Claude
+      // Code: keep the partial output and append an interrupt marker rather than
+      // retracting the turn.
+      recordInterruption(session, partialText)
       notify()
-      return pending.text
     },
 
     dispose: () => {

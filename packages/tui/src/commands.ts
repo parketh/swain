@@ -3,6 +3,7 @@ export type CommandName =
   | "resume"
   | "model"
   | "variants"
+  | "router"
   | "help"
   | "plan"
   | "usage"
@@ -18,6 +19,7 @@ export const COMMAND_NAMES: ReadonlyArray<CommandName> = [
   "resume",
   "model",
   "variants",
+  "router",
   "help",
   "plan",
   "usage",
@@ -35,6 +37,7 @@ export const COMMANDS: ReadonlyArray<CommandInfo> = [
   { name: "resume", summary: "Resume a saved session" },
   { name: "model", summary: "Select the active provider/model" },
   { name: "variants", summary: "Change the variant for the active model" },
+  { name: "router", summary: "Configure automated model routing" },
   { name: "help", summary: "Show commands and keyboard controls" },
   { name: "plan", summary: "Switch to plan mode; args submit as a prompt" },
   { name: "usage", summary: "Show token and turn counters" },

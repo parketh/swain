@@ -1,9 +1,17 @@
 # Architecture
 
-Swain is an agent harness for coding. It is organized as a Bun workspace of Effect-native packages:
-- `@swain/llms`: LLM provider library
-- `@swain/core`: core agent harness (loop, tools, memory, permissions)
-- `@swain/tui`: Ink-based interactive CLI over the core loop
+Swain is organized as a Bun workspace of Effect.js packages:
+- `@swain/llms`: LLM provider library implementing a provider-neutral LLM interface, streaming deltas, message protocol normalization, and shared transport.
+- `@swain/core`: the core agent harness, comprising the agentic loop, session state, tools, memory, permissions, and model routing.
+- `@swain/tui`: Ink-based interactive CLI for running the core agent loop; manages provider connections, slash commands, file search, and more.
+
+## Tech stack
+
+- Bun
+- TypeScript (ESM)
+- Effect.js
+- Biome
+- Bun test runner
 
 ## packages/llms
 
@@ -16,7 +24,11 @@ callers (harness, scripts)
       │  LLM.streamTurn / LLM.generateTurn
       ▼
 schema/      provider-neutral data model: messages, tools, events,
-             errors, options, branded IDs
+             errors, options, branded IDs, labs, providers
+      ▼
+models/      per-lab model cards: provider-native model IDs and each
+             model's effort/variant vocabulary (anthropic, openai,
+             deepseek, zai)
       ▼
 providers/   facades binding auth, endpoints, defaults, and model IDs
              (OpenAI, OpenAICompatible, DeepSeek, ZAI, Anthropic, OpenAICodex)
@@ -36,9 +48,9 @@ transport/   auth resolution, HTTP via @effect/platform HttpClient,
 - **Errors split:** nonfatal in-band provider facts emit `ProviderError` events; fatal failures fail the Effect channel with typed `LLMError`. Cancellation is Effect interruption, not an error.
 - **System prompt boundary:** `system` is a request field; `messages` contain only `user`/`assistant` roles. Tool results are `ToolResultContent` inside the next `UserMessage`.
 - **Sampling is provider-specific:** `GenerationOptions` carries only portable knobs (`maxTokens`, `stop`); temperature and friends live in typed `providerOptions`.
+- **Lab vs provider:** a `Lab` (who trains a model) is distinct from a `Provider` (who serves it); one model can be reachable through several providers — e.g. `gpt-5.5` via both `openai` and `openai-codex`. Shared `Lab`/`Provider` enums live in `schema/`; per-lab model cards in `models/`.
+- **Reasoning/effort is wired per protocol:** effort variants encode real request fields, not inert catalog rows — Anthropic adaptive thinking (`low`/`medium`/`high`/`xhigh`/`max`, non-default sampling params dropped), DeepSeek/Z.ai top-level `thinking` flag + `reasoning_effort` (`high`/`max`), Codex native `low`/`medium`/`high`.
 - **HttpClient via requirements:** callers provide `FetchHttpClient.layer` (or a stub layer in tests) at the edge; no network in unit tests.
-
-Full design record: `specs/0001-scaffold-llms.md`.
 
 ## packages/core
 
@@ -51,11 +63,10 @@ The core agent harness. It runs the "LLM turn → tool results → next turn" lo
 - **Effect-native tools:** each `Tool` carries Effect Schema input/output schemas and a `call()` returning an Effect; dependencies (`FileSystem`, `CommandExecutor`, `HttpClient`, `ToolContext`) are requirements provided by layers. `@effect/platform-bun`'s `BunContext` provides live `FileSystem`/`CommandExecutor` at runtime; tests swap stubs.
 - **Permissions:** `plan | ask | auto`. `plan` denies mutating tools, `ask` (default) prompts before edits/writes/risky shell, `auto` runs validation and hard-deny checks without interactive approval.
 - **File safety:** an in-memory `FileStateCache` enforces read-before-write, staleness detection (mtime + digest), and per-path write serialization. It is never persisted; restarts force fresh reads.
-- **Built-in tools:** `Read`, `Write`, `Edit`, `Glob`, `Grep`, `Bash`, `WebFetch`, `WebSearch` (Exa-backed, provider-neutral), `Ask`, the task tools (`TaskCreate`, `TaskList`, `TaskGet`, `TaskUpdate`), and `Agent`. Search shells out to ripgrep.
+- **Built-in tools:** `Read`, `Write`, `Edit`, `Glob`, `Grep`, `Bash`, `WebFetch`, `WebSearch` (Exa-backed, provider-neutral), `Ask`, the task tools (`TaskCreate`, `TaskList`, `TaskGet`, `TaskUpdate`), `Agent`, and `SwitchModel` (routing control flow). Search shells out to ripgrep.
 - **Persistence:** session metadata, transcript, and the task graph (`tasks.json`) persist under `<sessionsDir>/<id>/` (the TUI resolves this to `${XDG_CONFIG_HOME:-~/.config}/swain/sessions/<project-slug>/`); runtime cache, locks, and pending approvals do not.
 - **Tasks & subagents:** `TaskStore` is a per-session persisted task graph the main loop uses directly as a to-do list. `Agent` claims a task and forks a detached subagent (`Explore`, `Plan`, `GeneralPurpose`) via the `Orchestrator`; children run a fresh brief with a restricted tool registry (never `Agent`/`Ask`/`Task*`) and report only their final result. Completion is durable-before-visible: the child writes its result to the task, then rings a contentless wake-up queue; the TUI drains completions between parent turns as synthetic `<task-notification>` user messages. V1 subagents must not mutate the parent worktree — `Explore`/`Plan` are read-only, and write-capable `GeneralPurpose` runs in an isolated git worktree under `<git-root>/.swain/worktrees/<agent-id>`.
-
-Full design records: `specs/0002-core-agent-loop.md`, `specs/0004-subagents-tasks.md`.
+- **Model routing:** the effective model is session-local state (`SystemContext.modelRef` + write-only `pastModels`), decoupled from the TUI's global default so auto-routing never mutates it. `runTurn` reads request options from the session each iteration. `SwitchModel` is a model-visible tool that core intercepts as *control flow*, not an ordinary tool result: it resolves the target, replaces request options wholesale (never merged), records a typed `model-switch` meta transcript event, reassembles the system prompt, and continues the same user turn on the new model — at most one switch per turn, siblings dropped. Targets are `provider:modelId[:variant]` strings resolved through an injected `ModelResolver` so core stays catalog-agnostic (TUI owns the catalog). The router prompt block is injected only when routing is active and asks the model to classify each request into a tier (Simple/Routine/Complex/Critical) and pick by capability vs cost. `Agent.model` optionally delegates a subagent to an enabled target; omitted, the child inherits the parent's current model.
 
 ## packages/tui
 
@@ -85,7 +96,6 @@ runtime.ts                     ManagedRuntime over LLMClient + tools +
 - **Tool progress channel:** `callTool` provides a per-call `ToolProgress` service (no-op by default); `Bash` streams stdout as `tool-execution-delta`. Progress is advisory and never persisted.
 - **Controller owns state, React owns display:** `TuiState` holds session/model/mode; transcript rows and draft streaming buffers are local React state derived from `session.messages` plus forwarded events.
 - **Commands are local:** built-in `/` commands are parsed and executed in the TUI; only `/plan` with args sends a model prompt.
-- **Global typed config, split secrets:** settings and the active model live in `${XDG_CONFIG_HOME:-~/.config}/swain/config.json`, while provider credentials live in a separate `auth.json` beside it (both dir `0700`, file `0600`), validated with Effect Schema. `saveConfig` never writes credentials, so `config.json` stays secret-free (safe to track in dotfiles); legacy keys in an older `config.json` are migrated into `auth.json` on startup. `models.ts` owns the static provider/model/variant catalog and lowers variants to `providerOptions`. Session/transcript persistence stays project-local under `.swain/sessions/<id>/`.
+- **Global typed config, split secrets:** settings, the active model, and router config live in `${XDG_CONFIG_HOME:-~/.config}/swain/config.json`, while provider credentials live in a separate `auth.json` beside it (both dir `0700`, file `0600`), validated with Effect Schema. `saveConfig` never writes credentials, so `config.json` stays secret-free (safe to track in dotfiles); legacy keys in an older `config.json` are migrated into `auth.json` on startup. `models.ts` owns the static lab/provider/model/variant catalog (consuming the `@swain/llms` enums and model cards), attaches per-target `RoutingProfile` metadata (`capability`, `avgCostPerTask`), and lowers variants to `providerOptions`. Session/transcript persistence stays project-local under `.swain/sessions/<id>/`.
+- **Model router UI & policy:** `router.ts` owns target IDs, opt-out–based config (`RouterConfig`: a global toggle plus `disabledModels`/`disabledTargets`), and derivation of enabled targets. Connected models default to routable with all catalog variants; `routerStatus` is `off`/`inactive` (fewer than two enabled targets)/`on`. Only Pareto-non-dominated targets with routing data reach the model — `routerPromptTargets` filters the enabled set through `paretoFrontier` (drop any target another dominates on capability≥/cost≤). `/router` opens a model-first dialog (`RouterDialog`) for toggling models/variants; the status line shows the minimal router state; the TUI provides core's `ModelResolver` layer bridging target IDs to live models.
 - **Interaction bridges:** the TUI-backed `AskService` and `ApprovalService` suspend the tool Effect and resolve once the `QuestionPrompt`/`PermissionPrompt` submits.
-
-Full design record: `specs/0003-tui.md`.

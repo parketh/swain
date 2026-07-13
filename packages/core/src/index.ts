@@ -1,5 +1,19 @@
-export { type AgentEvent, type RunTurnOptions, runTurn, submitPrompt } from "./agent"
+export {
+  type AgentEvent,
+  INTERRUPT_MESSAGE,
+  INTERRUPT_MESSAGE_FOR_TOOL_USE,
+  type RunTurnOptions,
+  recordInterruption,
+  runTurn,
+  submitPrompt,
+} from "./agent"
 export { AgentError, ToolError, type ToolErrorReason } from "./errors"
+export {
+  ModelResolveError,
+  type ModelResolver,
+  ModelResolverService,
+  type ResolvedModel,
+} from "./model-resolver"
 export {
   type ChildRunContext,
   type ChildRunner,
@@ -24,7 +38,12 @@ export {
   type PermissionRequest,
   type Permissions,
 } from "./permission"
-export { assembleSystemPrompt, type SystemPromptInput } from "./prompt"
+export {
+  assembleSystemPrompt,
+  type RouterPromptContext,
+  type RouterPromptTarget,
+  type SystemPromptInput,
+} from "./prompt"
 export {
   type CreateSessionInput,
   createSessionState,
@@ -32,7 +51,13 @@ export {
   type FileStateEntry,
   type LoadSessionInput,
   loadSession,
+  type ModelTransition,
+  modelRefKey,
+  type RequestOptions,
+  readPersistedModelRef,
+  recordModelTransition,
   type SessionCounters,
+  type SessionModelRef,
   type SessionState,
   type SystemContext,
   saveSession,

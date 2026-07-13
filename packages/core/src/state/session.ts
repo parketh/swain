@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import type { Message, Model } from "@swain/llms"
+import type { GenerationOptions, Message, Model, ProviderOptions } from "@swain/llms"
 import { Effect } from "effect"
 import type { PermissionMode } from "../permission"
 
@@ -18,11 +18,43 @@ export type FileStateEntry = {
  */
 export type FileStateCache = Map<string, FileStateEntry>
 
+/** Portable request options for the current model target; not persisted directly. */
+export interface RequestOptions {
+  readonly providerOptions?: ProviderOptions
+  readonly generation?: GenerationOptions
+}
+
+/** Serializable identity of a model target, TUI-catalog-agnostic. */
+export interface SessionModelRef {
+  readonly provider: string
+  readonly modelId: string
+  readonly variant?: string
+}
+
 export interface SystemContext {
   readonly model: Model
+  readonly requestOptions: RequestOptions
+  readonly modelRef: SessionModelRef
+  /**
+   * Targets that were current earlier in the conversation but no longer are.
+   * Deduped by target id, ordered by the first time each stopped being current.
+   * Write-only in v1: persisted for inspection, with no runtime reader.
+   */
+  readonly pastModels: ReadonlyArray<SessionModelRef>
   readonly permissionMode: PermissionMode
   readonly currentDate: string
 }
+
+/** Canonical `provider:modelId[:variant]` key for a model ref. */
+export const modelRefKey = (ref: SessionModelRef): string =>
+  ref.variant !== undefined && ref.variant !== ""
+    ? `${ref.provider}:${ref.modelId}:${ref.variant}`
+    : `${ref.provider}:${ref.modelId}`
+
+const deriveModelRef = (model: Model): SessionModelRef => ({
+  provider: model.provider,
+  modelId: model.id,
+})
 
 export interface SessionCounters {
   turns: number
@@ -44,6 +76,10 @@ export interface CreateSessionInput {
   readonly sessionId?: string
   readonly workingDirectory: string
   readonly model: Model
+  /** Defaults to `{ provider, modelId }` derived from `model` when omitted. */
+  readonly modelRef?: SessionModelRef
+  readonly requestOptions?: RequestOptions
+  readonly pastModels?: ReadonlyArray<SessionModelRef>
   readonly permissionMode?: PermissionMode
   readonly currentDate: string
   readonly messages?: ReadonlyArray<Message>
@@ -54,6 +90,9 @@ export const createSessionState = (input: CreateSessionInput): SessionState => (
   workingDirectory: input.workingDirectory,
   systemContext: {
     model: input.model,
+    requestOptions: input.requestOptions ?? {},
+    modelRef: input.modelRef ?? deriveModelRef(input.model),
+    pastModels: input.pastModels ?? [],
     permissionMode: input.permissionMode ?? "ask",
     currentDate: input.currentDate,
   },
@@ -62,6 +101,45 @@ export const createSessionState = (input: CreateSessionInput): SessionState => (
   messages: [...(input.messages ?? [])],
   counters: { turns: 0, inputTokens: 0, outputTokens: 0 },
 })
+
+export interface ModelTransition {
+  readonly model: Model
+  readonly modelRef: SessionModelRef
+  readonly requestOptions: RequestOptions
+}
+
+/**
+ * Switches the session's current model to `next`. A same-target transition only
+ * refreshes the live model and request options. Otherwise the previous
+ * `modelRef` moves into `pastModels` (deduped by target id, keeping the first
+ * time it stopped being current), and the new target becomes current. Returns
+ * the previous ref when the target actually changed, else `undefined` — callers
+ * use it to record a transcript switch event.
+ */
+export const recordModelTransition = (
+  session: SessionState,
+  next: ModelTransition,
+): SessionModelRef | undefined => {
+  const previous = session.systemContext.modelRef
+  if (modelRefKey(previous) === modelRefKey(next.modelRef)) {
+    Object.assign(session.systemContext, {
+      model: next.model,
+      requestOptions: next.requestOptions,
+    })
+    return undefined
+  }
+  const past = session.systemContext.pastModels
+  const pastModels = past.some((ref) => modelRefKey(ref) === modelRefKey(previous))
+    ? past
+    : [...past, previous]
+  Object.assign(session.systemContext, {
+    model: next.model,
+    modelRef: next.modelRef,
+    requestOptions: next.requestOptions,
+    pastModels,
+  })
+  return previous
+}
 
 export const digestContent = (content: string): string =>
   createHash("sha256").update(content).digest("hex")

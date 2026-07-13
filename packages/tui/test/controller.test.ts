@@ -7,6 +7,7 @@ import {
   type AgentEvent,
   createSessionState,
   type PermissionMode,
+  recordModelTransition,
   type SessionState,
   saveSession,
 } from "@swain/core"
@@ -18,7 +19,7 @@ import { sessionsDir, type TuiConfig } from "../src/config"
 import { type Controller, makeController } from "../src/controller"
 
 const testModel: Model = {
-  id: ModelId.make("claude-sonnet-5"),
+  id: ModelId.make("claude-opus-4-8"),
   provider: ProviderId.make("anthropic"),
   streamTurn: () => Stream.empty,
 }
@@ -93,7 +94,7 @@ describe("controller", () => {
     })
     controller = makeController({
       session,
-      activeModel: { provider: "anthropic", modelId: "claude-sonnet-5" },
+      activeModel: { provider: "anthropic", modelId: "claude-opus-4-8" },
       config,
       configPath: join(dir, "config.json"),
       llmLayer: llm.layer,
@@ -159,10 +160,77 @@ describe("controller", () => {
   test("selecting a variant updates the request options used by the next turn", async () => {
     const llm = scripted([textTurn("ok")])
     const c = build(llm)
-    await c.setVariant("thinking")
+    await c.setVariant("high")
     await c.submitPrompt("hi")
     expect(llm.requests.at(-1)?.providerOptions).toEqual({
-      anthropic: { thinking: { type: "enabled", budgetTokens: 8192 } },
+      anthropic: { thinking: { type: "adaptive", effort: "high" } },
+    })
+  })
+
+  test("/model records a session-local transition into pastModels", async () => {
+    const c = build(scripted([textTurn("ok")]))
+    await c.selectModel("anthropic", "claude-opus-4-8", "high")
+    const ctx = c.getState().session.systemContext
+    expect(ctx.modelRef).toEqual({
+      provider: "anthropic",
+      modelId: "claude-opus-4-8",
+      variant: "high",
+    })
+    expect(ctx.pastModels).toEqual([{ provider: "anthropic", modelId: "claude-opus-4-8" }])
+  })
+
+  test("/clear starts a fresh conversation from the global default, not a routed model", async () => {
+    const c = build(scripted([textTurn("ok")]))
+    // Simulate auto-routing to a different target without touching activeModel.
+    recordModelTransition(c.getState().session, {
+      model: { ...testModel, id: ModelId.make("claude-opus-4-8") },
+      modelRef: { provider: "anthropic", modelId: "claude-opus-4-8", variant: "max" },
+      requestOptions: {},
+    })
+    c.clearConversation()
+    const ctx = c.getState().session.systemContext
+    expect(ctx.modelRef).toEqual({ provider: "anthropic", modelId: "claude-opus-4-8" })
+    expect(ctx.pastModels).toEqual([])
+  })
+
+  test("currentModel follows a router switch while activeModel stays the global default", async () => {
+    const c = build(scripted([textTurn("ok")]))
+    expect(c.getState().currentModel).toEqual({ provider: "anthropic", modelId: "claude-opus-4-8" })
+    // A router SwitchModel updates only the session-local current model.
+    recordModelTransition(c.getState().session, {
+      model: { ...testModel, id: ModelId.make("deepseek-v4-pro") },
+      modelRef: { provider: "deepseek", modelId: "deepseek-v4-pro", variant: "max" },
+      requestOptions: {},
+    })
+    // Display/usage follow the conversation's current model...
+    expect(c.getState().currentModel).toEqual({
+      provider: "deepseek",
+      modelId: "deepseek-v4-pro",
+      variant: "max",
+    })
+    // ...but the global default (used for new sessions) is untouched.
+    expect(c.getState().activeModel).toEqual({ provider: "anthropic", modelId: "claude-opus-4-8" })
+  })
+
+  test("resuming a routed session uses the persisted modelRef, not activeModel", async () => {
+    const persisted = createSessionState({
+      sessionId: "routed",
+      workingDirectory: dir,
+      model: { ...testModel, id: ModelId.make("claude-opus-4-8") },
+      modelRef: { provider: "anthropic", modelId: "claude-opus-4-8", variant: "max" },
+      currentDate: "2026-07-05",
+    })
+    await Effect.runPromise(
+      saveSession(persisted, sessionsDir(join(dir, "config.json"), dir)).pipe(
+        Effect.provide(BunContext.layer),
+      ),
+    )
+    const c = build(scripted([textTurn("ok")]))
+    await c.resumeSession("routed")
+    expect(c.getState().session.systemContext.modelRef).toEqual({
+      provider: "anthropic",
+      modelId: "claude-opus-4-8",
+      variant: "max",
     })
   })
 
@@ -217,7 +285,7 @@ describe("controller command actions", () => {
     })
     controller = makeController({
       session,
-      activeModel: { provider: "anthropic", modelId: "claude-sonnet-5" },
+      activeModel: { provider: "anthropic", modelId: "claude-opus-4-8" },
       config: initialConfig,
       configPath: join(dir, "config.json"),
       llmLayer: scripted([textTurn("ok")]).layer,
@@ -258,7 +326,7 @@ describe("controller command actions", () => {
         model: testModel,
         currentDate: "2026-07-05",
       }),
-      activeModel: { provider: "anthropic", modelId: "claude-sonnet-5" },
+      activeModel: { provider: "anthropic", modelId: "claude-opus-4-8" },
       config: { providers: {} },
       configPath: join(dir, "config.json", "nested.json"),
       llmLayer: scripted([textTurn("ok")]).layer,
@@ -301,7 +369,7 @@ describe("controller command actions", () => {
         model: testModel,
         currentDate: "2026-07-05",
       }),
-      activeModel: { provider: "anthropic", modelId: "claude-sonnet-5" },
+      activeModel: { provider: "anthropic", modelId: "claude-opus-4-8" },
       config: { providers: {} },
       configPath: join(dir, "config.json"),
       history: ["earlier"],
@@ -425,7 +493,7 @@ describe("controller subagent drain", () => {
     seed(session, tasks)
     controller = makeController({
       session,
-      activeModel: { provider: "anthropic", modelId: "claude-sonnet-5" },
+      activeModel: { provider: "anthropic", modelId: "claude-opus-4-8" },
       config,
       configPath: join(dir, "config.json"),
       llmLayer,
