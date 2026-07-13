@@ -135,7 +135,9 @@ describe("OpenAICodex automatic token refresh", () => {
         return isToken ? respond.pipe(Effect.delay("20 millis")) : respond
       }),
     )
-    const config = { credentialResolver: () => ({ accessToken: EXPIRED, refreshToken: "rt_shared" }) }
+    const config = {
+      credentialResolver: () => ({ accessToken: EXPIRED, refreshToken: "rt_shared" }),
+    }
     await Promise.all([runTurn(config, layer), runTurn(config, layer)])
     expect(tokenExchanges).toBe(1)
   })
