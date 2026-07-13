@@ -16,7 +16,6 @@ export interface UsageSnapshot {
 /** Projects session counters and the active model into a display snapshot. */
 export const usageSnapshot = (session: SessionState, activeModel: ActiveModel): UsageSnapshot => {
   const cost = costUsd(
-    activeModel.provider,
     activeModel.modelId,
     session.counters.inputTokens,
     session.counters.outputTokens,
