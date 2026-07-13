@@ -1,5 +1,5 @@
 import { appendFileSync } from "node:fs"
-import { Box, type DOMElement, measureElement, Text, useApp, useInput } from "ink"
+import { Box, type DOMElement, measureElement, Text, useApp, useInput, usePaste } from "ink"
 import { useEffect, useReducer, useRef, useState } from "react"
 import { parseCommand } from "../commands"
 import type { ProviderConfig } from "../config"
@@ -437,6 +437,15 @@ export const App = ({ controller }: AppProps) => {
     },
     { isActive: question === undefined && approval === undefined && dialog === undefined },
   )
+
+  // Bracketed paste: ink enables `\x1b[?2004h` while this hook is active, so a
+  // paste arrives as one string on its own channel instead of a key burst.
+  // Enabling the mode also tells the host terminal the app handles paste
+  // safely, suppressing multi-line paste confirmations (e.g. VS Code's "paste N
+  // lines?" prompt). insert() strips CRs and keeps newlines.
+  usePaste((text) => insert(text), {
+    isActive: question === undefined && approval === undefined && dialog === undefined,
+  })
 
   // Everything that renders as an overlay above the pinned prompt: help, a
   // permission/question prompt, a picker dialog, or the command/file suggestion

@@ -703,6 +703,19 @@ describe("App", () => {
     expect(frame).toContain("b")
   })
 
+  test("a bracketed paste inserts multi-line text without submitting or leaking markers", async () => {
+    const c = makeCtrl()
+    const { stdin, lastFrame } = render(<App controller={c} />)
+    stdin.write("\x1b[200~one\ntwo\x1b[201~") // bracketed paste of two lines
+    await flush()
+    expect(c.getState().session.messages).toHaveLength(0) // embedded newline did not submit
+    const frame = clean(lastFrame())
+    expect(frame).toContain("one")
+    expect(frame).toContain("two")
+    expect(frame).not.toContain("200~")
+    expect(frame).not.toContain("201~")
+  })
+
   test("Option+Backspace deletes the word before the cursor", async () => {
     const c = makeCtrl()
     const { stdin, lastFrame } = render(<App controller={c} />)
