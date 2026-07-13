@@ -1,4 +1,5 @@
 export {
+  type ContextUsageState,
   type CreateSessionInput,
   cacheEntry,
   createSessionState,
@@ -10,6 +11,7 @@ export {
   modelRefKey,
   type RequestOptions,
   recordModelTransition,
+  type SessionCompactionState,
   type SessionCounters,
   type SessionModelRef,
   type SessionState,

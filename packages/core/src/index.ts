@@ -7,6 +7,20 @@ export {
   runTurn,
   submitPrompt,
 } from "./agent"
+export {
+  CompactionError,
+  type CompactionReason,
+  type CompactionResult,
+  type CompactOptions,
+  compactSession,
+  defaultTokenCounter,
+  effectiveContextWindow,
+  isValidlyPaired,
+  OUTPUT_RESERVE_CAP,
+  outputReserve,
+  selectCut,
+  type TokenCounter,
+} from "./context"
 export { AgentError, ToolError, type ToolErrorReason } from "./errors"
 export {
   ModelResolveError,

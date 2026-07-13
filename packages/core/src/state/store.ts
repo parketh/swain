@@ -31,6 +31,16 @@ const SessionMetadata = Schema.Struct({
     inputTokens: Schema.Number,
     outputTokens: Schema.Number,
   }),
+  // Legacy sessions predate compaction; default to auto-enabled with no summary.
+  compaction: Schema.optionalWith(
+    Schema.Struct({
+      autoEnabled: Schema.Boolean,
+      failureReason: Schema.optional(Schema.String),
+      lastCompactedAt: Schema.optional(Schema.String),
+      summary: Schema.optional(Schema.String),
+    }),
+    { default: () => ({ autoEnabled: true }) },
+  ),
 })
 type SessionMetadata = typeof SessionMetadata.Type
 
@@ -64,6 +74,7 @@ export const saveSession = (
       modelRef: session.systemContext.modelRef,
       pastModels: [...session.systemContext.pastModels],
       counters: { ...session.counters },
+      compaction: { ...session.compaction },
     }
     yield* fs.writeFileString(NodePath.join(dir, "session.json"), JSON.stringify(metadata, null, 2))
 
@@ -146,6 +157,7 @@ export const loadSession = (
       permissionMode: metadata.permissionMode,
       currentDate: metadata.currentDate,
       messages,
+      compaction: metadata.compaction,
     })
     state.counters.turns = metadata.counters.turns
     state.counters.inputTokens = metadata.counters.inputTokens
