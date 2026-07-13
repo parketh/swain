@@ -45,7 +45,7 @@ export const VariantPicker = ({
     <ListSelect
       title={title}
       items={items}
-      selected={current ?? defaultId ?? NONE}
+      selected={current}
       initialIndex={initialIndex}
       query={query}
       onQueryChange={setQuery}

@@ -886,6 +886,24 @@ describe("App", () => {
     })
   })
 
+  test("/model variant step marks no row current when the model isn't active", async () => {
+    // Active model is gpt-5.5; drilling into a different model's variant step
+    // must not paint "(current)" on its default row.
+    const c = makeMultiProviderCtrl()
+    const { stdin, lastFrame } = render(<App controller={c} />)
+    stdin.write("/model ")
+    await flush()
+    stdin.write("\r")
+    await flush()
+    stdin.write("luna") // gpt-5.6-luna, not the active model
+    await flush()
+    stdin.write("\r") // → variant step
+    await flush()
+    expect(lastFrame()).toContain("Select a variant for gpt-5.6-luna")
+    expect(lastFrame()).toContain("default") // default row is labelled
+    expect(lastFrame()).not.toContain("(current)") // ...but not marked current
+  })
+
   test("/variants with no args opens the variant picker for the active model", async () => {
     const { stdin, lastFrame } = render(<App controller={makeCtrl()} />)
     stdin.write("/variants ")
