@@ -49,6 +49,7 @@ import { modelResolverLayer } from "./model-resolver"
 import {
   availableModels,
   connectableProviders,
+  defaultVariantId,
   freeModel,
   type ModelOption,
   type ProviderOption,
@@ -811,7 +812,7 @@ export const makeController = (deps: ControllerDeps): Controller => {
       case "model": {
         const [provider, modelId, variant] = result.args.trim().split(/\s+/)
         if (provider !== undefined && provider !== "" && modelId !== undefined && modelId !== "") {
-          await applySelection(provider, modelId, variant)
+          await applySelection(provider, modelId, variant ?? defaultVariantId(provider, modelId))
         }
         return
       }
@@ -874,7 +875,10 @@ export const makeController = (deps: ControllerDeps): Controller => {
       notify()
     },
 
-    selectModel: (provider, modelId, variant) => applySelection(provider, modelId, variant),
+    // No explicit variant → apply the provider-recommended default rather than
+    // sending no reasoning override (`setVariant(undefined)` still opts out).
+    selectModel: (provider, modelId, variant) =>
+      applySelection(provider, modelId, variant ?? defaultVariantId(provider, modelId)),
     setVariant: (variant) => applySelection(activeModel.provider, activeModel.modelId, variant),
 
     connectProvider: async (provider, creds) => {
