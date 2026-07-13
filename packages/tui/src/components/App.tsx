@@ -103,9 +103,6 @@ export const App = ({ controller }: AppProps) => {
   const [dialog, setDialog] = useState<Dialog | undefined>(undefined)
   const [notice, setNotice] = useState<string | undefined>(undefined)
   const [showHelp, setShowHelp] = useState(false)
-  // First-run onboarding: after connecting a provider from an unconfigured
-  // state, chain the model picker (and then the variant picker) automatically.
-  const [setupFlow, setSetupFlow] = useState(false)
   const { rows, columns } = useTerminalSize()
 
   useEffect(
@@ -321,10 +318,9 @@ export const App = ({ controller }: AppProps) => {
       return setNotice(`Failed to connect ${provider}: ${result.error}`)
     }
     setNotice(`Connected ${provider}.`)
-    // Continue first-run setup straight into model (then variant) selection so
-    // the user doesn't have to run /model and /variants by hand.
+    // Continue first-run setup straight into model selection (which walks
+    // provider → variant) so the user doesn't have to run /model by hand.
     if (wasUnconfigured) {
-      setSetupFlow(true)
       return setDialog({ kind: "model" })
     }
     setDialog(undefined)
@@ -342,7 +338,6 @@ export const App = ({ controller }: AppProps) => {
     // (its own handler ignores Ctrl+C) instead of being swallowed.
     if (showHelp) return
     if (dialog !== undefined) {
-      setSetupFlow(false)
       setDialog(undefined)
       return
     }
@@ -507,11 +502,9 @@ export const App = ({ controller }: AppProps) => {
         // ModelPicker walks model → provider → variant, so the variant arrives
         // here already chosen; a model with no variants passes it undefined.
         void controller.selectModel(provider, modelId, variant)
-        setSetupFlow(false)
         setDialog(undefined)
       }}
       onCancel={() => {
-        setSetupFlow(false)
         setDialog(undefined)
       }}
       width={columns}
@@ -522,11 +515,9 @@ export const App = ({ controller }: AppProps) => {
       current={state.activeModel.variant}
       onSelect={(variant) => {
         void controller.setVariant(variant)
-        setSetupFlow(false)
         setDialog(undefined)
       }}
       onCancel={() => {
-        setSetupFlow(false)
         setDialog(undefined)
       }}
       width={columns}
