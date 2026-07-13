@@ -117,7 +117,47 @@ const decodeSse = <E, R>(self: Stream.Stream<string, E, R>): Stream.Stream<SSEEv
     return Stream.mapConcat(self, (chunk) => decoder.feed(chunk))
   })
 
+export interface PostFormOptions {
+  readonly url: string
+  readonly form: Record<string, string>
+  readonly headers?: Record<string, string>
+}
+
+/**
+ * POSTs a `application/x-www-form-urlencoded` body and returns the parsed JSON
+ * response. Used for OAuth token endpoints; non-streaming.
+ */
+const postForm = (
+  options: PostFormOptions,
+): Effect.Effect<unknown, LLMError, HttpClient.HttpClient> =>
+  Effect.gen(function* () {
+    const client = yield* HttpClient.HttpClient
+    const request = HttpClientRequest.make("POST")(options.url).pipe(
+      HttpClientRequest.setHeaders(options.headers ?? {}),
+      HttpClientRequest.bodyText(
+        new URLSearchParams(options.form).toString(),
+        "application/x-www-form-urlencoded",
+      ),
+    )
+    const response = yield* client.execute(request).pipe(Effect.mapError(fromHttpClientError))
+    if (response.status >= 400) {
+      const body = yield* response.text.pipe(Effect.orElseSucceed(() => ""))
+      return yield* Effect.fail(statusToError(response, body))
+    }
+    return yield* response.json.pipe(
+      Effect.mapError(
+        (error) =>
+          new LLMError({
+            reason: "invalid-provider-output",
+            message: `token endpoint returned malformed JSON: ${String(error)}`,
+            retryable: false,
+          }),
+      ),
+    )
+  })
+
 export const Http = {
   prepareJson,
   streamSseJson,
+  postForm,
 }

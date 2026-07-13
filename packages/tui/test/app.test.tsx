@@ -561,6 +561,23 @@ describe("App", () => {
     expect(lastFrame()).toContain("type a prompt")
   })
 
+  test("a turn error stays visible after the turn ends", async () => {
+    const turn: ReadonlyArray<LLMEvent> = [
+      { type: "provider-error", message: "boom-visible" },
+      { type: "finish", reason: "stop", usage: { inputTokens: 0, outputTokens: 0 } },
+    ]
+    const { stdin, lastFrame } = render(<App controller={makeCtrl([turn])} />)
+    await flush()
+    stdin.write("hello")
+    await flush()
+    stdin.write("\r")
+    await flush()
+    await flush()
+    // The error is never committed to session.messages, so it must survive the
+    // post-turn draft clear rather than flashing and vanishing.
+    expect(clean(lastFrame() ?? "")).toContain("boom-visible")
+  })
+
   test("typing /he shows /help and highlights the command token", async () => {
     const { stdin, lastFrame } = render(<App controller={makeCtrl()} />)
     stdin.write("/he")

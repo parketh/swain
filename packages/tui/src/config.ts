@@ -18,6 +18,7 @@ export const ProviderConfig = Schema.Struct({
   baseURL: Schema.optional(Schema.String),
   accountId: Schema.optional(Schema.String),
   accessToken: Schema.optional(Schema.String),
+  refreshToken: Schema.optional(Schema.String),
 })
 export type ProviderConfig = typeof ProviderConfig.Type
 

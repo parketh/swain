@@ -85,6 +85,13 @@ export const App = ({ controller }: AppProps) => {
   const ctrlCArmed = useRef(false)
   const ctrlCTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const [draft, setDraft] = useState<DraftState>(emptyDraft)
+  // Clears the streamed draft after a turn but keeps any errors: a failed turn
+  // commits nothing to session.messages, so wiping them would silently swallow
+  // the failure. The next submission clears them (see submit).
+  const clearDraftKeepingErrors = (): void =>
+    setDraft((prev) =>
+      prev.errors.length > 0 ? { ...emptyDraft, errors: prev.errors } : emptyDraft,
+    )
   // Rows the transcript is scrolled up from the live bottom (0 = following the
   // tail). Driven by the mouse wheel; clamped against measured content height.
   const [scrollBack, setScrollBack] = useState(0)
@@ -265,7 +272,7 @@ export const App = ({ controller }: AppProps) => {
     if (parsed.type !== "command") {
       setDraft(emptyDraft)
       await controller.executeCommand(parsed)
-      setDraft(emptyDraft)
+      clearDraftKeepingErrors()
       return
     }
     const args = parsed.args.trim()
@@ -302,7 +309,7 @@ export const App = ({ controller }: AppProps) => {
       default:
         setDraft(emptyDraft)
         await controller.executeCommand(parsed)
-        setDraft(emptyDraft)
+        clearDraftKeepingErrors()
     }
   }
 
