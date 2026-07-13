@@ -10,6 +10,7 @@ import {
   ReasoningDelta,
   ReasoningEnd,
   ReasoningStart,
+  renderCompaction,
   TextDelta,
   TextEnd,
   TextStart,
@@ -112,6 +113,28 @@ describe("message constructors", () => {
     expect(message.isMeta).toBe(true)
     const decoded = Schema.decodeUnknownEither(Message)(JSON.parse(JSON.stringify(message)))
     expect(Either.isRight(decoded)).toBe(true)
+  })
+
+  test("a meta compaction user message round-trips through decode", () => {
+    const message = Message.user(
+      [{ type: "compaction", reason: "manual", compactedMessages: 42, summary: "## Goal\n..." }],
+      true,
+    )
+    expect(message.isMeta).toBe(true)
+    const decoded = Schema.decodeUnknownEither(Message)(JSON.parse(JSON.stringify(message)))
+    expect(Either.isRight(decoded)).toBe(true)
+  })
+
+  test("renderCompaction renders a marker plus the summary as text", () => {
+    const text = renderCompaction({
+      type: "compaction",
+      reason: "auto",
+      compactedMessages: 7,
+      summary: "## Goal\nShip it",
+    })
+    expect(text).toContain("7 earlier messages summarized")
+    expect(text).toContain("<summary>")
+    expect(text).toContain("Ship it")
   })
 })
 

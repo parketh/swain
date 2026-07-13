@@ -13,7 +13,7 @@ import type {
   ToolResultContent,
   UserMessage,
 } from "../schema"
-import { ContentId, LLMError, renderModelSwitch, ToolCallId } from "../schema"
+import { ContentId, LLMError, renderCompaction, renderModelSwitch, ToolCallId } from "../schema"
 import type { ToolInputAssembler } from "./tool-input"
 import { ToolInput } from "./tool-input"
 
@@ -131,6 +131,8 @@ const lowerUserMessage = (message: UserMessage): Record<string, unknown> => {
       toolResults.push(lowerToolResult(block))
     } else if (block.type === "model-switch") {
       texts.push({ type: "text", text: renderModelSwitch(block) })
+    } else if (block.type === "compaction") {
+      texts.push({ type: "text", text: renderCompaction(block) })
     } else {
       texts.push({ type: "text", text: block.text })
     }

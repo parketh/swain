@@ -65,7 +65,25 @@ export const ModelSwitchContent = Schema.Struct({
 })
 export type ModelSwitchContent = typeof ModelSwitchContent.Type
 
-export const UserContent = Schema.Union(TextContent, ToolResultContent, ModelSwitchContent)
+/**
+ * A model-visible compaction boundary. Persisted as an `isMeta` user message
+ * marking where earlier transcript was replaced by a single compound summary.
+ * Providers render it as concise text; the TUI can render it as a boundary row.
+ */
+export const CompactionContent = Schema.Struct({
+  type: Schema.Literal("compaction"),
+  reason: Schema.Literal("auto", "manual", "overflow"),
+  compactedMessages: Schema.Number,
+  summary: Schema.String,
+})
+export type CompactionContent = typeof CompactionContent.Type
+
+export const UserContent = Schema.Union(
+  TextContent,
+  ToolResultContent,
+  ModelSwitchContent,
+  CompactionContent,
+)
 export type UserContent = typeof UserContent.Type
 
 const switchRefKey = (ref: ModelSwitchContent["from"]): string =>
@@ -76,6 +94,10 @@ const switchRefKey = (ref: ModelSwitchContent["from"]): string =>
 /** One-line text form of a model-switch event, for provider history and logs. */
 export const renderModelSwitch = (block: ModelSwitchContent): string =>
   `[Model switched from ${switchRefKey(block.from)} to ${switchRefKey(block.to)} — ${block.reason}]`
+
+/** Provider-visible text form of a compaction boundary: a marker plus the summary. */
+export const renderCompaction = (block: CompactionContent): string =>
+  `[Conversation compacted: ${block.compactedMessages} earlier messages summarized.]\n<summary>\n${block.summary}\n</summary>`
 
 export const AssistantContent = Schema.Union(TextContent, ReasoningContent, ToolCallContent)
 export type AssistantContent = typeof AssistantContent.Type
