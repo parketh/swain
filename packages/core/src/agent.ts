@@ -10,7 +10,14 @@ import type {
 } from "@swain/llms"
 import { LLMClient, LLMTurnSummary, Message } from "@swain/llms"
 import { Context, Effect, Either, Option, Schema, Stream } from "effect"
-import { recordContextUsage, ToolResultStoreService } from "./context"
+import {
+  compactSession,
+  defaultTokenCounter,
+  type RequestShape,
+  recordContextUsage,
+  shouldAutoCompact,
+  ToolResultStoreService,
+} from "./context"
 import { AgentError } from "./errors"
 import { type ModelResolver, ModelResolverService } from "./model-resolver"
 import { assembleSystemPrompt, type RouterPromptTarget } from "./prompt"
@@ -322,19 +329,64 @@ export const runTurn = (
       })
     const resolver = yield* Effect.serviceOption(ModelResolverService)
     const emit = (event: AgentEvent): Effect.Effect<void> => options.onEvent?.(event) ?? Effect.void
-    yield* loop(
-      session,
-      {
-        buildSystem,
-        llmTools,
-        maxIterations: options.maxIterations ?? DEFAULT_MAX_ITERATIONS,
-        resolver,
-        emit,
-      },
-      0,
-      false,
-    )
+    const ctx: LoopContext = {
+      buildSystem,
+      llmTools,
+      maxIterations: options.maxIterations ?? DEFAULT_MAX_ITERATIONS,
+      resolver,
+      emit,
+    }
+
+    // Preflight: compact once before the turn if estimated pressure is high.
+    // A failed auto compaction disables auto for the session (manual stays
+    // available) and surfaces a recoverable error, but the turn proceeds.
+    const shape: RequestShape = { system: buildSystem(), tools: llmTools }
+    if (shouldAutoCompact(session, shape, defaultTokenCounter)) {
+      yield* compactSession(session, { reason: "auto" }).pipe(
+        Effect.catchAll((error) =>
+          Effect.sync(() => {
+            Object.assign(session.compaction, {
+              autoEnabled: false,
+              failureReason: error.message,
+            })
+          }).pipe(
+            Effect.andThen(
+              emit({
+                type: "agent-error",
+                source: "agent",
+                message: `Automatic compaction failed: ${error.message}`,
+                recoverable: true,
+              }),
+            ),
+          ),
+        ),
+      )
+    }
+
+    yield* runWithOverflowRetry(session, ctx)
   })
+
+const isContextOverflowError = (error: AgentError | LLMError): error is LLMError =>
+  error._tag === "LLMError" && error.reason === "context-length-exceeded"
+
+/**
+ * Runs the loop, and on a provider context-overflow runs one full compaction
+ * (reason `overflow`) and retries the turn once. A failed compaction re-surfaces
+ * the original overflow; a second overflow after the retry propagates as the
+ * typed error.
+ */
+const runWithOverflowRetry = (
+  session: SessionState,
+  ctx: LoopContext,
+): Effect.Effect<void, AgentError | LLMError, LLMClientService | ToolContext | ToolRegistry> =>
+  loop(session, ctx, 0, false).pipe(
+    Effect.catchIf(isContextOverflowError, (overflow) =>
+      compactSession(session, { reason: "overflow" }).pipe(
+        Effect.catchAll(() => Effect.fail(overflow)),
+        Effect.andThen(loop(session, ctx, 0, false)),
+      ),
+    ),
+  )
 
 const loop = (
   session: SessionState,

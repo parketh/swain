@@ -14,6 +14,7 @@ import type {
   UserMessage,
 } from "../schema"
 import { ContentId, LLMError, renderCompaction, renderModelSwitch, ToolCallId } from "../schema"
+import { isContextOverflow } from "../transport/http"
 import type { ToolInputAssembler } from "./tool-input"
 import { ToolInput } from "./tool-input"
 
@@ -438,6 +439,13 @@ const stopBlock = (
 const handleError = (chunk: WireChunk): Effect.Effect<Array<LLMEvent>, LLMError> => {
   const errorType = chunk.error?.type ?? "unknown_error"
   const message = chunk.error?.message ?? "provider stream error"
+  // A too-long prompt arrives as an invalid_request_error; normalize it so the
+  // agent can compact and retry rather than treating it as a hard bad request.
+  if (isContextOverflow(message)) {
+    return Effect.fail(
+      new LLMError({ reason: "context-length-exceeded", message, retryable: false }),
+    )
+  }
   const fatal = FATAL_ERROR_REASONS[errorType]
   if (fatal !== undefined) {
     return Effect.fail(new LLMError({ reason: fatal.reason, message, retryable: fatal.retryable }))

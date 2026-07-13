@@ -157,6 +157,24 @@ describe("Http.streamSseJson", () => {
     expect((await runFailure(request, mk(400))).reason).toBe("invalid-request")
   })
 
+  test("a 400 describing a context overflow maps to context-length-exceeded", async () => {
+    const layer = stubClient((request) =>
+      Effect.succeed(
+        HttpClientResponse.fromWeb(
+          request,
+          new Response(
+            '{"error":{"message":"prompt is too long: 250000 tokens > 200000 maximum"}}',
+            {
+              status: 400,
+            },
+          ),
+        ),
+      ),
+    )
+    const request = Http.prepareJson({ url: "https://api.example.com/x", body: {} })
+    expect((await runFailure(request, layer)).reason).toBe("context-length-exceeded")
+  })
+
   test("network failures map to network-error without leaking HttpClientError", async () => {
     const layer = stubClient((request) =>
       Effect.fail(

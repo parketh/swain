@@ -110,6 +110,15 @@ describe("compaction", () => {
     expect(isValidlyPaired(state.messages)).toBe(true)
   })
 
+  test("manual compaction runs even when auto compaction is disabled", async () => {
+    const state = session(transcript())
+    Object.assign(state.compaction, { autoEnabled: false, failureReason: "earlier failure" })
+    await run(state, { reason: "manual", tailBudget: 20 })
+    expect(state.compaction.summary).toBe(summaryText)
+    // Manual compaction must not re-enable auto.
+    expect(state.compaction.autoEnabled).toBe(false)
+  })
+
   test("compaction invalidates the context-usage snapshot", async () => {
     const state = session(transcript())
     state.contextUsage = { activeContextTokens: 1234, measuredAtMessageIndex: 6 }

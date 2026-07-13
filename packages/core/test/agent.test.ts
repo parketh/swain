@@ -9,6 +9,7 @@ import {
   LLMClient,
   LLMError,
   LLMTurnSummary,
+  Message,
   ModelId,
   ProviderId,
   ToolCallId,
@@ -570,5 +571,132 @@ describe("session persistence", () => {
     expect(reloaded.messages).toEqual(original.messages)
     expect(reloaded.counters).toEqual({ turns: 2, inputTokens: 11, outputTokens: 7 })
     expect(reloaded.fileState.size).toBe(0)
+  })
+})
+
+describe("runTurn compaction", () => {
+  const limitedModel: Model = {
+    id: ModelId.make("limited"),
+    provider: ProviderId.make("test"),
+    limits: { contextWindow: 10_000, maxOutputTokens: 1_000 },
+    streamTurn: () => Stream.empty,
+  }
+
+  const summaryText = "## Goal\ncompacted"
+  const summaryTurn: ReadonlyArray<LLMEvent> = [
+    { type: "text-start", contentId: ContentId.make("sum") },
+    { type: "text-delta", contentId: ContentId.make("sum"), text: summaryText },
+    { type: "text-end", contentId: ContentId.make("sum") },
+    { type: "finish", reason: "stop", usage: { inputTokens: 1, outputTokens: 1 } },
+  ]
+
+  const conversation = (): Array<Message> => [
+    Message.user("first"),
+    Message.assistant([{ type: "text", text: "one" }]),
+    Message.user("second"),
+    Message.assistant([{ type: "text", text: "two" }]),
+  ]
+
+  const limitedSession = (): SessionState =>
+    createSessionState({
+      workingDirectory: "/work",
+      model: limitedModel,
+      currentDate: "2026-07-04",
+      messages: conversation(),
+    })
+
+  const overflow = new LLMError({
+    reason: "context-length-exceeded",
+    message: "prompt is too long",
+    retryable: false,
+  })
+
+  const compactionBlocks = (state: SessionState) =>
+    state.messages.flatMap((m) => m.content.filter((b) => b.type === "compaction"))
+
+  test("auto-compacts before the turn when pressure exceeds 90% of the window", async () => {
+    const state = limitedSession()
+    // Effective window = 9_000; 90% = 8_100. Snapshot pushes us over.
+    state.contextUsage = { activeContextTokens: 8_500, measuredAtMessageIndex: 4 }
+    submitPrompt(state, "third")
+    await Effect.runPromise(
+      runTurn(state).pipe(
+        Effect.provide(scriptedLLMClient([summaryTurn, textTurn("answer")])),
+        Effect.provide(toolContextLayer(state)),
+        Effect.provide(toolRegistryLayer([])),
+      ),
+    )
+    expect(state.compaction.summary).toBe(summaryText)
+    expect(compactionBlocks(state)).toHaveLength(1)
+  })
+
+  test("disables auto compaction after one auto failure but still runs the turn", async () => {
+    const state = limitedSession()
+    state.contextUsage = { activeContextTokens: 8_500, measuredAtMessageIndex: 4 }
+    submitPrompt(state, "third")
+    // The summary call returns no text -> empty-summary compaction failure.
+    const emptyTurn: ReadonlyArray<LLMEvent> = [{ type: "finish", reason: "stop" }]
+    await Effect.runPromise(
+      runTurn(state).pipe(
+        Effect.provide(scriptedLLMClient([emptyTurn, textTurn("answer")])),
+        Effect.provide(toolContextLayer(state)),
+        Effect.provide(toolRegistryLayer([])),
+      ),
+    )
+    expect(state.compaction.autoEnabled).toBe(false)
+    expect(state.compaction.failureReason).toBeDefined()
+    // The turn still completed on the original transcript.
+    expect(state.messages.at(-1)).toEqual({
+      role: "assistant",
+      content: [{ type: "text", text: "answer" }],
+    })
+  })
+
+  test("a context overflow triggers one compaction and retries the turn", async () => {
+    const state = limitedSession()
+    submitPrompt(state, "third")
+    let streamCount = 0
+    const layer = Layer.succeed(LLMClient.Service, {
+      request: LLMClient.request,
+      streamTurn: () => {
+        streamCount += 1
+        return streamCount === 1
+          ? Stream.fail(overflow)
+          : Stream.fromIterable(textTurn("recovered"))
+      },
+      generateTurn: () => Effect.succeed({ events: [...summaryTurn] }),
+    })
+    await Effect.runPromise(
+      runTurn(state).pipe(
+        Effect.provide(layer),
+        Effect.provide(toolContextLayer(state)),
+        Effect.provide(toolRegistryLayer([])),
+      ),
+    )
+    expect(state.compaction.summary).toBe(summaryText)
+    expect(state.messages.at(-1)).toEqual({
+      role: "assistant",
+      content: [{ type: "text", text: "recovered" }],
+    })
+  })
+
+  test("a second overflow after retry surfaces the typed error", async () => {
+    const state = limitedSession()
+    submitPrompt(state, "third")
+    const layer = Layer.succeed(LLMClient.Service, {
+      request: LLMClient.request,
+      streamTurn: () => Stream.fail(overflow),
+      generateTurn: () => Effect.succeed({ events: [...summaryTurn] }),
+    })
+    const error = await Effect.runPromise(
+      runTurn(state).pipe(
+        Effect.provide(layer),
+        Effect.provide(toolContextLayer(state)),
+        Effect.provide(toolRegistryLayer([])),
+        Effect.flip,
+      ),
+    )
+    expect(error).toBeInstanceOf(LLMError)
+    if (error instanceof LLMError) expect(error.reason).toBe("context-length-exceeded")
   })
 })
