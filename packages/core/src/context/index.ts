@@ -19,3 +19,10 @@ export {
   selectCut,
 } from "./compaction"
 export { defaultTokenCounter, type TokenCounter } from "./token-counter"
+export {
+  TOOL_RESULT_PREVIEW_CHARS,
+  TOOL_RESULT_THRESHOLD,
+  type ToolResultStore,
+  ToolResultStoreService,
+  toolResultStoreLayer,
+} from "./tool-result-storage"

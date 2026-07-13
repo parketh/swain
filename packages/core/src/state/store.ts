@@ -44,6 +44,16 @@ const SessionMetadata = Schema.Struct({
 })
 type SessionMetadata = typeof SessionMetadata.Type
 
+const ToolResultReplacement = Schema.Struct({
+  toolCallId: Schema.String,
+  name: Schema.optional(Schema.String),
+  path: Schema.String,
+  originalBytes: Schema.Number,
+  previewBytes: Schema.Number,
+  createdAt: Schema.String,
+})
+const ToolResultSidecar = Schema.Array(ToolResultReplacement)
+
 const sessionPath = (sessionsDir: string, sessionId: string): string =>
   NodePath.join(sessionsDir, sessionId)
 
@@ -83,6 +93,13 @@ export const saveSession = (
       NodePath.join(dir, "messages.jsonl"),
       transcript.length > 0 ? `${transcript}\n` : "",
     )
+
+    if (session.toolResults.length > 0) {
+      yield* fs.writeFileString(
+        NodePath.join(dir, "tool-results.json"),
+        JSON.stringify(session.toolResults, null, 2),
+      )
+    }
   })
 
 export interface LoadSessionInput {
@@ -146,6 +163,13 @@ export const loadSession = (
       Schema.decode(Schema.parseJson(Message))(line),
     )
 
+    // A missing or unreadable sidecar degrades to no replacement metadata; the
+    // transcript still carries the preview/path wrapper, so the model is intact.
+    const toolResults = yield* fs.readFileString(NodePath.join(dir, "tool-results.json")).pipe(
+      Effect.flatMap(Schema.decode(Schema.parseJson(ToolResultSidecar))),
+      Effect.orElseSucceed(() => []),
+    )
+
     const modelRef = input.modelRef ?? metadata.modelRef
     const state = createSessionState({
       sessionId: metadata.sessionId,
@@ -158,6 +182,7 @@ export const loadSession = (
       currentDate: metadata.currentDate,
       messages,
       compaction: metadata.compaction,
+      toolResults,
     })
     state.counters.turns = metadata.counters.turns
     state.counters.inputTokens = metadata.counters.inputTokens

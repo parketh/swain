@@ -85,6 +85,20 @@ export interface SessionCompactionState {
   readonly summary?: string
 }
 
+/**
+ * Metadata for a tool result whose oversized body was persisted to disk before
+ * it could bloat the transcript. The model-visible result is a preview plus the
+ * `path`; the full body lives at `path`.
+ */
+export interface ToolResultReplacement {
+  readonly toolCallId: string
+  readonly name?: string
+  readonly path: string
+  readonly originalBytes: number
+  readonly previewBytes: number
+  readonly createdAt: string
+}
+
 export interface SessionState {
   readonly sessionId: string
   readonly workingDirectory: string
@@ -94,6 +108,8 @@ export interface SessionState {
   readonly messages: Array<Message>
   readonly counters: SessionCounters
   readonly compaction: SessionCompactionState
+  /** Persisted oversized tool-result bodies, keyed durably by tool call id. */
+  readonly toolResults: Array<ToolResultReplacement>
   /** Undefined until the first provider usage is recorded. */
   contextUsage?: ContextUsageState
 }
@@ -110,6 +126,7 @@ export interface CreateSessionInput {
   readonly currentDate: string
   readonly messages?: ReadonlyArray<Message>
   readonly compaction?: SessionCompactionState
+  readonly toolResults?: ReadonlyArray<ToolResultReplacement>
 }
 
 export const createSessionState = (input: CreateSessionInput): SessionState => ({
@@ -128,6 +145,7 @@ export const createSessionState = (input: CreateSessionInput): SessionState => (
   messages: [...(input.messages ?? [])],
   counters: { turns: 0, inputTokens: 0, outputTokens: 0 },
   compaction: input.compaction ?? { autoEnabled: true },
+  toolResults: [...(input.toolResults ?? [])],
 })
 
 export interface ModelTransition {

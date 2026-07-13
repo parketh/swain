@@ -10,7 +10,7 @@ import type {
 } from "@swain/llms"
 import { LLMClient, LLMTurnSummary, Message } from "@swain/llms"
 import { Context, Effect, Either, Option, Schema, Stream } from "effect"
-import { recordContextUsage } from "./context"
+import { recordContextUsage, ToolResultStoreService } from "./context"
 import { AgentError } from "./errors"
 import { type ModelResolver, ModelResolverService } from "./model-resolver"
 import { assembleSystemPrompt, type RouterPromptTarget } from "./prompt"
@@ -230,38 +230,50 @@ const resolveSwitch = (
     return { kind: "switched", meta }
   })
 
-/** Executes tool calls, emitting lifecycle events, and returns their results. */
+/**
+ * Executes tool calls, emitting lifecycle events, and returns their results.
+ * Oversized result bodies are persisted to disk (replaced with a preview + path)
+ * when a `ToolResultStoreService` is provided, so they never enter the transcript
+ * as full model-visible text; without the service, results pass through.
+ */
 const executeTools = (
+  session: SessionState,
   toolCalls: ReadonlyArray<ToolCall>,
   emit: (event: AgentEvent) => Effect.Effect<void>,
 ): Effect.Effect<Array<ToolResultContent>, never, ToolContext | ToolRegistry> =>
-  Effect.forEach(toolCalls, (toolCall) =>
-    emit({
-      type: "tool-execution-start",
-      name: toolCall.name,
-      toolCallId: toolCall.toolCallId,
-      input: toolCall.input,
-    }).pipe(
-      Effect.andThen(
-        callTool(toolCall, (text) =>
+  Effect.gen(function* () {
+    const store = yield* Effect.serviceOption(ToolResultStoreService)
+    return yield* Effect.forEach(toolCalls, (toolCall) =>
+      emit({
+        type: "tool-execution-start",
+        name: toolCall.name,
+        toolCallId: toolCall.toolCallId,
+        input: toolCall.input,
+      }).pipe(
+        Effect.andThen(
+          callTool(toolCall, (text) =>
+            emit({
+              type: "tool-execution-delta",
+              name: toolCall.name,
+              toolCallId: toolCall.toolCallId,
+              text,
+            }),
+          ),
+        ),
+        Effect.tap((result) =>
           emit({
-            type: "tool-execution-delta",
+            type: "tool-execution-end",
             name: toolCall.name,
             toolCallId: toolCall.toolCallId,
-            text,
+            isError: result.isError === true,
           }),
         ),
+        Effect.flatMap((result) =>
+          Option.isSome(store) ? store.value.persist(session, result) : Effect.succeed(result),
+        ),
       ),
-      Effect.tap((result) =>
-        emit({
-          type: "tool-execution-end",
-          name: toolCall.name,
-          toolCallId: toolCall.toolCallId,
-          isError: result.isError === true,
-        }),
-      ),
-    ),
-  )
+    )
+  })
 
 /**
  * Runs the agent loop over the session: assemble the system prompt, stream an
@@ -428,7 +440,7 @@ const loop = (
         ]),
       )
       const siblings = summary.toolCalls.filter((call) => call.name !== SWITCH_MODEL_NAME)
-      const siblingResults = yield* executeTools(siblings, ctx.emit)
+      const siblingResults = yield* executeTools(session, siblings, ctx.emit)
       siblings.forEach((call, index) => resultById.set(call.toolCallId, siblingResults[index]!))
       // Preserve the assistant's original tool_call order in the results.
       const results = summary.toolCalls.map((call) => resultById.get(call.toolCallId)!)
@@ -436,7 +448,7 @@ const loop = (
       return yield* loop(session, ctx, iteration + 1, switched)
     }
 
-    const results = yield* executeTools(summary.toolCalls, ctx.emit)
+    const results = yield* executeTools(session, summary.toolCalls, ctx.emit)
     session.messages.push(Message.user(results))
     return yield* loop(session, ctx, iteration + 1, switched)
   })

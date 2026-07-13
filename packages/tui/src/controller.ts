@@ -32,6 +32,7 @@ import {
   type Task,
   TaskStore,
   type TaskStoreService,
+  toolResultStoreLayer,
 } from "@swain/core"
 import type { AskHandler, AskInput, AskResult } from "@swain/core/tools"
 import type { GenerationOptions, ProviderOptions } from "@swain/llms"
@@ -679,6 +680,7 @@ export const makeController = (deps: ControllerDeps): Controller => {
       }),
     }).pipe(
       Effect.provide(ctxLayer),
+      Effect.provide(toolResultStoreLayer(pathJoin(sessionDirFor(session), "tool-results"))),
       Effect.provide(env.layers),
       Effect.provide(modelResolverLayer(() => config)),
     )

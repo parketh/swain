@@ -25,7 +25,12 @@ export {
   recordContextUsage,
   selectCut,
   shouldAutoCompact,
+  TOOL_RESULT_PREVIEW_CHARS,
+  TOOL_RESULT_THRESHOLD,
   type TokenCounter,
+  type ToolResultStore,
+  ToolResultStoreService,
+  toolResultStoreLayer,
 } from "./context"
 export { AgentError, ToolError, type ToolErrorReason } from "./errors"
 export {
@@ -81,6 +86,7 @@ export {
   type SessionState,
   type SystemContext,
   saveSession,
+  type ToolResultReplacement,
 } from "./state"
 export {
   type ChildRegistryOptions,

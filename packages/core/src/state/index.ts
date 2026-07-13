@@ -16,6 +16,7 @@ export {
   type SessionModelRef,
   type SessionState,
   type SystemContext,
+  type ToolResultReplacement,
   withFileLock,
 } from "./session"
 export { type LoadSessionInput, loadSession, readPersistedModelRef, saveSession } from "./store"
