@@ -5,7 +5,12 @@ import { join } from "node:path"
 import { BunContext } from "@effect/platform-bun"
 import { Effect } from "effect"
 import { loadConfig, saveConfig, type TuiConfig } from "../src/config"
-import { enabledRouterTargets, routerSettings, routerStatus } from "../src/router"
+import {
+  enabledRouterTargets,
+  routerPromptTargets,
+  routerSettings,
+  routerStatus,
+} from "../src/router"
 
 const withFs = <A, E>(effect: Effect.Effect<A, E, BunContext.BunContext>) =>
   Effect.runPromise(effect.pipe(Effect.provide(BunContext.layer)))
@@ -99,7 +104,7 @@ describe("routerStatus", () => {
     ).toBe("off")
   })
 
-  test("inactive when on but fewer than two enabled connected targets", () => {
+  test("needs-setup when on but fewer than two enabled connected targets", () => {
     const config: TuiConfig = {
       providers: { openai: { apiKey: "sk-o" } },
       router: {
@@ -115,7 +120,23 @@ describe("routerStatus", () => {
       },
     }
     expect(enabledRouterTargets(config).length).toBe(1)
-    expect(routerStatus(config)).toBe("inactive")
+    expect(routerStatus(config)).toBe("needs-setup")
+  })
+
+  test("needs-setup when two enabled targets collapse to one on the Pareto frontier", () => {
+    // Only Flash enabled: its `high` (cap 37, cost 0.02) is dominated by `max`
+    // (cap 40, same cost), so two enabled targets reduce to one the model sees.
+    const config: TuiConfig = {
+      providers: { deepseek: { apiKey: "sk-d" } },
+      router: {
+        enabled: true,
+        disabledModels: ["deepseek:deepseek-v4-pro"],
+        disabledTargets: [],
+      },
+    }
+    expect(enabledRouterTargets(config).length).toBe(2)
+    expect(routerPromptTargets(config).length).toBe(1)
+    expect(routerStatus(config)).toBe("needs-setup")
   })
 
   test("on when two or more enabled connected targets exist", () => {
