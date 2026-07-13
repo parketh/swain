@@ -1,6 +1,6 @@
 import type { AgentEvent } from "@swain/core"
 import type { Message } from "@swain/llms"
-import { Box, Text } from "ink"
+import { Box, type DOMElement, Text } from "ink"
 import type { ReactNode } from "react"
 import { theme } from "../theme"
 import { Markdown } from "./markdown"
@@ -416,9 +416,16 @@ const NodeRow = ({ node }: { node: Node }) => {
 export interface TranscriptProps {
   readonly messages: ReadonlyArray<Message>
   readonly draft: DraftState
+  /**
+   * Registers the wrapper element and text of each rendered user prompt so the
+   * scrollback tracker can pin the current turn's prompt at the viewport top.
+   * The wrapper's `getComputedTop()` is content-relative (single-column parent),
+   * matching the scroll offset. Called with `null` on unmount to deregister.
+   */
+  readonly registerPrompt?: (index: number, el: DOMElement | null, text: string) => void
 }
 
-export const Transcript = ({ messages, draft }: TranscriptProps) => {
+export const Transcript = ({ messages, draft, registerPrompt }: TranscriptProps) => {
   const nodes = collapseItems(buildItems(messages, draft))
   return (
     <Box flexDirection="column">
@@ -428,6 +435,11 @@ export const Transcript = ({ messages, draft }: TranscriptProps) => {
           key={i}
           flexDirection="column"
           marginTop={i > 0 ? 1 : 0}
+          ref={
+            registerPrompt !== undefined && node.kind === "text" && node.role === "user"
+              ? (el) => registerPrompt(i, el, node.text)
+              : undefined
+          }
         >
           <NodeRow node={node} />
         </Box>

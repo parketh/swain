@@ -1,6 +1,6 @@
 import { appendFileSync } from "node:fs"
 import { Box, type DOMElement, measureElement, Text, useApp, useInput, usePaste } from "ink"
-import { useEffect, useReducer, useRef, useState } from "react"
+import { useCallback, useEffect, useReducer, useRef, useState } from "react"
 import { parseCommand } from "../commands"
 import type { ProviderConfig } from "../config"
 import type { Controller, PendingApproval, PendingQuestion } from "../controller"
@@ -97,6 +97,16 @@ export const App = ({ controller }: AppProps) => {
   const [scrollBack, setScrollBack] = useState(0)
   const viewportRef = useRef<DOMElement | null>(null)
   const transcriptRef = useRef<DOMElement | null>(null)
+  // Wrapper element + text of every rendered user prompt, keyed by node index.
+  // Read post-layout to find which prompt has scrolled above the viewport top.
+  const promptEls = useRef(new Map<number, { el: DOMElement; text: string }>())
+  const registerPrompt = useCallback((index: number, el: DOMElement | null, text: string): void => {
+    if (el !== null) promptEls.current.set(index, { el, text })
+    else promptEls.current.delete(index)
+  }, [])
+  // The user prompt pinned at the viewport top while scrolled back — the turn
+  // whose output currently fills the top of the screen (undefined at the tail).
+  const [sticky, setSticky] = useState<string | undefined>(undefined)
   const [overlayIndex, setOverlayIndex] = useState(0)
   const [question, setQuestion] = useState<PendingQuestion | undefined>(undefined)
   const [approval, setApproval] = useState<PendingApproval | undefined>(undefined)
@@ -564,6 +574,32 @@ export const App = ({ controller }: AppProps) => {
     draft.tools.length === 0 &&
     draft.errors.length === 0
 
+  // Recompute the pinned prompt after layout: find the last user prompt whose
+  // wrapper has scrolled strictly above the viewport top (its ❯ is off-screen),
+  // so the header never duplicates a prompt still visible on screen. Runs post-
+  // render (Yoga tops are only valid then) and re-measures on scroll/content
+  // change; setState no-ops when unchanged, so it can't loop.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: deps are re-measure triggers, not read values
+  useEffect(() => {
+    if (scrollBack <= 0 || isNewSession) {
+      setSticky(undefined)
+      return
+    }
+    const content = transcriptRef.current ? measureElement(transcriptRef.current).height : 0
+    const viewport = viewportRef.current ? measureElement(viewportRef.current).height : 0
+    const topOffset = content - viewport - scrollBack
+    let text: string | undefined
+    let bestTop = -1
+    for (const { el, text: t } of promptEls.current.values()) {
+      const top = el.yogaNode?.getComputedTop() ?? -1
+      if (top >= 0 && top < topOffset && top >= bestTop) {
+        bestTop = top
+        text = t
+      }
+    }
+    setSticky((prev) => (prev === text ? prev : text))
+  }, [scrollBack, isNewSession, rows, columns, state.session.messages, draft])
+
   // While scrolling back through history, label the prompt with its position;
   // at the live draft (cursor at the end) there is no label.
   const historyTotal = controller.getHistory().length
@@ -604,9 +640,32 @@ export const App = ({ controller }: AppProps) => {
             bottom={-scrollBack}
             flexDirection="column"
           >
-            <Transcript messages={state.session.messages} draft={draft} />
+            <Transcript
+              messages={state.session.messages}
+              draft={draft}
+              registerPrompt={registerPrompt}
+            />
           </Box>
         )}
+        {/* Pinned prompt: while scrolled back, the current turn's prompt sticks
+            to the viewport top so the answer on screen keeps its question.
+            Drawn after (above) the transcript so it covers the top row. */}
+        {sticky !== undefined ? (
+          <Box
+            position="absolute"
+            top={0}
+            left={0}
+            width={columns}
+            backgroundColor={theme.promptBg}
+          >
+            <Box minWidth={2} flexShrink={0}>
+              <Text color={theme.primary}>{">"}</Text>
+            </Box>
+            <Text color={theme.primary} wrap="truncate-end">
+              {sticky.replace(/\s+/g, " ").trim()}
+            </Text>
+          </Box>
+        ) : null}
       </Box>
       {/* Pinned bottom: the prompt + status stay in flow, while any overlay is
           absolutely positioned to float directly above them — drawn on top of
