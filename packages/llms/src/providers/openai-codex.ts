@@ -1,5 +1,5 @@
 import type { HttpClient } from "@effect/platform"
-import { Effect, Stream } from "effect"
+import { Deferred, Effect, Ref, Stream } from "effect"
 import type { OpenAICodexOptions, OpenAICodexRequest } from "../protocols"
 import { OpenAICodexResponses } from "../protocols"
 import type { LLMRequest, Model, ProviderOptions } from "../schema"
@@ -135,6 +135,40 @@ const refreshAccessToken = (
     }),
   )
 
+/**
+ * In-flight refreshes keyed by refresh token. Concurrent turns (e.g. parallel
+ * subagents sharing a Codex model near token expiry) coalesce into a single
+ * token exchange instead of racing — OAuth refresh tokens rotate, so two
+ * parallel refreshes would invalidate each other and fail a turn.
+ */
+const refreshGate = Ref.unsafeMake<
+  ReadonlyMap<string, Deferred.Deferred<RefreshedCodexCredentials, LLMError>>
+>(new Map())
+
+/** Single-flights `refreshAccessToken` per refresh token; awaiters share the owner's result. */
+const sharedRefresh = (
+  refreshToken: string,
+): Effect.Effect<RefreshedCodexCredentials, LLMError, HttpClient.HttpClient> =>
+  Effect.gen(function* () {
+    const mine = yield* Deferred.make<RefreshedCodexCredentials, LLMError>()
+    const owner = yield* Ref.modify(refreshGate, (gate) => {
+      const existing = gate.get(refreshToken)
+      if (existing !== undefined) return [existing, gate]
+      return [mine, new Map(gate).set(refreshToken, mine)]
+    })
+    if (owner !== mine) return yield* Deferred.await(owner)
+    // Capture success/failure/interruption as an Exit so the gate is always
+    // cleared and awaiters are always released, even if the owner is interrupted.
+    const exit = yield* Effect.exit(refreshAccessToken(refreshToken))
+    yield* Ref.update(refreshGate, (gate) => {
+      const next = new Map(gate)
+      next.delete(refreshToken)
+      return next
+    })
+    yield* Deferred.done(mine, exit)
+    return yield* Deferred.await(mine)
+  })
+
 interface ResolvedCredentials {
   readonly accessToken: string
   readonly accountId: string
@@ -195,7 +229,7 @@ const resolveCredentials = (
     if (raw.refreshToken === undefined || !stale) {
       return yield* normalizeCredentials(raw)
     }
-    const refreshed = yield* refreshAccessToken(raw.refreshToken)
+    const refreshed = yield* sharedRefresh(raw.refreshToken)
     if (config.onCredentialsRefreshed !== undefined) {
       const persist = config.onCredentialsRefreshed
       yield* Effect.promise(async () => {
