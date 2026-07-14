@@ -782,6 +782,23 @@ export const makeController = (deps: ControllerDeps): Controller => {
   const submitPrompt = async (text: string): Promise<void> => {
     coreSubmitPrompt(session, text)
     notify()
+    // Persist the session before running its first turn so a hung, crashed, or
+    // force-quit turn still leaves a resumable session. `listSessions` requires
+    // session.json, and the post-turn save is otherwise the first to write it —
+    // meaning a first turn that never completes vanishes from `/resume`. Only
+    // needed until the session exists on disk; later turns already have it.
+    if (persist) {
+      const marker = pathJoin(sessionDirFor(session), "session.json")
+      let exists = true
+      try {
+        statSync(marker)
+      } catch {
+        exists = false
+      }
+      if (!exists) {
+        await runtime.runPromise(saveSession(session, sessionsDirFor(session))).catch(() => {})
+      }
+    }
     await runTurnNow()
   }
 

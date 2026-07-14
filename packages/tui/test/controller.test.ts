@@ -12,7 +12,7 @@ import {
   saveSession,
 } from "@swain/core"
 import type { LLMEvent, LLMRequest, Model } from "@swain/llms"
-import { ContentId, ModelId, ProviderId, ToolCallId } from "@swain/llms"
+import { ContentId, LLMError, ModelId, ProviderId, ToolCallId } from "@swain/llms"
 import { LLMClient } from "@swain/llms/client"
 import { Effect, Layer, Stream } from "effect"
 import { sessionsDir, type TuiConfig } from "../src/config"
@@ -85,6 +85,7 @@ describe("controller", () => {
   const build = (
     llm: ReturnType<typeof scripted>,
     permissionMode: PermissionMode = "auto",
+    persist = false,
   ): Controller => {
     const session = createSessionState({
       workingDirectory: dir,
@@ -98,7 +99,7 @@ describe("controller", () => {
       config,
       configPath: join(dir, "config.json"),
       llmLayer: llm.layer,
-      persist: false,
+      persist,
     })
     return controller
   }
@@ -164,6 +165,26 @@ describe("controller", () => {
     const block = last.content[0]
     expect(block?.type).toBe("compaction")
     if (block?.type === "compaction") expect(block.summary).toBe(summary)
+  })
+
+  test("a first turn that fails still leaves the session resumable", async () => {
+    // A stream that fails mid-turn: the post-turn save is skipped (the join
+    // rejects), so only the persist-on-submit save can make the session listable.
+    const failing = {
+      requests: [] as Array<LLMRequest>,
+      layer: Layer.succeed(LLMClient.Service, {
+        request: LLMClient.request,
+        streamTurn: () =>
+          Stream.fail(new LLMError({ reason: "server-error", message: "boom", retryable: false })),
+        generateTurn: () =>
+          Effect.fail(new LLMError({ reason: "server-error", message: "boom", retryable: false })),
+      }),
+    }
+    const c = build(failing, "auto", true)
+    await c.submitPrompt("investigate the hang")
+    const listed = c.listSessions()
+    expect(listed).toHaveLength(1)
+    expect(listed[0]?.firstPrompt).toBe("investigate the hang")
   })
 
   test("permission cycling follows ask -> auto -> plan -> ask", () => {
