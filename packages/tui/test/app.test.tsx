@@ -161,7 +161,7 @@ describe("pure helpers", () => {
     )
   })
 
-  test("buildItems renders an isMeta task-notification message as a system notification", () => {
+  test("buildItems omits an isMeta task-notification message from the transcript", () => {
     const draft = { assistant: "", reasoning: "", tools: [], errors: [] }
     const messages = [
       { role: "user", content: [{ type: "text", text: "hi" }] },
@@ -179,10 +179,7 @@ describe("pure helpers", () => {
     ] as any
     const items = buildItems(messages, draft)
     expect(items[0]).toMatchObject({ kind: "text", role: "user" })
-    expect(items[1]?.kind).toBe("notification")
-    const note = items[1]
-    expect(note?.kind === "notification" && note.text).toContain("the report")
-    expect(note?.kind === "notification" && note.text).not.toContain("<task-notification>")
+    expect(items).toHaveLength(1)
   })
 
   test("buildItems does not misclassify a user-typed message starting with the tag", () => {

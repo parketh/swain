@@ -212,10 +212,6 @@ interface ErrorItem {
   readonly kind: "error"
   readonly text: string
 }
-interface NotificationItem {
-  readonly kind: "notification"
-  readonly text: string
-}
 interface SwitchItem {
   readonly kind: "switch"
   readonly from: string
@@ -227,25 +223,19 @@ interface CompactionItem {
   readonly kind: "compaction"
   readonly compactedMessages: number
 }
-type Item = TextItem | ToolItem | ErrorItem | NotificationItem | SwitchItem | CompactionItem
+type Item = TextItem | ToolItem | ErrorItem | SwitchItem | CompactionItem
 
 const switchRefKey = (ref: { provider: string; modelId: string; variant?: string }): string =>
   ref.variant !== undefined && ref.variant !== ""
     ? `${ref.provider}:${ref.modelId}:${ref.variant}`
     : `${ref.provider}:${ref.modelId}`
 
-// Subagent completions are injected as `<task-notification>` user messages so
-// the model sees them, but they are not something the user typed. They carry a
-// typed `isMeta` marker — classify on that, never on the content prefix (a user
-// prompt could legitimately start with the tag) — strip the wrapper and render
-// them as a system notification, not a user prompt.
+// Subagent completions are injected as model-visible `<task-notification>` user
+// messages, but they are internal control-plane input rather than conversation
+// history. Their typed `isMeta` marker lets the transcript omit them without
+// hiding a genuine user prompt that happens to contain the same tag.
 const isNotification = (message: { readonly role: string; readonly isMeta?: boolean }): boolean =>
   message.role === "user" && message.isMeta === true
-const stripNotification = (text: string): string =>
-  text
-    .replace(/^\s*<task-notification>\n?/, "")
-    .replace(/\n?<\/task-notification>\s*$/, "")
-    .trim()
 interface GroupNode {
   readonly kind: "group"
   readonly reads: number
@@ -301,13 +291,10 @@ export const buildItems = (
   // persisted row (whose result value is authoritative).
   const draftIds = new Set(draft.tools.map((row) => row.toolCallId))
   for (const message of list) {
+    if (isNotification(message)) continue
     for (const block of message.content ?? []) {
       if (block.type === "text") {
-        items.push(
-          isNotification(message)
-            ? { kind: "notification", text: stripNotification(block.text) }
-            : { kind: "text", role: message.role, text: block.text },
-        )
+        items.push({ kind: "text", role: message.role, text: block.text })
       } else if (block.type === "model-switch") {
         items.push({
           kind: "switch",
@@ -436,16 +423,6 @@ const NodeRow = ({ node, width }: { node: Node; width?: number }) => {
           Compacted {node.compactedMessages} earlier message
           {node.compactedMessages === 1 ? "" : "s"} into a summary
         </Text>
-      </Row>
-    )
-  }
-  if (node.kind === "notification") {
-    return (
-      <Row marker="⚑" color={theme.primaryDim}>
-        <Box flexDirection="column">
-          <Text color={theme.muted}>Subagent update</Text>
-          <Markdown>{node.text}</Markdown>
-        </Box>
       </Row>
     )
   }
