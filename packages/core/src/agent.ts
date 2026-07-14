@@ -9,7 +9,7 @@ import type {
   Usage,
 } from "@swain/llms"
 import { LLMClient, LLMTurnSummary, Message } from "@swain/llms"
-import { Context, Effect, Either, Option, Schema, Stream } from "effect"
+import { Context, Duration, Effect, Either, Option, Schedule, Schema, Stream } from "effect"
 import {
   compactSession,
   defaultTokenCounter,
@@ -43,6 +43,12 @@ import {
 type LLMClientService = Context.Tag.Identifier<typeof LLMClient.Service>
 
 const DEFAULT_MAX_ITERATIONS = 20
+
+// Bounded retry for a single LLM request that fails with a retryable error
+// (network stall, rate-limit, overload, 5xx). Intermittent provider drops
+// usually succeed on the next attempt, so a few quick retries keep a turn alive.
+const MAX_STREAM_RETRIES = 2
+const STREAM_RETRY_DELAY = Duration.seconds(1)
 
 export const submitPrompt = (session: SessionState, prompt: string, isMeta = false): void => {
   session.messages.push(Message.user(prompt, isMeta))
@@ -423,12 +429,31 @@ const loop = (
 
     // Stream events as they arrive: forward each as `llm-event` (including
     // provider-error, which is never re-emitted as `agent-error`) while still
-    // collecting them for the turn summary.
-    const collected: Array<LLMEvent> = []
-    yield* LLMClient.streamTurn(request).pipe(
-      Stream.runForEach((event) =>
-        Effect.sync(() => collected.push(event)).pipe(
-          Effect.andThen(ctx.emit({ type: "llm-event", event })),
+    // collecting them for the turn summary. A fresh buffer per attempt so a
+    // retried request never mixes partial output from a failed one.
+    const streamOnce = Effect.suspend(() => {
+      const events: Array<LLMEvent> = []
+      return LLMClient.streamTurn(request).pipe(
+        Stream.runForEach((event) =>
+          Effect.sync(() => events.push(event)).pipe(
+            Effect.andThen(ctx.emit({ type: "llm-event", event })),
+          ),
+        ),
+        Effect.as(events),
+      )
+    })
+
+    // Intermittent provider stalls (e.g. a Codex stream that never produces a
+    // response) surface as retryable errors. Retry the request a bounded number
+    // of times before giving up so a transient drop doesn't kill an otherwise
+    // healthy turn; prior iterations' tool-use is already committed to
+    // session.messages and untouched. Non-retryable errors (auth, invalid
+    // request, context overflow) fail immediately.
+    const collected = yield* streamOnce.pipe(
+      Effect.retry(
+        Schedule.recurs(MAX_STREAM_RETRIES).pipe(
+          Schedule.whileInput((error: LLMError) => error.retryable),
+          Schedule.addDelay(() => STREAM_RETRY_DELAY),
         ),
       ),
       Effect.catchAll((error) =>

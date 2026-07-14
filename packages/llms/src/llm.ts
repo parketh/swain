@@ -39,9 +39,11 @@ const request = (input: LLMRequestInput): LLMRequest => {
 /**
  * Fail a turn whose provider stream goes silent for this long instead of hanging
  * the whole loop indefinitely. Idle-based (resets on every event), so it catches
- * a stream that stalls mid-response, not just one that never starts.
+ * a stream that stalls mid-response, not just one that never starts. Healthy
+ * streams emit within ~1s and never gap more than ~10s, so 60s is ample headroom
+ * while still failing fast enough for the agent's bounded retry to recover.
  */
-const STREAM_IDLE_TIMEOUT = Duration.seconds(120)
+const STREAM_IDLE_TIMEOUT = Duration.seconds(60)
 
 const streamTurn = (
   request: LLMRequest,

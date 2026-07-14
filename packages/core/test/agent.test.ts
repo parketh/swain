@@ -349,6 +349,68 @@ describe("runTurn", () => {
     })
   })
 
+  // LLM client whose stream fails `failures` times (with a retryable or
+  // non-retryable error) before replaying `success`, counting attempts.
+  const flakyLLM = (failures: number, retryable: boolean, success: ReadonlyArray<LLMEvent>) => {
+    let calls = 0
+    return {
+      calls: () => calls,
+      layer: Layer.succeed(LLMClient.Service, {
+        request: LLMClient.request,
+        streamTurn: () => {
+          calls += 1
+          return calls <= failures
+            ? Stream.fail(
+                new LLMError({
+                  reason: retryable ? "network-error" : "invalid-request",
+                  message: "provider stalled",
+                  retryable,
+                }),
+              )
+            : Stream.fromIterable(success)
+        },
+        generateTurn: () => Effect.succeed({ events: [] }),
+      }),
+    }
+  }
+
+  const runFlaky = (flaky: ReturnType<typeof flakyLLM>, state: SessionState) =>
+    runTurn(state).pipe(
+      Effect.provide(flaky.layer),
+      Effect.provide(toolContextLayer(state)),
+      Effect.provide(toolRegistryLayer([])),
+    )
+
+  test("retries a retryable stream stall and recovers the turn", async () => {
+    const flaky = flakyLLM(1, true, textTurn("recovered"))
+    const state = session()
+    submitPrompt(state, "hi")
+    await Effect.runPromise(runFlaky(flaky, state))
+    expect(flaky.calls()).toBe(2) // one stall + one success
+    expect(state.messages.at(-1)).toEqual({
+      role: "assistant",
+      content: [{ type: "text", text: "recovered" }],
+    })
+  })
+
+  test("gives up after the retry budget and fails the turn", async () => {
+    const flaky = flakyLLM(5, true, textTurn("never"))
+    const state = session()
+    submitPrompt(state, "hi")
+    const exit = await Effect.runPromiseExit(runFlaky(flaky, state))
+    expect(exit._tag).toBe("Failure")
+    expect(flaky.calls()).toBe(3) // initial + 2 retries (MAX_STREAM_RETRIES)
+  })
+
+  test("does not retry a non-retryable error", async () => {
+    const flaky = flakyLLM(1, false, textTurn("x"))
+    const state = session()
+    submitPrompt(state, "hi")
+    const exit = await Effect.runPromiseExit(runFlaky(flaky, state))
+    expect(exit._tag).toBe("Failure")
+    expect(flaky.calls()).toBe(1) // failed once, no retry
+  })
+
   test("forwards llm events, step boundaries, and tool lifecycle to onEvent", async () => {
     const contentId = ContentId.make("c-1")
     const twoDeltaTurn: ReadonlyArray<LLMEvent> = [
