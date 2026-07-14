@@ -56,18 +56,29 @@ export const makePermissions = (
   getMode: () => PermissionMode,
   approval: Approval,
 ): Permissions => ({
-  check: (request) => {
-    switch (getMode()) {
-      case "plan":
-        return Effect.succeed(
-          request.readOnly
-            ? allow
-            : deny(`Plan mode denies the mutating tool "${request.toolName}".`),
-        )
-      case "auto":
-        return Effect.succeed(allow)
-      case "ask":
-        return request.readOnly ? Effect.succeed(allow) : approval.requestApproval(request)
-    }
-  },
+  // `Effect.suspend` defers `getMode()` into the Effect, so a throwing getter
+  // surfaces as a contained failure instead of a synchronous throw at the call
+  // site, and the gate always yields an Effect.
+  check: (request) =>
+    Effect.suspend(() => {
+      const mode = getMode()
+      switch (mode) {
+        case "plan":
+          return Effect.succeed(
+            request.readOnly
+              ? allow
+              : deny(`Plan mode denies the mutating tool "${request.toolName}".`),
+          )
+        case "auto":
+          return Effect.succeed(allow)
+        case "ask":
+          return request.readOnly ? Effect.succeed(allow) : approval.requestApproval(request)
+        default: {
+          // Unreachable per the type; a corrupted mode fails closed rather than
+          // crashing the tool. The `never` binding keeps the switch exhaustive.
+          const unknown: never = mode
+          return Effect.succeed(deny(`Unknown permission mode "${String(unknown)}"; denying.`))
+        }
+      }
+    }),
 })

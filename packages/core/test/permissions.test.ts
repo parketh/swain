@@ -85,6 +85,22 @@ describe("makePermissions", () => {
     expect(await Effect.runPromise(permissions.check(request(false)))).toEqual({ type: "allow" })
     expect(seen).toHaveLength(1)
   })
+
+  test("fails closed on an unexpected mode instead of returning undefined", async () => {
+    const permissions = makePermissions(() => "bogus" as PermissionMode, autoApproval)
+    expect(await Effect.runPromise(permissions.check(request(true)))).toEqual({
+      type: "deny",
+      reason: expect.stringContaining("bogus"),
+    })
+  })
+
+  test("a throwing getter surfaces as a contained failure, not a synchronous throw", async () => {
+    const permissions = makePermissions(() => {
+      throw new Error("boom")
+    }, autoApproval)
+    const effect = permissions.check(request(true))
+    await expect(Effect.runPromise(effect)).rejects.toThrow("boom")
+  })
 })
 
 describe("callTool coarse gate", () => {
