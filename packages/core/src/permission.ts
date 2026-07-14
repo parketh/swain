@@ -47,10 +47,17 @@ export const autoApproval: Approval = { requestApproval: () => Effect.succeed(al
  * - `plan`: read-only allowed, mutating denied.
  * - `auto`: allowed without interactive approval (validation/hard-denies run elsewhere).
  * - `ask`: read-only allowed, mutating delegated to the approval source.
+ *
+ * `getMode` is read at each `check`, not captured, so a mid-turn mode switch
+ * (Shift+Tab to `auto`) takes effect on the very next tool without rebuilding
+ * the gate.
  */
-export const makePermissions = (mode: PermissionMode, approval: Approval): Permissions => ({
+export const makePermissions = (
+  getMode: () => PermissionMode,
+  approval: Approval,
+): Permissions => ({
   check: (request) => {
-    switch (mode) {
+    switch (getMode()) {
       case "plan":
         return Effect.succeed(
           request.readOnly

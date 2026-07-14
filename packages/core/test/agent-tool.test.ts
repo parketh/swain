@@ -69,7 +69,7 @@ describe("Agent tool", () => {
     Layer.succeed(ToolContext, {
       session: createSessionState({ workingDirectory: repo, model, currentDate: "2026-07-08" }),
       abortSignal: new AbortController().signal,
-      permission: makePermissions(permissionMode, approval),
+      permission: makePermissions(() => permissionMode, approval),
     })
 
   test("with no taskId, creates and claims a task and returns a spawned result", async () => {

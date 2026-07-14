@@ -58,7 +58,7 @@ const run = (toolCall: ToolCall, state: SessionState = session): Promise<ToolRes
         Layer.succeed(ToolContext, {
           session: state,
           abortSignal: new AbortController().signal,
-          permission: makePermissions(state.systemContext.permissionMode, autoApproval),
+          permission: makePermissions(() => state.systemContext.permissionMode, autoApproval),
         }),
       ),
       Effect.provide(toolRegistryLayer(tools)),

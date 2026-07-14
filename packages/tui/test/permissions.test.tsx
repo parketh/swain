@@ -129,14 +129,14 @@ describe("permission gate", () => {
 
   test("ask mode routes an outside-cwd write to the approval prompt", async () => {
     const { approval, seen } = record()
-    await Effect.runPromise(makePermissions("ask", approval).check(mutatingRequest))
+    await Effect.runPromise(makePermissions(() => "ask", approval).check(mutatingRequest))
     expect(seen).toHaveLength(1)
   })
 
   test("auto mode allows an outside-cwd write without prompting", async () => {
     const { approval, seen } = record()
     const decision = await Effect.runPromise(
-      makePermissions("auto", approval).check(mutatingRequest),
+      makePermissions(() => "auto", approval).check(mutatingRequest),
     )
     expect(seen).toHaveLength(0)
     expect(decision.type).toBe("allow")

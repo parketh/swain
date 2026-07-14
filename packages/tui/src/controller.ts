@@ -645,12 +645,7 @@ export const makeController = (deps: ControllerDeps): Controller => {
     notify()
     const abort = new AbortController()
     currentAbort = abort
-    const ctxLayer = toolContextLayer(
-      session,
-      session.systemContext.permissionMode,
-      approval,
-      abort.signal,
-    )
+    const ctxLayer = toolContextLayer(session, approval, abort.signal)
     const effect = runTurn(session, {
       onEvent: (event) =>
         Effect.sync(() => {
