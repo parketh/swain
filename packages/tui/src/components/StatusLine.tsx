@@ -54,7 +54,7 @@ export const StatusLine = ({
     <Text color={ROUTER_COLOR[routerStatus]}>router {ROUTER_LABEL[routerStatus]}</Text>
     <Text color={theme.muted}>
       {" · "}
-      {formatTokens(usage.contextTokens)} ctx
+      {formatTokens(usage.contextTokens)} tok
       {usage.costUsd !== undefined ? ` (${formatCost(usage.costUsd)})` : ""}
     </Text>
     {compacted === true ? <Text color={theme.muted}> · compacted</Text> : null}
