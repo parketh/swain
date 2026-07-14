@@ -54,7 +54,7 @@ export const StatusLine = ({
     <Text color={ROUTER_COLOR[routerStatus]}>router {ROUTER_LABEL[routerStatus]}</Text>
     <Text color={theme.muted}>
       {" · "}
-      {usage.totalTokens} tok
+      {formatTokens(usage.contextTokens)} ctx
       {usage.costUsd !== undefined ? ` (${formatCost(usage.costUsd)})` : ""}
     </Text>
     {compacted === true ? <Text color={theme.muted}> · compacted</Text> : null}
@@ -65,3 +65,7 @@ export const StatusLine = ({
 // Sub-cent costs need more precision than dollars; scale decimals to magnitude.
 const formatCost = (cost: number): string =>
   cost >= 1 ? `$${cost.toFixed(2)}` : `$${cost.toFixed(4)}`
+
+// Compact token counts: 14200 → "14.2k", 900 → "900".
+const formatTokens = (tokens: number): string =>
+  tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : String(tokens)
