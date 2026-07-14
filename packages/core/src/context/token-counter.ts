@@ -20,11 +20,15 @@ export interface TokenCounter {
 // context pressure is the dangerous direction.
 const MESSAGE_OVERHEAD = 4
 
-/** ~4 characters per token for natural-language text. */
+/** ~4 characters per token, the working average for both prose and code. */
 const estimateText = (text: string): number => Math.ceil(text.length / 4)
 
-/** ~2 characters per token for dense JSON tool inputs/results. */
-const estimateJson = (value: unknown): number => Math.ceil(JSON.stringify(value).length / 2)
+/**
+ * ~4 characters per token for JSON tool inputs/results too. The earlier ~2
+ * heuristic roughly doubled tool-result pressure versus real BPE tokenization,
+ * which drove auto-compaction to trigger far too early on read-heavy turns.
+ */
+const estimateJson = (value: unknown): number => Math.ceil(JSON.stringify(value).length / 4)
 
 const estimateMessage = (message: Message): number => {
   let total = MESSAGE_OVERHEAD
