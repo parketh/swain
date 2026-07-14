@@ -145,10 +145,12 @@ export const App = ({ controller }: AppProps) => {
   }, [runningAgents])
 
   const state = controller.getState()
-  // The task panel shows only the parent's own to-do items; delegated tasks
-  // (owner set) belong to a subagent and appear in the subagent monitor instead.
+  // The task panel shows the parent's own to-do items, including ones the parent
+  // owns itself; only tasks delegated to a subagent (`agentType` set by claim)
+  // belong to the subagent monitor instead. `owner` alone is not the signal — the
+  // parent may own its own tasks and still track them here.
   const allTasks = controller.getTasks()
-  const tasks = allTasks.filter((t) => t.owner === undefined)
+  const tasks = allTasks.filter((t) => t.agentType === undefined)
   const subagents = controller.getSubagents()
   // Show the task panel only while there is outstanding work; once everything is
   // completed/failed it collapses (tasks stay persisted for resume/history).
