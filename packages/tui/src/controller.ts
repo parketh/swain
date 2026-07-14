@@ -648,6 +648,22 @@ export const makeController = (deps: ControllerDeps): Controller => {
 
   let currentAbort: AbortController | undefined
   let currentFiber: Fiber.RuntimeFiber<void, unknown> | undefined
+  let persistingProgress = false
+
+  // Persist mid-turn progress (completed, validly-paired iterations) so a hung,
+  // crashed, or force-quit turn leaves its tool-use on disk for resume, not just
+  // the initial prompt. Fire-and-forget and single-flight; the post-turn save is
+  // authoritative.
+  const persistProgress = (): void => {
+    if (!persist || persistingProgress) return
+    persistingProgress = true
+    void runtime
+      .runPromise(saveSession(session, sessionsDirFor(session)))
+      .catch(() => {})
+      .finally(() => {
+        persistingProgress = false
+      })
+  }
 
   const runTurnNow = async (): Promise<void> => {
     const env = await ensureSessionEnv()
@@ -665,6 +681,10 @@ export const makeController = (deps: ControllerDeps): Controller => {
       onEvent: (event) =>
         Effect.sync(() => {
           emitEvent(event)
+          // At each iteration boundary the prior iterations (assistant + their
+          // tool results) are fully paired on session.messages — persist them so
+          // a stall mid-next-iteration still leaves the completed tool-use.
+          if (event.type === "step-start" && event.iteration > 0) persistProgress()
           // Live-refresh the task panel when the model mutates its to-do list
           // mid-turn, instead of waiting for the whole turn to finish.
           if (
