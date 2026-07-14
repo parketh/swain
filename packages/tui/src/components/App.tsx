@@ -484,6 +484,8 @@ export const App = ({ controller }: AppProps) => {
   ) : approval !== undefined ? (
     <PermissionPrompt
       request={approval.request}
+      maxRows={rows}
+      width={columns}
       onDecision={(decision) => {
         controller.resolveApproval(approval.id, decision)
         setApproval(undefined)
