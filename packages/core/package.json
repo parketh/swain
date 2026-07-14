@@ -8,9 +8,9 @@
     "./permission": "./src/permission.ts"
   },
   "dependencies": {
-    "effect": "3.21.4",
-    "@effect/platform": "0.96.2",
-    "@effect/platform-bun": "0.90.0",
+    "effect": "3.22.0",
+    "@effect/platform": "0.97.0",
+    "@effect/platform-bun": "0.91.0",
     "@swain/llms": "workspace:*",
     "diff": "9.0.0"
   },

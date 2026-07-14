@@ -9,11 +9,11 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@effect/platform": "0.96.2",
-    "@effect/platform-bun": "0.90.0",
+    "@effect/platform": "0.97.0",
+    "@effect/platform-bun": "0.91.0",
     "@swain/core": "workspace:*",
     "@swain/llms": "workspace:*",
-    "effect": "3.21.4",
+    "effect": "3.22.0",
     "ink": "7.1.0",
     "react": "19.2.7"
   },
