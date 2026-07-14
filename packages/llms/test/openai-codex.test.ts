@@ -127,7 +127,8 @@ describe("OpenAICodexResponses.prepare", () => {
         },
       ],
       tool_choice: "auto",
-      max_output_tokens: 256,
+      // `generation.maxTokens` is intentionally dropped: the ChatGPT-account
+      // Codex backend rejects `max_output_tokens` as an unsupported parameter.
       reasoning: { effort: "high", summary: "auto" },
     })
   })

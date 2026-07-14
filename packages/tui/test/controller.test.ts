@@ -146,19 +146,22 @@ describe("controller", () => {
     expect(after.messages).toEqual([])
   })
 
-  test("/compact summarizes older context into one meta message", async () => {
+  test("/compact appends a compaction marker while retaining full history", async () => {
     const summary = "## Goal\ncompacted summary"
     const c = build(scripted([textTurn("a1"), textTurn("a2"), textTurn("a3"), textTurn(summary)]))
     await c.submitPrompt("one")
     await c.submitPrompt("two")
     await c.submitPrompt("three")
+    const before = c.getState().session.messages.length
     await c.executeCommand({ type: "command", name: "compact", args: "" })
     const state = c.getState().session
     expect(state.compaction.summary).toBe(summary)
-    const first = state.messages[0]
-    if (first?.role !== "user") throw new Error("expected a user meta message")
-    expect(first.isMeta).toBe(true)
-    const block = first.content[0]
+    // Full history retained; the marker is appended at the temporal end.
+    expect(state.messages.length).toBe(before + 1)
+    const last = state.messages[state.messages.length - 1]
+    if (last?.role !== "user") throw new Error("expected a user meta message")
+    expect(last.isMeta).toBe(true)
+    const block = last.content[0]
     expect(block?.type).toBe("compaction")
     if (block?.type === "compaction") expect(block.summary).toBe(summary)
   })

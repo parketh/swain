@@ -166,9 +166,11 @@ const prepare = (request: OpenAICodexRequest, config: OpenAICodexConfig): Prepar
       ...(request.toolChoice !== undefined
         ? { tool_choice: lowerToolChoice(request.toolChoice) }
         : {}),
-      ...(request.generation?.maxTokens !== undefined
-        ? { max_output_tokens: request.generation.maxTokens }
-        : {}),
+      // Both portable `generation` fields are intentionally dropped: the
+      // ChatGPT-account Codex backend rejects `max_output_tokens` as an
+      // unsupported parameter, and the Responses API has no top-level `stop`
+      // (that is a Chat Completions field). Do not re-add either — they will
+      // fail with "Unsupported parameter".
       ...(options.reasoning !== undefined ? { reasoning: options.reasoning } : {}),
     },
   }

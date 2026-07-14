@@ -6,6 +6,7 @@ import {
   type AgentType,
   type Approval,
   type CompactionReason,
+  type CompactionResult,
   compactSession,
   submitPrompt as coreSubmitPrompt,
   createSessionState,
@@ -178,8 +179,12 @@ export interface Controller {
   resolveApproval(id: number, decision: PermissionDecision): void
   submitPrompt(text: string): Promise<void>
   executeCommand(result: CommandParseResult): Promise<void>
-  /** Runs one full compaction on the live session, summarizing older context. */
-  compact(reason: CompactionReason): Promise<void>
+  /**
+   * Runs one full compaction on the live session, summarizing older context.
+   * Resolves to the result on success, or `undefined` when compaction failed
+   * (the failure is surfaced as an `agent-error` event).
+   */
+  compact(reason: CompactionReason): Promise<CompactionResult | undefined>
   /** Global prompt history, most recent last. */
   getHistory(): ReadonlyArray<string>
   /** Records a submitted prompt to global history and persists it. */
@@ -707,16 +712,18 @@ export const makeController = (deps: ControllerDeps): Controller => {
     }
   }
 
-  const compact = async (reason: CompactionReason): Promise<void> => {
-    if (running) return
+  const compact = async (reason: CompactionReason): Promise<CompactionResult | undefined> => {
+    if (running) return undefined
     running = true
     notify()
     try {
-      await runtime.runPromise(compactSession(session, { reason }))
+      const result = await runtime.runPromise(compactSession(session, { reason }))
       if (persist) await runtime.runPromise(saveSession(session, sessionsDirFor(session)))
+      return result
     } catch (error) {
       const message = (error as { message?: string }).message ?? String(error)
       emitEvent({ type: "agent-error", source: "agent", message: `Compaction failed: ${message}` })
+      return undefined
     } finally {
       running = false
       notify()

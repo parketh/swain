@@ -12,6 +12,8 @@ export interface StatusLineProps {
   readonly routerStatus: RouterStatus
   /** Auto compaction was disabled after a failure; manual `/compact` still works. */
   readonly autoCompactionDisabled?: boolean
+  /** A compaction summary is active for this session (older context replaced). */
+  readonly compacted?: boolean
 }
 
 const ROUTER_COLOR: Record<RouterStatus, string> = {
@@ -38,6 +40,7 @@ export const StatusLine = ({
   usage,
   routerStatus,
   autoCompactionDisabled,
+  compacted,
 }: StatusLineProps) => (
   <Box>
     <Text color={theme.muted}>{activeModel.provider}/</Text>
@@ -54,6 +57,7 @@ export const StatusLine = ({
       {usage.totalTokens} tok
       {usage.costUsd !== undefined ? ` (${formatCost(usage.costUsd)})` : ""}
     </Text>
+    {compacted === true ? <Text color={theme.muted}> · compacted</Text> : null}
     {autoCompactionDisabled === true ? <Text color="yellow"> · auto-compact off</Text> : null}
   </Box>
 )

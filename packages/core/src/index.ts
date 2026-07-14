@@ -16,6 +16,7 @@ export {
   type CompactOptions,
   compactSession,
   defaultTokenCounter,
+  deriveContext,
   effectiveContextWindow,
   estimateCurrentContextTokens,
   isValidlyPaired,

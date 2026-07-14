@@ -15,6 +15,7 @@ export {
   type CompactionResult,
   type CompactOptions,
   compactSession,
+  deriveContext,
   isValidlyPaired,
   selectCut,
 } from "./compaction"

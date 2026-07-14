@@ -1,5 +1,6 @@
 import type { Model, Tool, Usage } from "@swain/llms"
 import type { SessionState } from "../state"
+import { deriveContext } from "./compaction"
 import type { TokenCounter } from "./token-counter"
 
 /** Hard cap on tokens reserved for model output when sizing the context window. */
@@ -69,7 +70,10 @@ export const estimateCurrentContextTokens = (
     const delta = counter.estimateMessages(session.messages.slice(snapshot.measuredAtMessageIndex))
     return snapshot.activeContextTokens + delta
   }
-  return estimateShape(shape, counter) + counter.estimateMessages(session.messages)
+  return (
+    estimateShape(shape, counter) +
+    counter.estimateMessages(deriveContext(session.messages).messages)
+  )
 }
 
 /**

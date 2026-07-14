@@ -75,6 +75,13 @@ export const CompactionContent = Schema.Struct({
   reason: Schema.Literal("auto", "manual", "overflow"),
   compactedMessages: Schema.Number,
   summary: Schema.String,
+  /**
+   * Absolute index in the full history where the verbatim tail resumes when this
+   * marker is applied to derive the model context. Absent on legacy markers
+   * written before history was retained — treated as "everything after the
+   * marker" so those (top-of-history) markers still project correctly.
+   */
+  contextTailStart: Schema.optional(Schema.Number),
 })
 export type CompactionContent = typeof CompactionContent.Type
 

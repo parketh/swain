@@ -13,6 +13,7 @@ import { Context, Effect, Either, Option, Schema, Stream } from "effect"
 import {
   compactSession,
   defaultTokenCounter,
+  deriveContext,
   type RequestShape,
   recordContextUsage,
   shouldAutoCompact,
@@ -409,7 +410,7 @@ const loop = (
     const request = LLMClient.request({
       model: session.systemContext.model,
       system: ctx.buildSystem(),
-      messages: session.messages,
+      messages: deriveContext(session.messages).messages,
       ...(toolsAllowed &&
         ctx.llmTools.length > 0 && { tools: ctx.llmTools, toolChoice: "auto" as const }),
       ...(requestOptions.generation !== undefined && { generation: requestOptions.generation }),

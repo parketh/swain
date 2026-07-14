@@ -309,6 +309,20 @@ export const App = ({ controller }: AppProps) => {
       case "router":
         // Dialog-only; `/router` ignores any arguments (no arg grammar).
         return setDialog({ kind: "router" })
+      case "compact": {
+        // Handled here (not via the default dispatch) so success is confirmed:
+        // the compaction marker lands at the top of the scrollback, out of view
+        // from the tail, so without a notice the command looks like a no-op.
+        setDraft(emptyDraft)
+        const result = await controller.compact("manual")
+        clearDraftKeepingErrors()
+        if (result !== undefined)
+          setNotice(
+            `Compacted ${result.compactedMessages} earlier message` +
+              `${result.compactedMessages === 1 ? "" : "s"} into a summary.`,
+          )
+        return
+      }
       case "resume":
         if (args !== "") return void controller.resumeSession(args)
         void controller.ensureSummaries()
@@ -713,6 +727,7 @@ export const App = ({ controller }: AppProps) => {
           usage={controller.getUsage()}
           routerStatus={state.routerStatus}
           autoCompactionDisabled={state.session.compaction.autoEnabled === false}
+          compacted={state.session.compaction.summary !== undefined}
         />
       </Box>
     </Box>

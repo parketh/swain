@@ -1,4 +1,4 @@
-import type { LLMError } from "@swain/llms"
+import type { CompactionContent, LLMError } from "@swain/llms"
 import { LLMClient, LLMTurnSummary, Message } from "@swain/llms"
 import { Context, Data, Effect } from "effect"
 import type { SessionState } from "../state"
@@ -59,6 +59,45 @@ Rules:
 - "Remaining work" must be specific enough to continue without asking what to do next.
 - If an earlier summary is present, update it: keep still-true facts, drop stale facts, merge new facts.
 - Do not mention the compaction process itself.`
+
+const compactionBlock = (message: Message): CompactionContent | undefined =>
+  message.role === "user"
+    ? (message.content.find((b) => b.type === "compaction") as CompactionContent | undefined)
+    : undefined
+
+/**
+ * Projects the full append-only history into the message list sent to the model.
+ * `session.messages` is the source of truth (persisted and displayed in full);
+ * this is the one seam that maps it to model context. The most recent compaction
+ * marker replaces everything before its recorded `contextTailStart` with the
+ * summary; earlier markers drop out (their content is already folded into the
+ * latest, cumulative summary). Without any marker the history passes through
+ * unchanged. `sourceIndex[i]` is the history index context message `i` came from
+ * (`-1` for the synthesized summary), letting callers map a context cut back to
+ * a history index.
+ */
+export const deriveContext = (
+  history: ReadonlyArray<Message>,
+): { messages: ReadonlyArray<Message>; sourceIndex: ReadonlyArray<number> } => {
+  let last = -1
+  for (let i = 0; i < history.length; i += 1) {
+    if (compactionBlock(history[i]!) !== undefined) last = i
+  }
+  if (last === -1) return { messages: history, sourceIndex: history.map((_, i) => i) }
+
+  const marker = history[last]!
+  // Absent `contextTailStart` (legacy top-of-history marker) ⇒ tail is everything
+  // after the marker, matching the pre-retention splice layout.
+  const tailStart = compactionBlock(marker)!.contextTailStart ?? last + 1
+  const messages: Array<Message> = [marker]
+  const sourceIndex: Array<number> = [-1]
+  for (let i = tailStart; i < history.length; i += 1) {
+    if (compactionBlock(history[i]!) !== undefined) continue
+    messages.push(history[i]!)
+    sourceIndex.push(i)
+  }
+  return { messages, sourceIndex }
+}
 
 const toolCallIds = (message: Message): ReadonlyArray<string> =>
   message.role === "assistant"
@@ -146,10 +185,12 @@ export const selectCut = (
 }
 
 /**
- * Runs one full compaction: summarizes the older transcript prefix into a single
- * compound summary via the current session model (no tools), then replaces that
- * prefix with one compaction meta message while preserving the recent verbatim
- * tail. Updates `session.compaction.summary` and invalidates context accounting.
+ * Runs one full compaction: summarizes the older context prefix into a single
+ * compound summary via the current session model (no tools), then appends one
+ * compaction marker at the end of history recording where the verbatim tail
+ * resumes. History is retained in full (for display/persistence); the marker is
+ * what `deriveContext` later applies to shrink the model context. Updates
+ * `session.compaction.summary` and invalidates context accounting.
  */
 export const compactSession = (
   session: SessionState,
@@ -168,8 +209,9 @@ export const compactSession = (
         ? Number.POSITIVE_INFINITY
         : eff - outputReserve(model) - SUMMARY_PROMPT_OVERHEAD
 
-    const messages = session.messages
-    const cut = selectCut(messages, counter, tailBudget, summaryInputBudget)
+    const history = session.messages
+    const { messages: context, sourceIndex } = deriveContext(history)
+    const cut = selectCut(context, counter, tailBudget, summaryInputBudget)
     if (cut <= 0) {
       return yield* new CompactionError({
         reason: "nothing-to-compact",
@@ -177,7 +219,7 @@ export const compactSession = (
       })
     }
 
-    const prefix = messages.slice(0, cut)
+    const prefix = context.slice(0, cut)
     const summaryCap = Math.min(
       DEFAULT_TAIL_BUDGET,
       model.limits?.maxOutputTokens ?? DEFAULT_TAIL_BUDGET,
@@ -209,26 +251,34 @@ export const compactSession = (
       })
     }
 
+    // `contextTailStart` is the history index where the kept tail resumes; the
+    // context cut maps back through `sourceIndex`. Count only real messages
+    // folded (excluding a prior summary meta) for the display notice.
+    const contextTailStart = sourceIndex[cut]!
+    const compactedMessages = prefix.filter((m) => compactionBlock(m) === undefined).length
     const meta = Message.user(
-      [{ type: "compaction", reason: options.reason, compactedMessages: cut, summary: text }],
+      [{ type: "compaction", reason: options.reason, compactedMessages, summary: text, contextTailStart }],
       true,
     )
-    const kept = messages.slice(cut)
-    const next = [meta, ...kept]
-    if (!isValidlyPaired(next)) {
+
+    // The projection this marker will produce must be validly paired: the tail
+    // starts at an assistant boundary, so prepending the summary keeps pairing.
+    const nextContext = [meta, ...context.slice(cut)]
+    if (!isValidlyPaired(nextContext)) {
       return yield* new CompactionError({
         reason: "invalid-transcript",
         message: "Compaction would split a tool-call/tool-result pair.",
       })
     }
 
-    messages.splice(0, messages.length, ...next)
+    // Append at the temporal position; full history is retained for display.
+    history.push(meta)
     Object.assign(session.compaction, {
       lastCompactedAt: options.now ?? new Date().toISOString(),
       summary: text,
     })
-    // Older messages changed; force a full local re-estimate next request.
+    // Context shape changed; force a full local re-estimate next request.
     session.contextUsage = undefined
 
-    return { compactedMessages: cut, summary: text }
+    return { compactedMessages, summary: text }
   })
