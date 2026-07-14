@@ -47,20 +47,38 @@ export const autoApproval: Approval = { requestApproval: () => Effect.succeed(al
  * - `plan`: read-only allowed, mutating denied.
  * - `auto`: allowed without interactive approval (validation/hard-denies run elsewhere).
  * - `ask`: read-only allowed, mutating delegated to the approval source.
+ *
+ * `getMode` is read at each `check`, not captured, so a mid-turn mode switch
+ * (Shift+Tab to `auto`) takes effect on the very next tool without rebuilding
+ * the gate.
  */
-export const makePermissions = (mode: PermissionMode, approval: Approval): Permissions => ({
-  check: (request) => {
-    switch (mode) {
-      case "plan":
-        return Effect.succeed(
-          request.readOnly
-            ? allow
-            : deny(`Plan mode denies the mutating tool "${request.toolName}".`),
-        )
-      case "auto":
-        return Effect.succeed(allow)
-      case "ask":
-        return request.readOnly ? Effect.succeed(allow) : approval.requestApproval(request)
-    }
-  },
+export const makePermissions = (
+  getMode: () => PermissionMode,
+  approval: Approval,
+): Permissions => ({
+  // `Effect.suspend` defers `getMode()` into the Effect, so a throwing getter
+  // surfaces as a contained failure instead of a synchronous throw at the call
+  // site, and the gate always yields an Effect.
+  check: (request) =>
+    Effect.suspend(() => {
+      const mode = getMode()
+      switch (mode) {
+        case "plan":
+          return Effect.succeed(
+            request.readOnly
+              ? allow
+              : deny(`Plan mode denies the mutating tool "${request.toolName}".`),
+          )
+        case "auto":
+          return Effect.succeed(allow)
+        case "ask":
+          return request.readOnly ? Effect.succeed(allow) : approval.requestApproval(request)
+        default: {
+          // Unreachable per the type; a corrupted mode fails closed rather than
+          // crashing the tool. The `never` binding keeps the switch exhaustive.
+          const unknown: never = mode
+          return Effect.succeed(deny(`Unknown permission mode "${String(unknown)}"; denying.`))
+        }
+      }
+    }),
 })

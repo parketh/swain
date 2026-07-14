@@ -43,7 +43,7 @@ const recordingApproval = () => {
 
 describe("makePermissions", () => {
   test("plan mode denies mutating tools and allows read-only", async () => {
-    const permissions = makePermissions("plan", autoApproval)
+    const permissions = makePermissions(() => "plan", autoApproval)
     expect(await Effect.runPromise(permissions.check(request(false)))).toEqual({
       type: "deny",
       reason: expect.any(String),
@@ -53,7 +53,7 @@ describe("makePermissions", () => {
 
   test("ask mode asks for mutating tools and skips the ask for read-only", async () => {
     const { approval, seen } = recordingApproval()
-    const permissions = makePermissions("ask", approval)
+    const permissions = makePermissions(() => "ask", approval)
 
     const decision = await Effect.runPromise(permissions.check(request(false)))
     expect(seen).toHaveLength(1)
@@ -65,9 +65,41 @@ describe("makePermissions", () => {
 
   test("auto mode allows without consulting approval", async () => {
     const { approval, seen } = recordingApproval()
-    const permissions = makePermissions("auto", approval)
+    const permissions = makePermissions(() => "auto", approval)
     expect(await Effect.runPromise(permissions.check(request(false)))).toEqual({ type: "allow" })
     expect(seen).toHaveLength(0)
+  })
+
+  test("reads the mode live, so a mid-turn switch to auto stops asking", async () => {
+    const { approval, seen } = recordingApproval()
+    let mode: PermissionMode = "ask"
+    const permissions = makePermissions(() => mode, approval)
+
+    expect(await Effect.runPromise(permissions.check(request(false)))).toEqual({
+      type: "deny",
+      reason: "nope",
+    })
+    expect(seen).toHaveLength(1)
+
+    mode = "auto"
+    expect(await Effect.runPromise(permissions.check(request(false)))).toEqual({ type: "allow" })
+    expect(seen).toHaveLength(1)
+  })
+
+  test("fails closed on an unexpected mode instead of returning undefined", async () => {
+    const permissions = makePermissions(() => "bogus" as PermissionMode, autoApproval)
+    expect(await Effect.runPromise(permissions.check(request(true)))).toEqual({
+      type: "deny",
+      reason: expect.stringContaining("bogus"),
+    })
+  })
+
+  test("a throwing getter surfaces as a contained failure, not a synchronous throw", async () => {
+    const permissions = makePermissions(() => {
+      throw new Error("boom")
+    }, autoApproval)
+    const effect = permissions.check(request(true))
+    await expect(Effect.runPromise(effect)).rejects.toThrow("boom")
   })
 })
 
@@ -85,7 +117,7 @@ describe("callTool coarse gate", () => {
     Layer.succeed(ToolContext, {
       session: state,
       abortSignal: new AbortController().signal,
-      permission: makePermissions(state.systemContext.permissionMode, autoApproval),
+      permission: makePermissions(() => state.systemContext.permissionMode, autoApproval),
     })
 
   const call: ToolCall = {
@@ -163,7 +195,7 @@ describe("Bash tool", () => {
           Layer.succeed(ToolContext, {
             session: state,
             abortSignal: new AbortController().signal,
-            permission: makePermissions(mode, approval),
+            permission: makePermissions(() => mode, approval),
           }),
         ),
         Effect.provide(toolRegistryLayer([Bash])),

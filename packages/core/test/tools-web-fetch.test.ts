@@ -34,7 +34,7 @@ const run = (url: string): Promise<ToolResultContent> =>
         Layer.succeed(ToolContext, {
           session,
           abortSignal: new AbortController().signal,
-          permission: makePermissions("auto", autoApproval),
+          permission: makePermissions(() => "auto", autoApproval),
         }),
       ),
       Effect.provide(toolRegistryLayer([WebFetch])),
@@ -62,7 +62,7 @@ describe("WebFetch input validation", () => {
 const toolContextLayer = Layer.succeed(ToolContext, {
   session,
   abortSignal: new AbortController().signal,
-  permission: makePermissions("auto", autoApproval),
+  permission: makePermissions(() => "auto", autoApproval),
 })
 
 const stubClient = (body: string, contentType: string) =>

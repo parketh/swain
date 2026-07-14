@@ -120,7 +120,7 @@ describe("Bash streaming progress", () => {
     Layer.succeed(ToolContext, {
       session: state,
       abortSignal: new AbortController().signal,
-      permission: makePermissions("auto", autoApproval),
+      permission: makePermissions(() => "auto", autoApproval),
     })
 
   const runBash = (command: string, onProgress?: (delta: string) => Effect.Effect<void>) => {
@@ -207,7 +207,7 @@ describe("Bash streaming progress", () => {
           Layer.succeed(ToolContext, {
             session: state,
             abortSignal: new AbortController().signal,
-            permission: makePermissions("auto", autoApproval),
+            permission: makePermissions(() => "auto", autoApproval),
           }),
         ),
         Effect.provide(toolRegistryLayer([Bash])),
