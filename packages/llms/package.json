@@ -12,8 +12,8 @@
     "./transport": "./src/transport/index.ts"
   },
   "dependencies": {
-    "effect": "3.21.4",
-    "@effect/platform": "0.96.2"
+    "effect": "3.22.0",
+    "@effect/platform": "0.97.0"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.2",
