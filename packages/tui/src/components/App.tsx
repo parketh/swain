@@ -464,6 +464,27 @@ export const App = ({ controller }: AppProps) => {
     { isActive: question === undefined && approval === undefined && dialog === undefined },
   )
 
+  // While an approval prompt is up the main handler is inactive, so the
+  // transcript — which now carries the pending edit's diff inline — would be
+  // unscrollable. Keep wheel and Page Up/Down scrolling alive; the prompt's own
+  // handler still owns Up/Down/Enter for the choice list.
+  useInput(
+    (input, key) => {
+      const mouse = parseMouseEvents(input)
+      if (mouse.length > 0) {
+        let delta = 0
+        for (const m of mouse) {
+          if (m.button & 64) delta += (m.button & 1) === 0 ? 1 : -1
+        }
+        if (delta !== 0) scrollBy(delta * 3)
+        return
+      }
+      if (key.pageUp) return scrollBy(rows)
+      if (key.pageDown) return scrollBy(-rows)
+    },
+    { isActive: approval !== undefined },
+  )
+
   // Bracketed paste: ink enables `\x1b[?2004h` while this hook is active, so a
   // paste arrives as one string on its own channel instead of a key burst.
   // Enabling the mode also tells the host terminal the app handles paste
