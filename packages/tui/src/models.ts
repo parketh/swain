@@ -143,20 +143,23 @@ interface ModelSpec {
   readonly deprecated?: boolean
 }
 
-// PLACEHOLDER model limits carried into @swain/core for compaction policy.
-// These are correctness inputs — audit/replace against provider docs before
-// manual end-to-end testing. Keyed by model id so every serving provider of a
-// model (e.g. gpt-5.5 via OpenAI and Codex) shares one limit entry.
+// Model limits carried into @swain/core for compaction policy. Values are the
+// provider-documented context window and max output tokens. Keyed by model id
+// so every serving provider of a model (e.g. gpt-5.5 via OpenAI and Codex)
+// shares one limit entry.
 const LIMITS: Record<string, ModelLimits> = {
-  [AnthropicModel.Claude_Opus_4_8]: { contextWindow: 200_000, maxOutputTokens: 64_000 },
+  [AnthropicModel.Claude_Opus_4_8]: { contextWindow: 1_000_000, maxOutputTokens: 128_000 },
+  // GPT-5.5 and GPT-5.6 Sol/Terra are also served through Codex, whose surface
+  // caps context at 400K; the shared entry uses that smaller binding limit. The
+  // OpenAI-only models (5.5 Pro, Luna) use the full 1.05M API context window.
   [OpenAIModel.GPT_5_5]: { contextWindow: 400_000, maxOutputTokens: 128_000 },
-  [OpenAIModel.GPT_5_5_Pro]: { contextWindow: 400_000, maxOutputTokens: 128_000 },
+  [OpenAIModel.GPT_5_5_Pro]: { contextWindow: 1_050_000, maxOutputTokens: 128_000 },
   [OpenAIModel.GPT_5_6_Sol]: { contextWindow: 400_000, maxOutputTokens: 128_000 },
   [OpenAIModel.GPT_5_6_Terra]: { contextWindow: 400_000, maxOutputTokens: 128_000 },
-  [OpenAIModel.GPT_5_6_Luna]: { contextWindow: 400_000, maxOutputTokens: 128_000 },
-  [DeepSeekModel.V4_Flash]: { contextWindow: 128_000, maxOutputTokens: 8_192 },
-  [DeepSeekModel.V4_Pro]: { contextWindow: 128_000, maxOutputTokens: 8_192 },
-  [ZAIModel.GLM_5_2]: { contextWindow: 200_000, maxOutputTokens: 128_000 },
+  [OpenAIModel.GPT_5_6_Luna]: { contextWindow: 1_050_000, maxOutputTokens: 128_000 },
+  [DeepSeekModel.V4_Flash]: { contextWindow: 1_000_000, maxOutputTokens: 384_000 },
+  [DeepSeekModel.V4_Pro]: { contextWindow: 1_000_000, maxOutputTokens: 384_000 },
+  [ZAIModel.GLM_5_2]: { contextWindow: 1_000_000, maxOutputTokens: 128_000 },
 }
 
 interface ProviderSpec {
