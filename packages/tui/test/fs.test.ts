@@ -77,12 +77,15 @@ describe("searchFiles", () => {
 })
 
 describe("replaceToken", () => {
-  test("replaces only the active token", () => {
+  test("replaces only the active token and closes it past the existing space", () => {
     const text = "please inspect @src/ag more"
     const token = detectFileToken(text, "please inspect @src/ag".length)
     expect(token).toBeDefined()
     const next = replaceToken(text, token!, "src/agent.ts")
     expect(next.text).toBe("please inspect @src/agent.ts more")
+    // Cursor lands after the existing separator, so the token no longer matches.
+    expect(next.text[next.cursor - 1]).toBe(" ")
+    expect(detectFileToken(next.text, next.cursor)).toBeUndefined()
   })
 
   test("appends a trailing space so the token closes and no longer matches", () => {

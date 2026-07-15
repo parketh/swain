@@ -131,6 +131,10 @@ export const replaceToken = (
 ): { readonly text: string; readonly cursor: number } => {
   const before = text.slice(0, token.start)
   const after = text.slice(token.end)
-  const insert = `@${relativePath}${/^\s/.test(after) ? "" : " "}`
-  return { text: before + insert + after, cursor: before.length + insert.length }
+  const hasSpace = /^\s/.test(after)
+  const insert = `@${relativePath}${hasSpace ? "" : " "}`
+  // Land the cursor past the separator, not before it: detectFileToken matches
+  // on text-before-cursor, so a cursor sitting before the space would still see
+  // an active token and keep the picker open.
+  return { text: before + insert + after, cursor: before.length + insert.length + (hasSpace ? 1 : 0) }
 }
