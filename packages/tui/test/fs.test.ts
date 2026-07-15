@@ -84,4 +84,12 @@ describe("replaceToken", () => {
     const next = replaceToken(text, token!, "src/agent.ts")
     expect(next.text).toBe("please inspect @src/agent.ts more")
   })
+
+  test("appends a trailing space so the token closes and no longer matches", () => {
+    const text = "@src"
+    const token = detectFileToken(text)
+    const next = replaceToken(text, token!, "src/agent.ts")
+    expect(next.text).toBe("@src/agent.ts ")
+    expect(detectFileToken(next.text, next.cursor)).toBeUndefined()
+  })
 })
