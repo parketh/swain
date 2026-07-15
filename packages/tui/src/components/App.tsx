@@ -5,7 +5,7 @@ import { parseCommand } from "../commands"
 import type { ProviderConfig } from "../config"
 import type { Controller, PendingApproval, PendingQuestion } from "../controller"
 import { detectFileToken, type FileMatch, replaceToken, searchFiles } from "../fs"
-import { parseMouseEvents } from "../mouse"
+import { wheelScroll } from "../mouse"
 import { theme } from "../theme"
 import { CommandOverlay, filterCommands } from "./CommandOverlay"
 import { ConnectDialog } from "./ConnectDialog"
@@ -370,15 +370,10 @@ export const App = ({ controller }: AppProps) => {
     (input, key) => {
       debugKey(input, key as unknown as Record<string, unknown>)
       // Mouse events: scroll the transcript on wheel and swallow the rest so no
-      // sequence leaks into the prompt. Button bit 64 marks a wheel event; low
-      // bit is direction.
-      const mouse = parseMouseEvents(input)
-      if (mouse.length > 0) {
-        let delta = 0
-        for (const m of mouse) {
-          if (m.button & 64) delta += (m.button & 1) === 0 ? 1 : -1
-        }
-        if (delta !== 0) scrollBy(delta * 3)
+      // sequence leaks into the prompt.
+      const wheel = wheelScroll(input)
+      if (wheel !== null) {
+        if (wheel !== 0) scrollBy(wheel)
         return
       }
       // Any key other than Ctrl+C cancels a pending exit.
@@ -470,13 +465,9 @@ export const App = ({ controller }: AppProps) => {
   // handler still owns Up/Down/Enter for the choice list.
   useInput(
     (input, key) => {
-      const mouse = parseMouseEvents(input)
-      if (mouse.length > 0) {
-        let delta = 0
-        for (const m of mouse) {
-          if (m.button & 64) delta += (m.button & 1) === 0 ? 1 : -1
-        }
-        if (delta !== 0) scrollBy(delta * 3)
+      const wheel = wheelScroll(input)
+      if (wheel !== null) {
+        if (wheel !== 0) scrollBy(wheel)
         return
       }
       if (key.pageUp) return scrollBy(rows)
