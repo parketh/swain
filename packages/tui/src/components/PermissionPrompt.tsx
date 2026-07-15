@@ -11,8 +11,9 @@ export interface PermissionPromptProps {
 
 /**
  * Focused approval picker for a suspended tool call. Shows the request context
- * (tool, summary, command/diff when present) and a vertical Yes/No choice list:
- * Up/Down navigate, Enter chooses, Esc denies.
+ * (tool, summary, command) and a vertical Yes/No choice list: Up/Down navigate,
+ * Enter chooses, Esc denies. An Edit's diff is rendered inline in the transcript,
+ * not here, so the prompt stays compact and always on-screen.
  */
 export const PermissionPrompt = ({ request, onDecision }: PermissionPromptProps) => {
   const [index, setIndex] = useState(0)
@@ -38,7 +39,6 @@ export const PermissionPrompt = ({ request, onDecision }: PermissionPromptProps)
       </Text>
       <Text>{request.summary}</Text>
       {request.command !== undefined ? <Text color="gray">$ {request.command}</Text> : null}
-      {request.diff !== undefined ? <Text color="gray">{request.diff}</Text> : null}
       <Box flexDirection="column" marginTop={1}>
         {PERMISSION_CHOICES.map((choice, i) => (
           <Text key={choice.label} color={i === index ? "cyan" : undefined}>

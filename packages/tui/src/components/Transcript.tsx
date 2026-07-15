@@ -3,6 +3,7 @@ import type { Message } from "@swain/llms"
 import { Box, type DOMElement, Text } from "ink"
 import type { ReactNode } from "react"
 import { theme } from "../theme"
+import { DiffView } from "./Diff"
 import { Markdown } from "./markdown"
 import { formatToolUse, summarizeResult } from "./toolFormat"
 
@@ -204,6 +205,8 @@ interface ToolItem {
   readonly summary: string
   readonly isError: boolean
   readonly done: boolean
+  /** Unified diff to render inline (Edit tools): pending approval, or applied. */
+  readonly diff?: string
 }
 interface ErrorItem {
   readonly kind: "error"
@@ -265,10 +268,24 @@ const resultsById = (
   return map
 }
 
-/** Linearize persisted messages + the live draft into display items in order. */
+/** The unified-diff text an Edit result carries, if any (for inline rendering). */
+const editDiff = (name: string | undefined, value: unknown): string | undefined => {
+  if (name !== "Edit" || typeof value !== "object" || value === null) return undefined
+  const diffs = (value as { diffs?: unknown }).diffs
+  const first = Array.isArray(diffs) ? diffs[0] : undefined
+  const text = (first as { text?: unknown } | undefined)?.text
+  return typeof text === "string" ? text : undefined
+}
+
+/**
+ * Linearize persisted messages + the live draft into display items in order.
+ * `pendingDiff` is the diff of the Edit currently awaiting approval; it is
+ * attached to that tool's still-running draft row so the change shows inline.
+ */
 export const buildItems = (
   messages: ReadonlyArray<Message>,
   draft: DraftState,
+  pendingDiff?: string,
 ): ReadonlyArray<Item> => {
   const items: Array<Item> = []
   // biome-ignore lint/suspicious/noExplicitAny: opaque persisted content blocks
@@ -298,6 +315,7 @@ export const buildItems = (
       } else if (block.type === "tool-call" && !isHiddenTool(block.name)) {
         const result = results.get(String(block.toolCallId))
         if (result === undefined && draftIds.has(String(block.toolCallId))) continue
+        const diff = result !== undefined ? editDiff(block.name, result.value) : undefined
         items.push({
           kind: "tool",
           name: block.name,
@@ -308,6 +326,7 @@ export const buildItems = (
               : "…",
           isError: result?.isError === true,
           done: result !== undefined,
+          ...(diff !== undefined && { diff }),
         })
       }
       // reasoning is intentionally hidden; tool-result blocks are consumed above.
@@ -315,6 +334,11 @@ export const buildItems = (
   }
   for (const row of draft.tools) {
     if (isHiddenTool(row.name) || results.has(row.toolCallId)) continue
+    // A still-running Edit is the one suspended on the approval prompt; show its
+    // pending diff inline so the change is visible while the user decides.
+    // Permission suspends the turn on the first check, so at most one Edit is
+    // ever pending — no need to disambiguate multiple not-done Edit rows here.
+    const diff = !row.done && row.name === "Edit" ? pendingDiff : undefined
     items.push({
       kind: "tool",
       name: row.name,
@@ -326,6 +350,7 @@ export const buildItems = (
           : "…",
       isError: row.isError,
       done: row.done,
+      ...(diff !== undefined && { diff }),
     })
   }
   if (draft.assistant !== "") items.push({ kind: "text", role: "assistant", text: draft.assistant })
@@ -363,14 +388,19 @@ export const collapseItems = (items: ReadonlyArray<Item>): ReadonlyArray<Node> =
   return nodes
 }
 
-const ToolResultRow = ({ item }: { item: ToolItem }) => (
+const ToolResultRow = ({ item, width }: { item: ToolItem; width?: number }) => (
   <>
     <ToolCall name={item.name} input={item.input} />
     <ResultLine isError={item.isError} text={item.summary} />
+    {item.diff !== undefined ? (
+      <Box marginLeft={2} marginTop={1}>
+        <DiffView diff={item.diff} width={(width ?? 80) - 2} />
+      </Box>
+    ) : null}
   </>
 )
 
-const NodeRow = ({ node }: { node: Node }) => {
+const NodeRow = ({ node, width }: { node: Node; width?: number }) => {
   if (node.kind === "text") {
     return node.role === "assistant" ? (
       <Row marker="⏺">
@@ -410,12 +440,16 @@ const NodeRow = ({ node }: { node: Node }) => {
       </Row>
     )
   }
-  return <ToolResultRow item={node} />
+  return <ToolResultRow item={node} width={width} />
 }
 
 export interface TranscriptProps {
   readonly messages: ReadonlyArray<Message>
   readonly draft: DraftState
+  /** Terminal columns, so inline diffs can truncate to fit. */
+  readonly width?: number
+  /** Diff of the Edit currently awaiting approval, rendered inline on its row. */
+  readonly pendingDiff?: string
   /**
    * Registers the wrapper element and text of each rendered user prompt so the
    * scrollback tracker can pin the current turn's prompt at the viewport top.
@@ -425,8 +459,14 @@ export interface TranscriptProps {
   readonly registerPrompt?: (index: number, el: DOMElement | null, text: string) => void
 }
 
-export const Transcript = ({ messages, draft, registerPrompt }: TranscriptProps) => {
-  const nodes = collapseItems(buildItems(messages, draft))
+export const Transcript = ({
+  messages,
+  draft,
+  width,
+  pendingDiff,
+  registerPrompt,
+}: TranscriptProps) => {
+  const nodes = collapseItems(buildItems(messages, draft, pendingDiff))
   return (
     <Box flexDirection="column">
       {nodes.map((node, i) => (
@@ -441,7 +481,7 @@ export const Transcript = ({ messages, draft, registerPrompt }: TranscriptProps)
               : undefined
           }
         >
-          <NodeRow node={node} />
+          <NodeRow node={node} width={width} />
         </Box>
       ))}
     </Box>
