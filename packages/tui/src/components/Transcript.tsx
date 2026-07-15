@@ -336,6 +336,8 @@ export const buildItems = (
     if (isHiddenTool(row.name) || results.has(row.toolCallId)) continue
     // A still-running Edit is the one suspended on the approval prompt; show its
     // pending diff inline so the change is visible while the user decides.
+    // Permission suspends the turn on the first check, so at most one Edit is
+    // ever pending — no need to disambiguate multiple not-done Edit rows here.
     const diff = !row.done && row.name === "Edit" ? pendingDiff : undefined
     items.push({
       kind: "tool",
