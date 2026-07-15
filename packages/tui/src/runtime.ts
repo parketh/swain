@@ -1,6 +1,6 @@
 import { FetchHttpClient, type HttpClient } from "@effect/platform"
 import { BunContext } from "@effect/platform-bun"
-import { type Approval, makePermissions, type PermissionMode, type SessionState } from "@swain/core"
+import { type Approval, makePermissions, type SessionState } from "@swain/core"
 import {
   type AskHandler,
   AskService,
@@ -33,15 +33,18 @@ export const makeRuntime = (deps: RuntimeDeps) => {
   return ManagedRuntime.make(base)
 }
 
-/** Per-turn `ToolContext`: it carries the live session, abort signal, and mode. */
+/**
+ * Per-turn `ToolContext`: it carries the live session and abort signal. The
+ * permission gate reads `session.systemContext.permissionMode` on each check, so
+ * a mid-turn Shift+Tab into `auto` stops the prompts without a new turn.
+ */
 export const toolContextLayer = (
   session: SessionState,
-  mode: PermissionMode,
   approval: Approval,
   abortSignal: AbortSignal,
 ): Layer.Layer<ToolContext> =>
   Layer.succeed(ToolContext, {
     session,
     abortSignal,
-    permission: makePermissions(mode, approval),
+    permission: makePermissions(() => session.systemContext.permissionMode, approval),
   })

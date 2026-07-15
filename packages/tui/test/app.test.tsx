@@ -645,6 +645,20 @@ describe("App", () => {
     expect(lastFrame()).not.toContain("type a prompt")
   })
 
+  test("after selecting a file the picker closes and Enter submits", async () => {
+    const c = makeCtrl([[]])
+    const { stdin } = render(<App controller={c} />)
+    stdin.write("@src")
+    await flush()
+    stdin.write("\r") // select the file — must close the picker
+    await flush()
+    stdin.write("\r") // now Enter submits the prompt
+    await flush()
+    expect(c.getState().session.messages).toHaveLength(1)
+    const first = c.getState().session.messages[0]
+    expect(first?.role).toBe("user")
+  })
+
   test("Shift-Tab cycles the permission mode", async () => {
     const c = makeCtrl()
     const { stdin } = render(<App controller={c} />)
