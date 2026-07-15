@@ -31,6 +31,17 @@ describe("parseDiff", () => {
       { kind: "context", text: "const c = 4", lineNo: 3 },
     ])
   })
+
+  test("drops the trailing empty line that createPatch's newline leaves", () => {
+    // createPatch output ends in "\n", so split("\n") yields a trailing "".
+    const lines = parseDiff(`${patch}\n`)
+    expect(lines.at(-1)).toEqual({ kind: "context", text: "const c = 4", lineNo: 3 })
+  })
+
+  test("shows the truncation footer verbatim with no gutter number", () => {
+    const lines = parseDiff(`${patch}\n… diff truncated`)
+    expect(lines.at(-1)).toEqual({ kind: "context", text: "… diff truncated" })
+  })
 })
 
 describe("DiffView", () => {

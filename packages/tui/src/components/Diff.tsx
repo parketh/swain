@@ -38,13 +38,15 @@ export const parseDiff = (diff: string): ReadonlyArray<DiffLine> => {
     const marker = raw[0]
     if (marker === "+") out.push({ kind: "add", text: raw.slice(1), lineNo: newLn++ })
     else if (marker === "-") out.push({ kind: "del", text: raw.slice(1), lineNo: oldLn++ })
-    else if (marker === "\\")
-      out.push({ kind: "context", text: raw }) // "\ No newline…"
-    else {
+    else if (marker === " ") {
       out.push({ kind: "context", text: raw.slice(1), lineNo: newLn })
       newLn++
       oldLn++
-    }
+    } else if (raw !== "")
+      // A "\ No newline…" marker or the "… diff truncated" footer: show verbatim,
+      // with no gutter number and without advancing the line counts. The empty
+      // trailing element from split("\n") falls through and is dropped.
+      out.push({ kind: "context", text: raw })
   }
   return out
 }
