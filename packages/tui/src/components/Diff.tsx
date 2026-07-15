@@ -64,25 +64,27 @@ export interface DiffViewProps {
   readonly diff: string
   /** Total terminal width; lines are truncated to fit. */
   readonly width: number
-  /** Cap on rendered rows; the remainder is summarized in a "… +N more lines" footer. */
-  readonly maxLines?: number
 }
 
 const GUTTER = 4
 
 /**
- * Syntax-highlighted unified-diff preview: a faint line-number gutter, add/del
- * coloring, and per-line width truncation. When `maxLines` is set the view is
- * bounded and the remainder summarized in a footer; otherwise every line renders.
+ * Syntax-highlighted unified-diff preview: an `+A -B` change summary, then a
+ * faint line-number gutter with add/del coloring and per-line width truncation.
+ * Every line renders — upstream `makeUnifiedDiff` already collapses unchanged
+ * context and caps pathological diffs, so no row cap is applied here.
  */
-export const DiffView = ({ diff, width, maxLines }: DiffViewProps) => {
-  const all = parseDiff(diff)
-  const shown = maxLines === undefined ? all : all.slice(0, Math.max(1, maxLines))
-  const hidden = all.length - shown.length
+export const DiffView = ({ diff, width }: DiffViewProps) => {
+  const lines = parseDiff(diff)
+  const added = lines.filter((l) => l.kind === "add").length
+  const removed = lines.filter((l) => l.kind === "del").length
   const codeWidth = Math.max(8, width - GUTTER - 2)
   return (
     <Box flexDirection="column">
-      {shown.map((line, i) => (
+      <Text>
+        <Text color="green">+{added}</Text> <Text color="red">-{removed}</Text>
+      </Text>
+      {lines.map((line, i) => (
         <Text
           // biome-ignore lint/suspicious/noArrayIndexKey: static, order-stable diff rows
           key={i}
@@ -95,9 +97,6 @@ export const DiffView = ({ diff, width, maxLines }: DiffViewProps) => {
           {clampCols(line.text, codeWidth)}
         </Text>
       ))}
-      {hidden > 0 ? (
-        <Text color={theme.faint}>{`… +${hidden} more line${hidden === 1 ? "" : "s"}`}</Text>
-      ) : null}
     </Box>
   )
 }

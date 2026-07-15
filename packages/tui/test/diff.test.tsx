@@ -45,22 +45,17 @@ describe("parseDiff", () => {
 })
 
 describe("DiffView", () => {
-  test("renders diff content within the line budget", () => {
-    const { lastFrame } = render(<DiffView diff={patch} width={60} maxLines={20} />)
-    expect(lastFrame()).toContain("const b = 3")
-    expect(lastFrame()).not.toContain("more line")
-  })
-
-  test("caps to maxLines and footers the remainder", () => {
-    const { lastFrame } = render(<DiffView diff={patch} width={60} maxLines={2} />)
-    // 5 parsed lines (1 hunk + 4 body), 2 shown → 3 hidden.
-    expect(lastFrame()).toContain("… +3 more lines")
-  })
-
-  test("renders every line and no footer when maxLines is omitted", () => {
+  test("renders every diff line", () => {
     const { lastFrame } = render(<DiffView diff={patch} width={60} />)
     expect(lastFrame()).toContain("const a = 1")
+    expect(lastFrame()).toContain("const b = 3")
     expect(lastFrame()).toContain("const c = 4")
-    expect(lastFrame()).not.toContain("more line")
+  })
+
+  test("headers the change with an add/remove summary", () => {
+    // The counts sit in separate colored spans, so ANSI codes fall between them.
+    const { lastFrame } = render(<DiffView diff={patch} width={60} />)
+    expect(lastFrame()).toContain("+1")
+    expect(lastFrame()).toContain("-1")
   })
 })
