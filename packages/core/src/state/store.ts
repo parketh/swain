@@ -54,6 +54,29 @@ const ToolResultReplacement = Schema.Struct({
 })
 const ToolResultSidecar = Schema.Array(ToolResultReplacement)
 
+// Monotonic suffix so two concurrent writers never share a temp path; a shared
+// temp would let one writer's rename publish the other's bytes, or rename a file
+// the other already moved.
+let tmpSeq = 0
+
+/**
+ * Writes `path` atomically: write a sibling temp file in full, then rename it
+ * over the destination. A crashed, interrupted, or concurrently-racing write
+ * leaves either the old complete file or the new one, never a truncated mix —
+ * the guarantee mid-turn progress persistence relies on. The temp sits in the
+ * same directory so the rename stays on one filesystem (and is atomic).
+ */
+const writeFileAtomic = (
+  fs: FileSystem.FileSystem,
+  path: string,
+  content: string,
+): Effect.Effect<void, PlatformError> =>
+  Effect.gen(function* () {
+    const tmp = `${path}.tmp-${(tmpSeq += 1)}`
+    yield* fs.writeFileString(tmp, content)
+    yield* fs.rename(tmp, path)
+  })
+
 const sessionPath = (sessionsDir: string, sessionId: string): string =>
   NodePath.join(sessionsDir, sessionId)
 
@@ -86,16 +109,18 @@ export const saveSession = (
       counters: { ...session.counters },
       compaction: { ...session.compaction },
     }
-    yield* fs.writeFileString(NodePath.join(dir, "session.json"), JSON.stringify(metadata, null, 2))
+    yield* writeFileAtomic(fs, NodePath.join(dir, "session.json"), JSON.stringify(metadata, null, 2))
 
     const transcript = session.messages.map((message) => JSON.stringify(message)).join("\n")
-    yield* fs.writeFileString(
+    yield* writeFileAtomic(
+      fs,
       NodePath.join(dir, "messages.jsonl"),
       transcript.length > 0 ? `${transcript}\n` : "",
     )
 
     if (session.toolResults.length > 0) {
-      yield* fs.writeFileString(
+      yield* writeFileAtomic(
+        fs,
         NodePath.join(dir, "tool-results.json"),
         JSON.stringify(session.toolResults, null, 2),
       )
