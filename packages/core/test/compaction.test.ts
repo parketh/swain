@@ -224,7 +224,12 @@ describe("deriveContext", () => {
   })
 
   test("drops earlier markers, keeping only the latest summary", () => {
-    const history = [...transcript(), marker(4), Msg.assistant([{ type: "text", text: "x" }]), marker(6)]
+    const history = [
+      ...transcript(),
+      marker(4),
+      Msg.assistant([{ type: "text", text: "x" }]),
+      marker(6),
+    ]
     const { messages } = deriveContext(history)
     expect(compactionBlocks(messages)).toHaveLength(1)
     // Latest marker (index 8) has contextTailStart 6 → tail is history[6..], markers stripped.

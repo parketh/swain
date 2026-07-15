@@ -257,7 +257,15 @@ export const compactSession = (
     const contextTailStart = sourceIndex[cut]!
     const compactedMessages = prefix.filter((m) => compactionBlock(m) === undefined).length
     const meta = Message.user(
-      [{ type: "compaction", reason: options.reason, compactedMessages, summary: text, contextTailStart }],
+      [
+        {
+          type: "compaction",
+          reason: options.reason,
+          compactedMessages,
+          summary: text,
+          contextTailStart,
+        },
+      ],
       true,
     )
 
