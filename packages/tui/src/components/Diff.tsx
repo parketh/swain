@@ -62,20 +62,20 @@ export interface DiffViewProps {
   readonly diff: string
   /** Total terminal width; lines are truncated to fit. */
   readonly width: number
-  /** Max diff rows to render before truncating with a "… +N more lines" footer. */
-  readonly maxLines: number
+  /** Cap on rendered rows; the remainder is summarized in a "… +N more lines" footer. */
+  readonly maxLines?: number
 }
 
 const GUTTER = 4
 
 /**
  * Syntax-highlighted unified-diff preview: a faint line-number gutter, add/del
- * coloring, and per-line width truncation. Bounded to `maxLines` so it never
- * overflows the overlay; the remainder is summarized in a footer.
+ * coloring, and per-line width truncation. When `maxLines` is set the view is
+ * bounded and the remainder summarized in a footer; otherwise every line renders.
  */
 export const DiffView = ({ diff, width, maxLines }: DiffViewProps) => {
   const all = parseDiff(diff)
-  const shown = all.slice(0, Math.max(1, maxLines))
+  const shown = maxLines === undefined ? all : all.slice(0, Math.max(1, maxLines))
   const hidden = all.length - shown.length
   const codeWidth = Math.max(8, width - GUTTER - 2)
   return (

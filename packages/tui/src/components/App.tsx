@@ -484,8 +484,6 @@ export const App = ({ controller }: AppProps) => {
   ) : approval !== undefined ? (
     <PermissionPrompt
       request={approval.request}
-      maxRows={rows}
-      width={columns}
       onDecision={(decision) => {
         controller.resolveApproval(approval.id, decision)
         setApproval(undefined)
@@ -645,6 +643,8 @@ export const App = ({ controller }: AppProps) => {
             <Transcript
               messages={state.session.messages}
               draft={draft}
+              width={columns}
+              pendingDiff={approval?.request.diff}
               registerPrompt={registerPrompt}
             />
           </Box>
