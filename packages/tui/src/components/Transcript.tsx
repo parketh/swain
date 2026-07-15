@@ -268,12 +268,19 @@ const resultsById = (
   return map
 }
 
+/** The unified-diff text an Edit result carries, if any (for inline rendering). */
+const editDiff = (name: string | undefined, value: unknown): string | undefined => {
+  if (name !== "Edit" || typeof value !== "object" || value === null) return undefined
+  const diffs = (value as { diffs?: unknown }).diffs
+  const first = Array.isArray(diffs) ? diffs[0] : undefined
+  const text = (first as { text?: unknown } | undefined)?.text
+  return typeof text === "string" ? text : undefined
+}
+
 /**
  * Linearize persisted messages + the live draft into display items in order.
  * `pendingDiff` is the diff of the Edit currently awaiting approval; it is
- * attached to that tool's still-running draft row so the change shows inline
- * only while the decision is pending. Once accepted or rejected the tool is
- * persisted and collapses to its one-line result summary.
+ * attached to that tool's still-running draft row so the change shows inline.
  */
 export const buildItems = (
   messages: ReadonlyArray<Message>,
@@ -308,6 +315,7 @@ export const buildItems = (
       } else if (block.type === "tool-call" && !isHiddenTool(block.name)) {
         const result = results.get(String(block.toolCallId))
         if (result === undefined && draftIds.has(String(block.toolCallId))) continue
+        const diff = result !== undefined ? editDiff(block.name, result.value) : undefined
         items.push({
           kind: "tool",
           name: block.name,
@@ -318,6 +326,7 @@ export const buildItems = (
               : "…",
           isError: result?.isError === true,
           done: result !== undefined,
+          ...(diff !== undefined && { diff }),
         })
       }
       // reasoning is intentionally hidden; tool-result blocks are consumed above.

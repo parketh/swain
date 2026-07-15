@@ -37,7 +37,7 @@ describe("Transcript model-switch rendering", () => {
 })
 
 describe("Transcript inline Edit diffs", () => {
-  test("a completed Edit collapses to its summary with no inline diff", () => {
+  test("a completed Edit carries its diff from the persisted result", () => {
     const messages = [
       {
         role: "assistant",
@@ -57,8 +57,7 @@ describe("Transcript inline Edit diffs", () => {
       // biome-ignore lint/suspicious/noExplicitAny: opaque persisted content blocks
     ] as any as ReadonlyArray<Message>
     const item = buildItems(messages, emptyDraft).find((i) => i.kind === "tool")
-    expect(item?.kind === "tool" && item.done).toBe(true)
-    expect(item?.kind === "tool" && item.diff).toBeUndefined()
+    expect(item?.kind === "tool" && item.diff).toBe(diffText)
   })
 
   test("a still-running Edit takes the pending approval diff", () => {
