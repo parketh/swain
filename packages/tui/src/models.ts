@@ -146,20 +146,33 @@ interface ModelSpec {
 // Model limits carried into @swain/core for compaction policy. Values are the
 // provider-documented context window and max output tokens. Keyed by model id
 // so every serving provider of a model (e.g. gpt-5.5 via OpenAI and Codex)
-// shares one limit entry.
+// shares one limit entry; surface-specific caps (e.g. Codex, below) are applied
+// as provider overrides in resolveModelSelection.
 const LIMITS: Record<string, ModelLimits> = {
   [AnthropicModel.Claude_Opus_4_8]: { contextWindow: 1_000_000, maxOutputTokens: 128_000 },
-  // GPT-5.5 and GPT-5.6 Sol/Terra are also served through Codex, whose surface
-  // caps context at 400K; the shared entry uses that smaller binding limit. The
-  // OpenAI-only models (5.5 Pro, Luna) use the full 1.05M API context window.
-  [OpenAIModel.GPT_5_5]: { contextWindow: 400_000, maxOutputTokens: 128_000 },
+  [OpenAIModel.GPT_5_5]: { contextWindow: 1_050_000, maxOutputTokens: 128_000 },
   [OpenAIModel.GPT_5_5_Pro]: { contextWindow: 1_050_000, maxOutputTokens: 128_000 },
-  [OpenAIModel.GPT_5_6_Sol]: { contextWindow: 400_000, maxOutputTokens: 128_000 },
-  [OpenAIModel.GPT_5_6_Terra]: { contextWindow: 400_000, maxOutputTokens: 128_000 },
+  [OpenAIModel.GPT_5_6_Sol]: { contextWindow: 1_050_000, maxOutputTokens: 128_000 },
+  [OpenAIModel.GPT_5_6_Terra]: { contextWindow: 1_050_000, maxOutputTokens: 128_000 },
   [OpenAIModel.GPT_5_6_Luna]: { contextWindow: 1_050_000, maxOutputTokens: 128_000 },
   [DeepSeekModel.V4_Flash]: { contextWindow: 1_000_000, maxOutputTokens: 384_000 },
   [DeepSeekModel.V4_Pro]: { contextWindow: 1_000_000, maxOutputTokens: 384_000 },
   [ZAIModel.GLM_5_2]: { contextWindow: 1_000_000, maxOutputTokens: 128_000 },
+}
+
+// The Codex surface serves OpenAI models with a smaller context window than
+// their raw API limit, so cap the shared limit entry when serving via Codex.
+const CODEX_CONTEXT_WINDOW = 400_000
+
+// Applies any provider-specific cap to a model's base limits (e.g. Codex serves
+// OpenAI models with a smaller context window than the OpenAI API).
+const limitsFor = (provider: string, modelId: string): ModelLimits | undefined => {
+  const base = LIMITS[modelId]
+  if (base === undefined) return undefined
+  if (provider === Provider.OpenAICodex && base.contextWindow !== undefined) {
+    return { ...base, contextWindow: Math.min(base.contextWindow, CODEX_CONTEXT_WINDOW) }
+  }
+  return base
 }
 
 interface ProviderSpec {
@@ -579,7 +592,7 @@ export const resolveModelSelection = (
     ...(variantSpec?.generation !== undefined && { generation: variantSpec.generation }),
   }
   const built = spec.build(modelId, config.providers[spec.id])
-  const limits = LIMITS[modelId]
+  const limits = limitsFor(provider, modelId)
   return {
     type: "ok",
     selection: {

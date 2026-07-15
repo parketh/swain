@@ -61,4 +61,20 @@ describe("resolveModelSelection limits", () => {
       }
     }
   })
+
+  test("Codex caps the context window below the raw OpenAI API limit", () => {
+    const config: TuiConfig = {
+      providers: { openai: { apiKey: "x" }, "openai-codex": { accessToken: "t" } },
+    }
+    const viaOpenAI = resolveModelSelection("openai", "gpt-5.5", undefined, config)
+    const viaCodex = resolveModelSelection("openai-codex", "gpt-5.5", undefined, config)
+    expect(viaOpenAI.type).toBe("ok")
+    expect(viaCodex.type).toBe("ok")
+    if (viaOpenAI.type === "ok" && viaCodex.type === "ok") {
+      expect(viaOpenAI.selection.model.limits?.contextWindow).toBe(1_050_000)
+      expect(viaCodex.selection.model.limits?.contextWindow).toBe(400_000)
+      // The output cap is unaffected by the Codex surface.
+      expect(viaCodex.selection.model.limits?.maxOutputTokens).toBe(128_000)
+    }
+  })
 })
