@@ -136,5 +136,8 @@ export const replaceToken = (
   // Land the cursor past the separator, not before it: detectFileToken matches
   // on text-before-cursor, so a cursor sitting before the space would still see
   // an active token and keep the picker open.
-  return { text: before + insert + after, cursor: before.length + insert.length + (hasSpace ? 1 : 0) }
+  return {
+    text: before + insert + after,
+    cursor: before.length + insert.length + (hasSpace ? 1 : 0),
+  }
 }
