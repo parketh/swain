@@ -45,4 +45,11 @@ describe("DiffView", () => {
     // 5 parsed lines (1 hunk + 4 body), 2 shown → 3 hidden.
     expect(lastFrame()).toContain("… +3 more lines")
   })
+
+  test("renders every line and no footer when maxLines is omitted", () => {
+    const { lastFrame } = render(<DiffView diff={patch} width={60} />)
+    expect(lastFrame()).toContain("const a = 1")
+    expect(lastFrame()).toContain("const c = 4")
+    expect(lastFrame()).not.toContain("more line")
+  })
 })

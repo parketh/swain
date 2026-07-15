@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import type { Message } from "@swain/llms"
-import { buildItems, emptyDraft } from "../src/components/Transcript"
+import { buildItems, emptyDraft, type ToolRow } from "../src/components/Transcript"
+
+const diffText = "@@ -1,1 +1,1 @@\n-const b = 2\n+const b = 3\n"
 
 const switchMessage: Message = {
   role: "user",
@@ -31,5 +33,59 @@ describe("Transcript model-switch rendering", () => {
     }
     // It must never render as a plain user prompt.
     expect(items.some((i) => i.kind === "text" && i.role === "user")).toBe(false)
+  })
+})
+
+describe("Transcript inline Edit diffs", () => {
+  test("a completed Edit carries its diff from the persisted result", () => {
+    const messages = [
+      {
+        role: "assistant",
+        content: [{ type: "tool-call", toolCallId: "t1", name: "Edit", input: { path: "a.ts" } }],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "t1",
+            isError: false,
+            result: { value: { diffs: [{ format: "unified", text: diffText, truncated: false }] } },
+          },
+        ],
+      },
+      // biome-ignore lint/suspicious/noExplicitAny: opaque persisted content blocks
+    ] as any as ReadonlyArray<Message>
+    const item = buildItems(messages, emptyDraft).find((i) => i.kind === "tool")
+    expect(item?.kind === "tool" && item.diff).toBe(diffText)
+  })
+
+  test("a still-running Edit takes the pending approval diff", () => {
+    const row: ToolRow = {
+      toolCallId: "t2",
+      name: "Edit",
+      input: { path: "b.ts" },
+      output: "",
+      done: false,
+      isError: false,
+    }
+    const draft = { ...emptyDraft, tools: [row] }
+    const item = buildItems([], draft, diffText).find((i) => i.kind === "tool")
+    expect(item?.kind === "tool" && item.diff).toBe(diffText)
+  })
+
+  test("a non-Edit pending tool gets no diff", () => {
+    const row: ToolRow = {
+      toolCallId: "t3",
+      name: "Bash",
+      input: { command: "ls" },
+      output: "",
+      done: false,
+      isError: false,
+    }
+    const item = buildItems([], { ...emptyDraft, tools: [row] }, diffText).find(
+      (i) => i.kind === "tool",
+    )
+    expect(item?.kind === "tool" && item.diff).toBeUndefined()
   })
 })
