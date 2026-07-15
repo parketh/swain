@@ -1,4 +1,5 @@
 import { Box, Text } from "ink"
+import { useMemo } from "react"
 import { theme } from "../theme"
 import { clampCols } from "./overlayFill"
 
@@ -75,7 +76,9 @@ const GUTTER = 4
  * context and caps pathological diffs, so no row cap is applied here.
  */
 export const DiffView = ({ diff, width }: DiffViewProps) => {
-  const lines = parseDiff(diff)
+  // Memoized: the transcript re-renders on every keystroke/stream delta, but the
+  // diff text only changes when the edit does.
+  const lines = useMemo(() => parseDiff(diff), [diff])
   const added = lines.filter((l) => l.kind === "add").length
   const removed = lines.filter((l) => l.kind === "del").length
   const codeWidth = Math.max(8, width - GUTTER - 2)
