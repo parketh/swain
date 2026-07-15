@@ -118,7 +118,12 @@ export const searchFiles = (
   )
 }
 
-/** Replaces only the active token with `@relativePath`, preserving the rest. */
+/**
+ * Replaces only the active token with `@relativePath`, preserving the rest. A
+ * trailing space is appended (unless one already follows) so the token is no
+ * longer active after selection — otherwise the picker stays open and Enter can
+ * never submit the prompt.
+ */
 export const replaceToken = (
   text: string,
   token: FileToken,
@@ -126,6 +131,13 @@ export const replaceToken = (
 ): { readonly text: string; readonly cursor: number } => {
   const before = text.slice(0, token.start)
   const after = text.slice(token.end)
-  const insert = `@${relativePath}`
-  return { text: before + insert + after, cursor: before.length + insert.length }
+  const hasSpace = /^\s/.test(after)
+  const insert = `@${relativePath}${hasSpace ? "" : " "}`
+  // Land the cursor past the separator, not before it: detectFileToken matches
+  // on text-before-cursor, so a cursor sitting before the space would still see
+  // an active token and keep the picker open.
+  return {
+    text: before + insert + after,
+    cursor: before.length + insert.length + (hasSpace ? 1 : 0),
+  }
 }
