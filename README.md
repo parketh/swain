@@ -82,3 +82,30 @@ pick the active model
 - `/clear` starts a fresh session
 - `/resume` reopens a saved one
 - Shift-Tab cycles the permission mode (`ask → auto → plan`)
+
+## Session persistence
+
+Each session persists under `<sessionsDir>/<id>/` (the TUI resolves this to
+`.swain/sessions/<project-slug>/`): `session.json` (metadata), `messages.jsonl`
+(the transcript, one JSON message per line), `tasks.json` (the task graph), and
+`tool-results/` (offloaded oversized tool output).
+
+Transcript rows and tasks carry local-only timing metadata for benchmarking and
+eval analysis. It is never sent to a provider, and all durations are numeric
+milliseconds from a monotonic clock:
+
+- `createdAt` — required ISO-8601 UTC commit timestamp on every message.
+- `responseDurationMs` — provider-response latency, on each committed assistant
+  response (and on the meta message a model switch or compaction replaces it
+  with). Includes failed provider attempts and retry backoff.
+- `turnDurationMs` — whole-turn latency, on the final assistant response of a
+  successful turn only. Measured from `runTurn` entry, so it includes preflight
+  compaction, retries, approval waits, and tool calls — it is user-visible
+  orchestration latency, not comparable to `responseDurationMs`.
+- `durationMs` (tool result) — `callTool` latency, present only for tools that
+  opt into timing (`WebSearch`, `WebFetch`); absence means "not instrumented".
+- `durationMs` (`tasks.json`) — child-run duration on a terminal delegated task,
+  measuring the subagent run itself (not worktree setup/cleanup).
+
+Historical sessions are discarded rather than migrated; the decode schema
+requires `createdAt` and does not tolerate unstamped legacy rows.
