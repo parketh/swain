@@ -41,8 +41,8 @@ const bodyOf = (result: ToolResultContent): Body =>
 /** Filesystem-safe file stem derived from the (possibly compound) tool call id. */
 const safeStem = (toolCallId: string): string => toolCallId.replace(/[^a-zA-Z0-9._-]/g, "_")
 
-const wrap = (originalBytes: number, path: string, preview: string): string =>
-  `<persisted-tool-result>\nOutput too large (${originalBytes} bytes). Full output saved to: ${path}\n\nPreview:\n${preview}\n...\n</persisted-tool-result>`
+const wrap = (originalChars: number, path: string, preview: string): string =>
+  `<persisted-tool-result>\nOutput too large (${originalChars} chars). Full output saved to: ${path}\n\nPreview:\n${preview}\n...\n</persisted-tool-result>`
 
 /**
  * Live store writing under `dir`. Oversized bodies are written once (keyed by
@@ -75,8 +75,8 @@ export const toolResultStoreLayer = (
               toolCallId: result.toolCallId,
               ...(result.name !== undefined && { name: result.name }),
               path,
-              originalBytes: text.length,
-              previewBytes: preview.length,
+              originalChars: text.length,
+              previewChars: preview.length,
               createdAt: new Date().toISOString(),
             })
           }

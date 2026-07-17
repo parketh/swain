@@ -81,7 +81,7 @@ describe("toolResultStore", () => {
         toolCallId: "call-1",
         name: "Bash",
         path,
-        originalBytes: big.length,
+        originalChars: big.length,
       })
     } finally {
       removeTempDir(dir)

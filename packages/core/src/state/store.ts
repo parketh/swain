@@ -48,8 +48,8 @@ const ToolResultReplacement = Schema.Struct({
   toolCallId: Schema.String,
   name: Schema.optional(Schema.String),
   path: Schema.String,
-  originalBytes: Schema.Number,
-  previewBytes: Schema.Number,
+  originalChars: Schema.Number,
+  previewChars: Schema.Number,
   createdAt: Schema.String,
 })
 const ToolResultSidecar = Schema.Array(ToolResultReplacement)
@@ -109,7 +109,11 @@ export const saveSession = (
       counters: { ...session.counters },
       compaction: { ...session.compaction },
     }
-    yield* writeFileAtomic(fs, NodePath.join(dir, "session.json"), JSON.stringify(metadata, null, 2))
+    yield* writeFileAtomic(
+      fs,
+      NodePath.join(dir, "session.json"),
+      JSON.stringify(metadata, null, 2),
+    )
 
     const transcript = session.messages.map((message) => JSON.stringify(message)).join("\n")
     yield* writeFileAtomic(

@@ -94,8 +94,8 @@ export interface ToolResultReplacement {
   readonly toolCallId: string
   readonly name?: string
   readonly path: string
-  readonly originalBytes: number
-  readonly previewBytes: number
+  readonly originalChars: number
+  readonly previewChars: number
   readonly createdAt: string
 }
 

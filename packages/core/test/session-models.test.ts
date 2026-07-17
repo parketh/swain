@@ -253,8 +253,8 @@ describe("session model persistence", () => {
       toolCallId: "call-1",
       name: "Bash",
       path: join(dir, "s-tr", "tool-results", "call-1.txt"),
-      originalBytes: 90_000,
-      previewBytes: 2_000,
+      originalChars: 90_000,
+      previewChars: 2_000,
       createdAt: "2026-07-10T00:00:00Z",
     }
     const state = createSessionState({
