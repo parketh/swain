@@ -57,6 +57,38 @@ export const loadCodexCliCredentials = (
     }
   })
 
+/**
+ * Bootstraps Codex credentials from the Codex CLI's own store
+ * (`~/.codex/auth.json`) when swain has no refresh token of its own, so users who
+ * logged in with `codex` never paste a token and swain can refresh expired access
+ * tokens automatically. Adopts the CLI pair when it carries a refresh token, or
+ * when swain has no Codex access token at all. Returns a new providers map;
+ * missing/unreadable CLI credentials leave the input unchanged. Never writes.
+ */
+export const mergeCodexCliCredentials = (
+  providers: Readonly<Record<string, ProviderConfig>>,
+  env: Env = process.env,
+): Effect.Effect<Record<string, ProviderConfig>, never, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    if (providers[OPENAI_CODEX_PROVIDER_ID]?.refreshToken !== undefined) return { ...providers }
+    const cli = yield* loadCodexCliCredentials(env).pipe(Effect.orElseSucceed(() => undefined))
+    if (cli === undefined) return { ...providers }
+    if (
+      cli.refreshToken === undefined &&
+      providers[OPENAI_CODEX_PROVIDER_ID]?.accessToken !== undefined
+    ) {
+      return { ...providers }
+    }
+    return {
+      ...providers,
+      [OPENAI_CODEX_PROVIDER_ID]: {
+        accessToken: cli.accessToken,
+        ...(cli.refreshToken !== undefined && { refreshToken: cli.refreshToken }),
+        ...(cli.accountId !== undefined && { accountId: cli.accountId }),
+      },
+    }
+  })
+
 /** Persists rotated Codex credentials into swain's own `auth.json`, preserving other providers. */
 export const persistCodexCredentials = (
   configPath: string,

@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import type { TuiConfig } from "../src/config"
-import { availableModels, mergeModelsByProvider, resolveModelSelection } from "../src/models"
+import {
+  availableModels,
+  environmentCredentialSources,
+  mergeModelsByProvider,
+  resolveModelSelection,
+} from "../src/models"
 
 describe("mergeModelsByProvider", () => {
   test("collapses a model served by multiple providers into one entry", () => {
@@ -75,6 +80,23 @@ describe("resolveModelSelection limits", () => {
       expect(viaCodex.selection.model.limits?.contextWindow).toBe(400_000)
       // The output cap is unaffected by the Codex surface.
       expect(viaCodex.selection.model.limits?.maxOutputTokens).toBe(128_000)
+    }
+  })
+})
+
+describe("environmentCredentialSources", () => {
+  test("maps each provider's env var to a required credential field", () => {
+    const byProvider = new Map(environmentCredentialSources.map((s) => [s.provider, s]))
+    expect(byProvider.get("anthropic")).toEqual({
+      provider: "anthropic",
+      field: "apiKey",
+      envVar: "ANTHROPIC_API_KEY",
+    })
+    expect(byProvider.get("openai-codex")?.field).toBe("accessToken")
+    // Filling each source's field configures its provider.
+    for (const source of environmentCredentialSources) {
+      const config: TuiConfig = { providers: { [source.provider]: { [source.field]: "value" } } }
+      expect(availableModels(config).some((m) => m.provider === source.provider)).toBe(true)
     }
   })
 })
