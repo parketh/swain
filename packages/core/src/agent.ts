@@ -14,10 +14,12 @@ import {
   compactSession,
   defaultTokenCounter,
   deriveContext,
+  REASONING_LOSS_COMPACTION_WARNING,
   type RequestShape,
   recordContextUsage,
   shouldAutoCompact,
   ToolResultStoreService,
+  warnsOnReasoningLoss,
 } from "./context"
 import { AgentError } from "./errors"
 import { type ModelResolver, ModelResolverService } from "./model-resolver"
@@ -121,6 +123,7 @@ export type AgentEvent =
       readonly message: string
       readonly recoverable?: boolean
     }
+  | { readonly type: "compaction-warning"; readonly message: string }
   | { readonly type: "task-updated"; readonly tasks: ReadonlyArray<Task> }
   | { readonly type: "model-switch"; readonly to: SessionModelRef }
   | {
@@ -300,6 +303,19 @@ const executeTools = (
  * `Effect<void>` and its session mutations are unchanged for callers that omit
  * it.
  */
+/**
+ * Emits the one-time reasoning-loss notice after compaction runs on a model that
+ * depends on full reasoning history (Kimi K3). Compaction itself is unchanged —
+ * this only surfaces Moonshot's cross-turn-loss warning to the user.
+ */
+const warnCompactionReasoningLoss = (
+  session: SessionState,
+  emit: (event: AgentEvent) => Effect.Effect<void>,
+): Effect.Effect<void> =>
+  warnsOnReasoningLoss(session)
+    ? emit({ type: "compaction-warning", message: REASONING_LOSS_COMPACTION_WARNING })
+    : Effect.void
+
 export const runTurn = (
   session: SessionState,
   options: RunTurnOptions = {},
@@ -350,6 +366,7 @@ export const runTurn = (
     const shape: RequestShape = { system: buildSystem(), tools: llmTools }
     if (shouldAutoCompact(session, shape, defaultTokenCounter)) {
       yield* compactSession(session, { reason: "auto" }).pipe(
+        Effect.tap(() => warnCompactionReasoningLoss(session, emit)),
         Effect.catchAll((error) =>
           Effect.sync(() => {
             Object.assign(session.compaction, {
@@ -389,6 +406,7 @@ const runWithOverflowRetry = (
   loop(session, ctx, 0, false).pipe(
     Effect.catchIf(isContextOverflowError, (overflow) =>
       compactSession(session, { reason: "overflow" }).pipe(
+        Effect.tap(() => warnCompactionReasoningLoss(session, ctx.emit)),
         Effect.catchAll(() => Effect.fail(overflow)),
         Effect.andThen(loop(session, ctx, 0, false)),
       ),

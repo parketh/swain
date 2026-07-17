@@ -761,4 +761,71 @@ describe("runTurn compaction", () => {
     expect(error).toBeInstanceOf(LLMError)
     if (error instanceof LLMError) expect(error.reason).toBe("context-length-exceeded")
   })
+
+  const warnModel: Model = {
+    id: ModelId.make("kimi-k3"),
+    provider: ProviderId.make("kimi"),
+    limits: { contextWindow: 10_000, maxOutputTokens: 1_000 },
+    warnOnReasoningLoss: true,
+    streamTurn: () => Stream.empty,
+  }
+
+  const warnSession = (): SessionState =>
+    createSessionState({
+      workingDirectory: "/work",
+      model: warnModel,
+      currentDate: "2026-07-04",
+      messages: conversation(),
+    })
+
+  const collectEvents = (state: SessionState, layer: ReturnType<typeof scriptedLLMClient>) => {
+    const events: Array<AgentEvent> = []
+    return Effect.runPromise(
+      runTurn(state, { onEvent: (event) => Effect.sync(() => events.push(event)) }).pipe(
+        Effect.provide(layer),
+        Effect.provide(toolContextLayer(state)),
+        Effect.provide(toolRegistryLayer([])),
+      ),
+    ).then(() => events)
+  }
+
+  test("auto compaction on a warnOnReasoningLoss model runs and emits a compaction-warning", async () => {
+    const state = warnSession()
+    state.contextUsage = { activeContextTokens: 8_500, measuredAtMessageIndex: 4 }
+    submitPrompt(state, "third")
+    const events = await collectEvents(state, scriptedLLMClient([summaryTurn, textTurn("answer")]))
+    // Compaction ran on K3 exactly as on any model — no K3-specific bypass.
+    expect(compactionBlocks(state)).toHaveLength(1)
+    const warnings = events.filter((event) => event.type === "compaction-warning")
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toMatchObject({ type: "compaction-warning" })
+  })
+
+  test("overflow compaction on a warnOnReasoningLoss model emits a compaction-warning", async () => {
+    const state = warnSession()
+    submitPrompt(state, "third")
+    let streamCount = 0
+    const layer = Layer.succeed(LLMClient.Service, {
+      request: LLMClient.request,
+      streamTurn: () => {
+        streamCount += 1
+        return streamCount === 1
+          ? Stream.fail(overflow)
+          : Stream.fromIterable(textTurn("recovered"))
+      },
+      generateTurn: () => Effect.succeed({ events: [...summaryTurn] }),
+    })
+    const events = await collectEvents(state, layer)
+    expect(state.compaction.summary).toBe(summaryText)
+    expect(events.filter((event) => event.type === "compaction-warning")).toHaveLength(1)
+  })
+
+  test("compaction on an ordinary model emits no compaction-warning", async () => {
+    const state = limitedSession()
+    state.contextUsage = { activeContextTokens: 8_500, measuredAtMessageIndex: 4 }
+    submitPrompt(state, "third")
+    const events = await collectEvents(state, scriptedLLMClient([summaryTurn, textTurn("answer")]))
+    expect(compactionBlocks(state)).toHaveLength(1)
+    expect(events.filter((event) => event.type === "compaction-warning")).toHaveLength(0)
+  })
 })

@@ -105,6 +105,10 @@ export const foldEvent = (state: DraftState, event: AgentEvent): DraftState => {
       }
     case "agent-error":
       return { ...state, errors: [...state.errors, event.message] }
+    // A non-fatal notice (e.g. compacting a Kimi K3 session); kept visible for
+    // the turn on the same channel as errors.
+    case "compaction-warning":
+      return { ...state, errors: [...state.errors, event.message] }
     default:
       return state
   }
