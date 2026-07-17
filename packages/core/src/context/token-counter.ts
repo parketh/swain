@@ -28,7 +28,12 @@ const estimateText = (text: string): number => Math.ceil(text.length / 4)
  * heuristic roughly doubled tool-result pressure versus real BPE tokenization,
  * which drove auto-compaction to trigger far too early on read-heavy turns.
  */
-const estimateJson = (value: unknown): number => Math.ceil(JSON.stringify(value).length / 4)
+const estimateJson = (value: unknown): number => {
+  // JSON.stringify returns undefined for undefined (and functions/symbols); a
+  // tool's input/result value is Schema.Unknown, so guard before reading length.
+  const json = JSON.stringify(value)
+  return json === undefined ? 0 : Math.ceil(json.length / 4)
+}
 
 const estimateMessage = (message: Message): number => {
   let total = MESSAGE_OVERHEAD
