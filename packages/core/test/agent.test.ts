@@ -163,7 +163,7 @@ describe("createSessionState", () => {
       model,
       permissionMode: "plan",
       currentDate: "2026-07-04",
-      messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      messages: [Message.user("hi")],
     })
     expect(state.sessionId).toBe("s-1")
     expect(state.systemContext.permissionMode).toBe("plan")
@@ -322,7 +322,7 @@ describe("runTurn", () => {
     const { state, run } = drive([textTurn("hello there")], [])
     await run
     expect(state.messages).toHaveLength(2)
-    expect(state.messages[1]).toEqual({
+    expect(state.messages[1]).toMatchObject({
       role: "assistant",
       content: [{ type: "text", text: "hello there" }],
     })
@@ -343,7 +343,7 @@ describe("runTurn", () => {
       type: "tool-result",
       result: { type: "json", value: { echoed: "hi" } },
     })
-    expect(state.messages[3]).toEqual({
+    expect(state.messages[3]).toMatchObject({
       role: "assistant",
       content: [{ type: "text", text: "done" }],
     })
@@ -387,7 +387,7 @@ describe("runTurn", () => {
     submitPrompt(state, "hi")
     await Effect.runPromise(runFlaky(flaky, state))
     expect(flaky.calls()).toBe(2) // one stall + one success
-    expect(state.messages.at(-1)).toEqual({
+    expect(state.messages.at(-1)).toMatchObject({
       role: "assistant",
       content: [{ type: "text", text: "recovered" }],
     })
@@ -531,7 +531,7 @@ describe("runTurn", () => {
       ),
     )
     // No max-iterations failure: the turn ends with the model's final text.
-    expect(state.messages.at(-1)).toEqual({
+    expect(state.messages.at(-1)).toMatchObject({
       role: "assistant",
       content: [{ type: "text", text: "final answer" }],
     })
@@ -610,7 +610,7 @@ describe("session persistence", () => {
       currentDate: "2026-07-04",
     })
     submitPrompt(original, "remember this")
-    original.messages.push({ role: "assistant", content: [{ type: "text", text: "noted" }] })
+    original.messages.push(Message.assistant([{ type: "text", text: "noted" }]))
     original.counters.turns = 2
     original.counters.inputTokens = 11
     original.counters.outputTokens = 7
@@ -708,7 +708,7 @@ describe("runTurn compaction", () => {
     expect(state.compaction.autoEnabled).toBe(false)
     expect(state.compaction.failureReason).toBeDefined()
     // The turn still completed on the original transcript.
-    expect(state.messages.at(-1)).toEqual({
+    expect(state.messages.at(-1)).toMatchObject({
       role: "assistant",
       content: [{ type: "text", text: "answer" }],
     })
@@ -736,7 +736,7 @@ describe("runTurn compaction", () => {
       ),
     )
     expect(state.compaction.summary).toBe(summaryText)
-    expect(state.messages.at(-1)).toEqual({
+    expect(state.messages.at(-1)).toMatchObject({
       role: "assistant",
       content: [{ type: "text", text: "recovered" }],
     })

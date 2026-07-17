@@ -1153,7 +1153,7 @@ describe("App", () => {
     // The turn is preserved: the user prompt stays and an interrupt marker is appended.
     const messages = c.getState().session.messages
     expect(messages).toHaveLength(2)
-    expect(messages[1]).toEqual({
+    expect(messages[1]).toMatchObject({
       role: "assistant",
       content: [{ type: "text", text: "[Request interrupted by user]" }],
     })

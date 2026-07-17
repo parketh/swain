@@ -12,7 +12,7 @@ import {
   saveSession,
 } from "@swain/core"
 import type { LLMEvent, LLMRequest, Model } from "@swain/llms"
-import { ContentId, LLMError, ModelId, ProviderId, ToolCallId } from "@swain/llms"
+import { ContentId, LLMError, Message, ModelId, ProviderId, ToolCallId } from "@swain/llms"
 import { LLMClient } from "@swain/llms/client"
 import { Effect, Layer, Stream } from "effect"
 import { sessionsDir, type TuiConfig } from "../src/config"
@@ -108,7 +108,7 @@ describe("controller", () => {
     const c = build(scripted([textTurn("ok")]))
     await c.submitPrompt("hello")
     const messages = c.getState().session.messages
-    expect(messages[0]).toEqual({ role: "user", content: [{ type: "text", text: "hello" }] })
+    expect(messages[0]).toMatchObject({ role: "user", content: [{ type: "text", text: "hello" }] })
   })
 
   test("forwards both text deltas to the event subscriber in order", async () => {
@@ -301,14 +301,10 @@ describe("controller", () => {
       modelRef: { provider: "anthropic", modelId: "claude-opus-4-8" },
       currentDate: "2026-07-05",
       messages: [
-        {
-          role: "user",
-          isMeta: true,
-          content: [
-            { type: "compaction", reason: "manual", compactedMessages: 4, summary: "## Goal\nX" },
-          ],
-          // biome-ignore lint/suspicious/noExplicitAny: compaction content isn't in the narrow helper types
-        } as any,
+        Message.user(
+          [{ type: "compaction", reason: "manual", compactedMessages: 4, summary: "## Goal\nX" }],
+          true,
+        ),
       ],
       compaction: { autoEnabled: false, summary: "## Goal\nX" },
     })

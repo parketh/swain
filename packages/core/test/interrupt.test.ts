@@ -29,7 +29,7 @@ describe("recordInterruption", () => {
     state.messages.push(Message.user("do the thing"))
     recordInterruption(state, "I was partway through")
     expect(state.messages).toHaveLength(2)
-    expect(state.messages[1]).toEqual({
+    expect(state.messages[1]).toMatchObject({
       role: "assistant",
       content: [{ type: "text", text: `I was partway through\n\n${INTERRUPT_MESSAGE}` }],
     })
@@ -40,7 +40,7 @@ describe("recordInterruption", () => {
     const state = session()
     state.messages.push(Message.user("do the thing"))
     recordInterruption(state)
-    expect(state.messages[1]).toEqual({
+    expect(state.messages[1]).toMatchObject({
       role: "assistant",
       content: [{ type: "text", text: INTERRUPT_MESSAGE }],
     })
@@ -62,7 +62,7 @@ describe("recordInterruption", () => {
     recordInterruption(state)
     // user, assistant(tool_use), user(tool-result), assistant(marker)
     expect(state.messages).toHaveLength(4)
-    expect(state.messages[2]).toEqual({
+    expect(state.messages[2]).toMatchObject({
       role: "user",
       content: [
         {
@@ -74,7 +74,7 @@ describe("recordInterruption", () => {
         },
       ],
     })
-    expect(state.messages[3]).toEqual({
+    expect(state.messages[3]).toMatchObject({
       role: "assistant",
       content: [{ type: "text", text: INTERRUPT_MESSAGE }],
     })

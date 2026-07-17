@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { FileSystem } from "@effect/platform"
@@ -131,6 +131,30 @@ describe("TaskStore", () => {
     const created = await runIn(dir, createTask({ subject: "keep", description: "me" }))
     const reloaded = await runIn(dir, getTask(created.id))
     expect(reloaded.subject).toBe("keep")
+  })
+
+  test("a terminal delegated task carrying durationMs round-trips through decode", async () => {
+    const ts = "2026-07-17T10:00:00.000Z"
+    writeFileSync(
+      join(dir, "tasks.json"),
+      JSON.stringify([
+        {
+          id: "t1",
+          subject: "s",
+          description: "d",
+          status: "completed",
+          owner: "agent-1",
+          agentType: "Explore",
+          result: "done",
+          blockedBy: [],
+          createdAt: ts,
+          updatedAt: ts,
+          durationMs: 1234,
+        },
+      ]),
+    )
+    const reloaded = await runIn(dir, getTask("t1"))
+    expect(reloaded.durationMs).toBe(1234)
   })
 
   test("claim records worktree info; reset clears it but returns it for cleanup", async () => {
