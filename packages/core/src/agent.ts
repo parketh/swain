@@ -161,6 +161,11 @@ export interface RunTurnOptions {
    * Router status is global config, so this is fixed per user turn.
    */
   readonly router?: { readonly targets: ReadonlyArray<RouterPromptTarget> }
+  /**
+   * Marks the run non-interactive (headless exec): the system prompt tells the
+   * model no user is available and to proceed on reasonable assumptions.
+   */
+  readonly nonInteractive?: boolean
   readonly onEvent?: (event: AgentEvent) => Effect.Effect<void>
 }
 
@@ -333,6 +338,7 @@ export const runTurn = (
             currentId: modelRefKey(session.systemContext.modelRef),
           },
         }),
+        ...(options.nonInteractive === true && { nonInteractive: true }),
       })
     const resolver = yield* Effect.serviceOption(ModelResolverService)
     const emit = (event: AgentEvent): Effect.Effect<void> => options.onEvent?.(event) ?? Effect.void

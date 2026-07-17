@@ -24,6 +24,12 @@ export interface SystemPromptInput {
   readonly permissionMode: PermissionMode
   readonly tools: ReadonlyArray<{ readonly name: string; readonly description: string }>
   readonly router?: RouterPromptContext
+  /**
+   * When true, the run is non-interactive (headless exec): no user is available
+   * to answer questions, so the model must make reasonable assumptions and
+   * proceed rather than asking.
+   */
+  readonly nonInteractive?: boolean
 }
 
 /**
@@ -58,6 +64,8 @@ Rules:
 - To switch, emit SwitchModel as your ONLY tool call and then stop generating.
 
 You can also use Agent to delegate tasks to a specific target model. When using Agent, classify its task the same way and pass Agent's \`model\` field the matching routable target id; omit a target to inherit the current one.`
+
+const NON_INTERACTIVE_GUIDANCE = `You are running non-interactively: there is no user available to answer questions or approve steps. Do not ask for clarification or wait for input. Make reasonable assumptions, proceed to completion, and state any assumptions in your final response.`
 
 const renderTarget = (target: RouterPromptTarget, current: boolean): string => {
   const capability = target.capability !== undefined ? `${target.capability}` : "unknown"
@@ -102,5 +110,6 @@ ${JSON.stringify(toolList, null, 2)}`,
   if (hasTaskTools) sections.push(TASK_GUIDANCE)
   if (hasAgentTool) sections.push(AGENT_REMINDER)
   if (input.router !== undefined) sections.push(renderRouterBlock(input.router))
+  if (input.nonInteractive === true) sections.push(NON_INTERACTIVE_GUIDANCE)
   return `${sections.join("\n\n")}\n`
 }
