@@ -344,3 +344,13 @@ packages/tui/test/startup.test.ts
 - Exec never waits for `Ask`/approval input, never writes environment credentials, and leaves no resumable session or temporary task/tool artifacts.
 - Stdout, stderr, and exit statuses match the documented contract under success, usage error, runtime failure, SIGINT, and SIGTERM.
 - All targeted tests plus `bun run typecheck`, `bun run format:check`, and `bun test packages/llms/test` pass.
+
+## Post-Implementation Changes
+
+Implemented across four commits (`feat(tui): add exec command grammar`, `refactor(tui): share startup resolution`, `feat(tui): support headless controller lifecycle`, `feat(tui): run prompts headlessly`). Notable specifics beyond the plan:
+
+- **CLI dispatch** keys off `argv[0]`: `exec` → headless, `--help`/`-h` → help, `--version`/`-v` → version, anything else → interactive. `runCli` injects argv/stdin/stdout/stderr/env/cwd plus the interactive/headless frontends for unit tests; only `bin/swain.tsx` assigns `process.exitCode`.
+- **Startup extraction** lives in `startup.ts` as `loadStartup(env, policy)` (returns `{ configPath, config, needsMigration }`), `migrateLegacyAuth`, `resolveInteractiveModel`, and `resolveHeadlessModel`. The Codex CLI bootstrap moved to `codex-auth.ts` as `mergeCodexCliCredentials`. Env→provider credential mapping is `environmentCredentialSources` in `models.ts`.
+- **`waitUntilIdle`** uses a `signalProgress`/`nextProgress` condvar (register-before-observe to avoid lost wake-ups) rather than polling; it proactively drives one `maybeDrainCompletions` pass per iteration, relying on the synchronous drain guard to serialize against the background completion listener.
+- **`runHeadless`** takes an optional second argument `HeadlessTestDeps` (`{ llmLayer? }`) so tests inject a mock LLM; the CLI passes nothing. Signal handlers are registered with `process.on` and invoked directly in tests via `process.listeners`.
+- `@swain/tui/package.json` gained a `version` field for semantic-release; source runs still report `dev` via the `__SWAIN_VERSION__` define in `version.ts`.
