@@ -142,6 +142,19 @@ describe("OpenAIChat.prepare", () => {
     expect(body.tool_choice).toEqual({ type: "function", function: { name: "lookup" } })
   })
 
+  test("a max_completion_tokens profile maps maxTokens without sending max_tokens", () => {
+    const { body } = OpenAIChat.prepare(
+      {
+        modelId: "kimi-k3",
+        messages: [Message.user("hi")],
+        generation: GenerationOptions.make({ maxTokens: 4096 }),
+      },
+      { optionsKey: "kimi", maxTokensField: "max_completion_tokens" },
+    )
+    expect(body.max_completion_tokens).toBe(4096)
+    expect(body.max_tokens).toBeUndefined()
+  })
+
   test("prompt_cache_key is sent only when the option is set", () => {
     const withKey = OpenAIChat.prepare({
       modelId: "gpt-4.1-mini",
