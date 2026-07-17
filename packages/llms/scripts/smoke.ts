@@ -9,7 +9,7 @@ import { FetchHttpClient } from "@effect/platform"
 import { Effect, Stream } from "effect"
 import type { Model } from "../src/index"
 import { LLM } from "../src/index"
-import { Anthropic, DeepSeek, OpenAI, OpenAICodex, ZAI } from "../src/providers/index"
+import { Anthropic, DeepSeek, Kimi, OpenAI, OpenAICodex, ZAI } from "../src/providers/index"
 
 interface SmokeTarget {
   readonly name: string
@@ -31,6 +31,11 @@ const targets: ReadonlyArray<SmokeTarget> = [
   },
   { name: "deepseek", env: "DEEPSEEK_API_KEY", model: () => DeepSeek.model("deepseek-chat") },
   { name: "zai", env: "ZAI_API_KEY", model: () => ZAI.model("glm-4.6") },
+  {
+    name: "kimi",
+    env: "MOONSHOT_API_KEY",
+    model: () => Kimi.model("kimi-k3"),
+  },
 ]
 
 const runTurn = (target: SmokeTarget) =>

@@ -25,6 +25,12 @@ export interface Model {
   readonly id: ModelId
   readonly provider: ProviderId
   readonly limits?: ModelLimits
+  /**
+   * The model requires full historical reasoning replay (Kimi K3) and loses
+   * cross-turn context when reasoning is dropped. Core surfaces a warning when
+   * compaction runs on such a model; it does not block it.
+   */
+  readonly warnOnReasoningLoss?: boolean
   streamTurn(request: LLMRequest): Stream.Stream<LLMEvent, LLMError, HttpClient.HttpClient>
 }
 

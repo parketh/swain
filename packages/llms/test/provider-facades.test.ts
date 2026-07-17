@@ -2,15 +2,18 @@ import { afterEach, describe, expect, test } from "bun:test"
 import type { HttpClientRequest } from "@effect/platform"
 import { HttpClient, HttpClientResponse } from "@effect/platform"
 import { LLM, LLMError, Message } from "@swain/llms"
+import { KimiModel } from "@swain/llms/models"
 import {
   Anthropic,
   DeepSeek,
+  Kimi,
   OpenAI,
   OpenAICodex,
   OpenAICompatible,
   ZAI,
 } from "@swain/llms/providers"
 import type { Model } from "@swain/llms/schema"
+import { Lab, Provider } from "@swain/llms/schema"
 import { Effect, Layer, Stream } from "effect"
 
 const textChunks = [
@@ -305,6 +308,48 @@ describe("provider facades", () => {
     expect(OpenAICodex.options({ reasoning: { effort: "high" } })).toEqual({
       openaiCodex: { reasoning: { effort: "high" } },
     })
+  })
+
+  test("Kimi facade targets Moonshot with reasoning replay and max_completion_tokens", async () => {
+    expect(Provider.Kimi).toBe("kimi")
+    expect(Lab.Kimi).toBe("kimi")
+    expect(KimiModel.K3).toBe("kimi-k3")
+
+    const model = Kimi.model("kimi-k3")
+    expect(String(model.provider)).toBe("kimi")
+    expect(String(model.id)).toBe("kimi-k3")
+    expect(model.warnOnReasoningLoss).toBe(true)
+    expect(Kimi.options({ reasoningEffort: "max" })).toEqual({ kimi: { reasoningEffort: "max" } })
+
+    setEnv("MOONSHOT_API_KEY", "moonshot-key")
+    const captured: Captured = {}
+    await Effect.runPromise(
+      LLM.streamTurn(
+        LLM.request({
+          model: Kimi.model("kimi-k3"),
+          messages: [
+            Message.user("hi"),
+            Message.assistant([
+              { type: "reasoning", text: "plan" },
+              { type: "text", text: "ok" },
+            ]),
+            Message.user("again"),
+          ],
+          generation: { maxTokens: 4096 },
+          providerOptions: Kimi.options({ reasoningEffort: "max" }),
+        }),
+      ).pipe(Stream.runCollect, Effect.provide(capturingLayer(captured))),
+    )
+
+    expect(captured.url).toBe("https://api.moonshot.ai/v1/chat/completions")
+    expect(captured.headers?.authorization).toBe("Bearer moonshot-key")
+    expect(captured.body?.reasoning_effort).toBe("max")
+    expect(captured.body?.max_completion_tokens).toBe(4096)
+    expect(captured.body?.max_tokens).toBeUndefined()
+    const assistant = (captured.body?.messages as Array<Record<string, unknown>>).find(
+      (message) => message.role === "assistant",
+    )
+    expect(assistant?.reasoning_content).toBe("plan")
   })
 
   test("protocols only read their own provider options key", async () => {

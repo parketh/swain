@@ -8,6 +8,7 @@ import * as providers from "@swain/llms/providers"
 import {
   Anthropic,
   DeepSeek,
+  Kimi,
   OpenAI,
   OpenAICodex,
   OpenAICompatible,
@@ -51,6 +52,7 @@ describe("public export paths", () => {
     expect(OpenAICompatible).toBeDefined()
     expect(DeepSeek).toBeDefined()
     expect(ZAI).toBeDefined()
+    expect(Kimi).toBeDefined()
   })
 
   test("root does not re-export lower-level protocol/transport/provider modules", () => {
