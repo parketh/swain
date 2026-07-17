@@ -611,6 +611,29 @@ describe("App", () => {
     expect(clean(lastFrame() ?? "")).toContain("boom-visible")
   })
 
+  test("streamed reasoning is hidden while assistant text stays visible", async () => {
+    const r = ContentId.make("r-1")
+    const turn: ReadonlyArray<LLMEvent> = [
+      { type: "reasoning-start", contentId: r },
+      { type: "reasoning-delta", contentId: r, text: "hidden-chain-of-thought" },
+      { type: "reasoning-end", contentId: r },
+      { type: "text-start", contentId },
+      { type: "text-delta", contentId, text: "visible-assistant-text" },
+      { type: "text-end", contentId },
+      { type: "finish", reason: "stop", usage: { inputTokens: 1, outputTokens: 1 } },
+    ]
+    const { stdin, lastFrame } = render(<App controller={makeCtrl([turn])} />)
+    await flush()
+    stdin.write("go")
+    await flush()
+    stdin.write("\r")
+    await flush()
+    await flush()
+    const frame = clean(lastFrame() ?? "")
+    expect(frame).toContain("visible-assistant-text")
+    expect(frame).not.toContain("hidden-chain-of-thought")
+  })
+
   test("typing /he shows /help and highlights the command token", async () => {
     const { stdin, lastFrame } = render(<App controller={makeCtrl()} />)
     stdin.write("/he")

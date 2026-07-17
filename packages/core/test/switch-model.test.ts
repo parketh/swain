@@ -3,12 +3,14 @@ import {
   ContentId,
   LLMClient,
   type LLMEvent,
+  type Message,
   type Model,
   ModelId,
   ProviderId,
   type ToolCall,
   ToolCallId,
 } from "@swain/llms"
+import { OpenAIChat } from "@swain/llms/protocols"
 import { Effect, Layer, Stream } from "effect"
 import { type AgentEvent, runTurn, submitPrompt } from "../src/agent"
 import {
@@ -30,6 +32,7 @@ const makeModel = (id: string, provider: string): Model => ({
 
 const anthropic = makeModel("claude-sonnet-5", "anthropic")
 const deepseek = makeModel("deepseek-v4-pro", "deepseek")
+const kimi: Model = { ...makeModel("kimi-k3", "kimi"), warnOnReasoningLoss: true }
 
 const allow: Permissions = { check: () => Effect.succeed({ type: "allow" }) }
 
@@ -64,6 +67,14 @@ const resolverLayer = (
         }
         return Effect.succeed(resolved)
       }
+      if (targetId === "kimi:kimi-k3:max") {
+        const resolved: ResolvedModel = {
+          model: kimi,
+          requestOptions: { providerOptions: { kimi: { reasoningEffort: "max" } } },
+          modelRef: { provider: "kimi", modelId: "kimi-k3", variant: "max" },
+        }
+        return Effect.succeed(resolved)
+      }
       return Effect.fail(
         new ModelResolveError({ reason: "unknown-target", targetId, message: `no ${targetId}` }),
       )
@@ -94,7 +105,10 @@ const switchTurn = (
   { type: "finish", reason: "tool-call", usage: { inputTokens: 1, outputTokens: 1 } },
 ]
 
-const reasoningSwitchTurn = (siblings: ReadonlyArray<ToolCall> = []): ReadonlyArray<LLMEvent> => {
+const reasoningSwitchTurn = (
+  siblings: ReadonlyArray<ToolCall> = [],
+  target = "deepseek:deepseek-v4-pro:max",
+): ReadonlyArray<LLMEvent> => {
   const r = ContentId.make("r")
   const c = ContentId.make("c")
   return [
@@ -108,11 +122,28 @@ const reasoningSwitchTurn = (siblings: ReadonlyArray<ToolCall> = []): ReadonlyAr
       type: "tool-call",
       toolCallId: ToolCallId.make("sw-1"),
       name: "SwitchModel",
-      input: { model: "deepseek:deepseek-v4-pro:max", reason: "escalate" },
+      input: { model: target, reason: "escalate" },
     }),
     ...siblings.flatMap(toEvents),
     { type: "finish", reason: "tool-call", usage: { inputTokens: 1, outputTokens: 1 } },
   ]
+}
+
+// Scripted layer that also records the request each turn receives, so a test can
+// assert the actual outbound history (e.g. what K3 is sent after a switch).
+const capturingScriptedLayer = (
+  turns: ReadonlyArray<ReadonlyArray<LLMEvent>>,
+  sink: Array<{ messages: ReadonlyArray<Message> }>,
+) => {
+  let i = 0
+  return Layer.succeed(LLMClient.Service, {
+    request: LLMClient.request,
+    streamTurn: (request) => {
+      sink.push(request)
+      return Stream.fromIterable(turns[Math.min(i++, turns.length - 1)] ?? [])
+    },
+    generateTurn: () => Effect.succeed({ events: [] }),
+  })
 }
 
 const textTurn = (text: string): ReadonlyArray<LLMEvent> => {
@@ -317,6 +348,37 @@ describe("SwitchModel control flow", () => {
     // The switching assistant message was tool-only, so it is replaced by the
     // marker outright rather than leaving an empty assistant message before it.
     expect(state.messages[markerIndex - 1]?.role).toBe("user")
+  })
+
+  test("switching a reasoning model into K3 sends its prior reasoning as reasoning_content", async () => {
+    const state = session()
+    submitPrompt(state, "hi")
+    const requests: Array<{ messages: ReadonlyArray<Message> }> = []
+    await Effect.runPromise(
+      runTurn(state, { router: { targets: [] } }).pipe(
+        Effect.provide(
+          capturingScriptedLayer(
+            [reasoningSwitchTurn([], "kimi:kimi-k3:max"), textTurn("done")],
+            requests,
+          ),
+        ),
+        Effect.provide(ctxLayer(state)),
+        Effect.provide(toolRegistryLayer(builtinTools)),
+        Effect.provide(resolverLayer()),
+      ),
+    )
+    expect(state.systemContext.modelRef.provider).toBe("kimi")
+    // The post-switch request runs on K3; lower its history through the Kimi
+    // profile and confirm the pre-switch reasoning replays as reasoning_content.
+    const k3Request = requests[requests.length - 1]!
+    const wire = OpenAIChat.prepare(
+      { modelId: "kimi-k3", messages: k3Request.messages },
+      { optionsKey: "kimi", reasoningHistory: "reasoning_content" },
+    ).body.messages as Array<Record<string, unknown>>
+    const assistant = wire.find((m) => m.reasoning_content !== undefined)
+    expect(assistant?.reasoning_content).toBe("weigh the options")
+    // Reasoning is never converted to visible assistant text.
+    expect(String(assistant?.content ?? "")).not.toContain("weigh the options")
   })
 
   test("plan permission mode does not deny a switch", async () => {

@@ -54,6 +54,27 @@ describe("Transcript compaction rendering", () => {
   })
 })
 
+describe("Transcript reasoning hiding", () => {
+  test("assistant reasoning blocks never become transcript items while text stays visible", () => {
+    const messages = [
+      {
+        role: "assistant",
+        content: [
+          { type: "reasoning", text: "secret chain of thought" },
+          { type: "text", text: "the visible answer" },
+        ],
+      },
+      // biome-ignore lint/suspicious/noExplicitAny: opaque persisted content blocks
+    ] as any as ReadonlyArray<Message>
+    const items = buildItems(messages, emptyDraft)
+    const texts = items.flatMap((i) => (i.kind === "text" ? [i.text] : []))
+    expect(texts).toContain("the visible answer")
+    expect(texts.join("\n")).not.toContain("secret chain of thought")
+    // There is no reasoning item kind at all.
+    expect(items.some((i) => (i as { kind: string }).kind === "reasoning")).toBe(false)
+  })
+})
+
 describe("Transcript inline Edit diffs", () => {
   test("a completed Edit carries its diff from the persisted result", () => {
     const messages = [

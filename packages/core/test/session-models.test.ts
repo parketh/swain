@@ -6,6 +6,7 @@ import { join } from "node:path"
 import { BunContext } from "@effect/platform-bun"
 import type { Model } from "@swain/llms"
 import { Message, ModelId, ProviderId } from "@swain/llms"
+import { OpenAIChat } from "@swain/llms/protocols"
 import { Effect, Stream } from "effect"
 import {
   createSessionState,
@@ -270,6 +271,51 @@ describe("session model persistence", () => {
       ),
     )
     expect(reloaded.toolResults).toEqual([replacement])
+  })
+
+  test("save/resume a K3 session retains reasoning and the kimi target identity", async () => {
+    const kimi = makeModel("kimi-k3", "kimi")
+    const state = createSessionState({
+      sessionId: "s-k3",
+      workingDirectory: dir,
+      model: kimi,
+      modelRef: { provider: "kimi", modelId: "kimi-k3", variant: "max" },
+      currentDate: "2026-07-10",
+      messages: [
+        Message.user("start"),
+        Message.assistant([
+          { type: "reasoning", text: "k3 private reasoning" },
+          { type: "text", text: "answer" },
+        ]),
+      ],
+    })
+    const reloaded = await run(
+      saveSession(state, dir).pipe(
+        Effect.andThen(
+          loadSession({
+            sessionId: "s-k3",
+            model: kimi,
+            modelRef: { provider: "kimi", modelId: "kimi-k3", variant: "max" },
+            requestOptions: { providerOptions: { kimi: { reasoningEffort: "max" } } },
+            sessionsDir: dir,
+          }),
+        ),
+      ),
+    )
+    expect(reloaded.systemContext.modelRef).toEqual({
+      provider: "kimi",
+      modelId: "kimi-k3",
+      variant: "max",
+    })
+    // Reasoning survived persistence…
+    const assistant = reloaded.messages.find((m) => m.role === "assistant")
+    expect(assistant?.content.some((b) => b.type === "reasoning")).toBe(true)
+    // …and the next K3 request replays it as reasoning_content.
+    const wire = OpenAIChat.prepare(
+      { modelId: "kimi-k3", messages: reloaded.messages },
+      { optionsKey: "kimi", reasoningHistory: "reasoning_content" },
+    ).body.messages as Array<Record<string, unknown>>
+    expect(wire.find((m) => m.role === "assistant")?.reasoning_content).toBe("k3 private reasoning")
   })
 
   test("a missing tool-results sidecar loads as empty metadata, not a failure", async () => {

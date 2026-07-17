@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import type { HttpClientRequest } from "@effect/platform"
 import { HttpClient, HttpClientResponse } from "@effect/platform"
-import { LLM, LLMError, Message } from "@swain/llms"
+import { LLM, LLMError, Message, ToolCallId } from "@swain/llms"
 import { KimiModel } from "@swain/llms/models"
 import {
   Anthropic,
@@ -350,6 +350,95 @@ describe("provider facades", () => {
       (message) => message.role === "assistant",
     )
     expect(assistant?.reasoning_content).toBe("plan")
+  })
+
+  test("K3 replays reasoning_content for every assistant message regardless of origin", async () => {
+    setEnv("MOONSHOT_API_KEY", "moonshot-key")
+    // A history whose reasoning came from two different models plus a tool loop:
+    // K3 must receive each assistant message's reasoning as reasoning_content.
+    const history = [
+      Message.user("start"),
+      Message.assistant([
+        { type: "reasoning", text: "foreign-model reasoning" },
+        { type: "text", text: "did A" },
+      ]),
+      Message.user("keep going"),
+      Message.assistant([
+        { type: "reasoning", text: "k3 reasoning" },
+        { type: "text", text: "did B" },
+        {
+          type: "tool-call",
+          toolCallId: ToolCallId.make("c1"),
+          name: "Read",
+          input: { path: "/x" },
+        },
+      ]),
+      Message.user([
+        {
+          type: "tool-result",
+          toolCallId: ToolCallId.make("c1"),
+          name: "Read",
+          result: { type: "text", value: "contents" },
+        },
+      ]),
+    ]
+    const captured: Captured = {}
+    await Effect.runPromise(
+      LLM.streamTurn(LLM.request({ model: Kimi.model("kimi-k3"), messages: history })).pipe(
+        Stream.runCollect,
+        Effect.provide(capturingLayer(captured)),
+      ),
+    )
+    const messages = captured.body?.messages as Array<Record<string, unknown>>
+    const assistants = messages.filter((m) => m.role === "assistant")
+    expect(assistants.map((m) => m.reasoning_content)).toEqual([
+      "foreign-model reasoning",
+      "k3 reasoning",
+    ])
+    // Reasoning is replayed only via reasoning_content, never folded into content.
+    expect(assistants[0]?.content).toBe("did A")
+    expect(assistants[1]?.content).toBe("did B")
+    expect(assistants[1]?.tool_calls).toBeDefined()
+  })
+
+  test("K3 replays reasoning for every retained message of a compacted projection", async () => {
+    setEnv("MOONSHOT_API_KEY", "moonshot-key")
+    // Simulates the post-compaction projection deriveContext produces: a summary
+    // meta user message, then the verbatim tail whose assistant messages still
+    // carry their canonical reasoning.
+    const projection = [
+      Message.user(
+        [
+          {
+            type: "compaction",
+            reason: "auto",
+            compactedMessages: 8,
+            summary: "## Goal\nship the feature",
+          },
+        ],
+        true,
+      ),
+      Message.assistant([
+        { type: "reasoning", text: "retained reasoning" },
+        { type: "text", text: "tail answer" },
+      ]),
+    ]
+    const captured: Captured = {}
+    await Effect.runPromise(
+      LLM.streamTurn(LLM.request({ model: Kimi.model("kimi-k3"), messages: projection })).pipe(
+        Stream.runCollect,
+        Effect.provide(capturingLayer(captured)),
+      ),
+    )
+    const messages = captured.body?.messages as Array<Record<string, unknown>>
+    const assistant = messages.find((m) => m.role === "assistant")
+    expect(assistant?.reasoning_content).toBe("retained reasoning")
+    // The summary rides in a normal user message as text, not as reasoning.
+    const summaryUser = messages.find(
+      (m) => m.role === "user" && String(m.content).includes("ship the feature"),
+    )
+    expect(summaryUser).toBeDefined()
+    expect(summaryUser?.reasoning_content).toBeUndefined()
   })
 
   test("protocols only read their own provider options key", async () => {
