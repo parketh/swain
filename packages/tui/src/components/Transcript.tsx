@@ -212,10 +212,6 @@ interface ErrorItem {
   readonly kind: "error"
   readonly text: string
 }
-interface NotificationItem {
-  readonly kind: "notification"
-  readonly text: string
-}
 interface SwitchItem {
   readonly kind: "switch"
   readonly from: string
@@ -227,25 +223,26 @@ interface CompactionItem {
   readonly kind: "compaction"
   readonly compactedMessages: number
 }
-type Item = TextItem | ToolItem | ErrorItem | NotificationItem | SwitchItem | CompactionItem
+type Item = TextItem | ToolItem | ErrorItem | SwitchItem | CompactionItem
 
 const switchRefKey = (ref: { provider: string; modelId: string; variant?: string }): string =>
   ref.variant !== undefined && ref.variant !== ""
     ? `${ref.provider}:${ref.modelId}:${ref.variant}`
     : `${ref.provider}:${ref.modelId}`
 
-// Subagent completions are injected as `<task-notification>` user messages so
-// the model sees them, but they are not something the user typed. They carry a
-// typed `isMeta` marker — classify on that, never on the content prefix (a user
-// prompt could legitimately start with the tag) — strip the wrapper and render
-// them as a system notification, not a user prompt.
+// Subagent completions are injected as model-visible `<task-notification>` user
+// messages, but they are internal control-plane input rather than conversation
+// history. Their typed `isMeta` marker lets the transcript omit them without
+// hiding a genuine user prompt that happens to contain the same tag.
+//
+// NOTE: an `isMeta` user message is not automatically a notification. Model-switch
+// and compaction boundaries are also carried on `isMeta` messages but as non-text
+// blocks that we DO render (see the block loop in buildItems). Only the `text`
+// block of an `isMeta` message is the notification payload — so this predicate is
+// applied per-text-block, never to skip the whole message. Any future meta message
+// type must keep that distinction: gate text on this, render its own block kind.
 const isNotification = (message: { readonly role: string; readonly isMeta?: boolean }): boolean =>
   message.role === "user" && message.isMeta === true
-const stripNotification = (text: string): string =>
-  text
-    .replace(/^\s*<task-notification>\n?/, "")
-    .replace(/\n?<\/task-notification>\s*$/, "")
-    .trim()
 interface GroupNode {
   readonly kind: "group"
   readonly reads: number
@@ -303,11 +300,10 @@ export const buildItems = (
   for (const message of list) {
     for (const block of message.content ?? []) {
       if (block.type === "text") {
-        items.push(
-          isNotification(message)
-            ? { kind: "notification", text: stripNotification(block.text) }
-            : { kind: "text", role: message.role, text: block.text },
-        )
+        // Drop only the notification's text payload, not the whole message —
+        // its sibling meta blocks (model-switch, compaction) still render below.
+        if (isNotification(message)) continue
+        items.push({ kind: "text", role: message.role, text: block.text })
       } else if (block.type === "model-switch") {
         items.push({
           kind: "switch",
@@ -436,16 +432,6 @@ const NodeRow = ({ node, width }: { node: Node; width?: number }) => {
           Compacted {node.compactedMessages} earlier message
           {node.compactedMessages === 1 ? "" : "s"} into a summary
         </Text>
-      </Row>
-    )
-  }
-  if (node.kind === "notification") {
-    return (
-      <Row marker="⚑" color={theme.primaryDim}>
-        <Box flexDirection="column">
-          <Text color={theme.muted}>Subagent update</Text>
-          <Markdown>{node.text}</Markdown>
-        </Box>
       </Row>
     )
   }
