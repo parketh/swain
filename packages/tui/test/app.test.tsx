@@ -182,6 +182,34 @@ describe("pure helpers", () => {
     expect(items).toHaveLength(1)
   })
 
+  test("buildItems renders model-switch and compaction rows carried on isMeta messages", () => {
+    const draft = { assistant: "", reasoning: "", tools: [], errors: [] }
+    const messages = [
+      {
+        role: "user",
+        isMeta: true,
+        content: [
+          {
+            type: "model-switch",
+            from: { provider: "anthropic", modelId: "a" },
+            to: { provider: "anthropic", modelId: "b" },
+            reason: "router",
+            requestedBy: "router",
+          },
+        ],
+      },
+      {
+        role: "user",
+        isMeta: true,
+        content: [{ type: "compaction", reason: "auto", compactedMessages: 4, summary: "…" }],
+      },
+      // biome-ignore lint/suspicious/noExplicitAny: opaque message fixtures
+    ] as any
+    const items = buildItems(messages, draft)
+    expect(items[0]).toMatchObject({ kind: "switch" })
+    expect(items[1]).toMatchObject({ kind: "compaction", compactedMessages: 4 })
+  })
+
   test("buildItems does not misclassify a user-typed message starting with the tag", () => {
     const draft = { assistant: "", reasoning: "", tools: [], errors: [] }
     // Same content prefix, but no isMeta — this is genuine user input.

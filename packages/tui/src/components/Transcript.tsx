@@ -234,6 +234,13 @@ const switchRefKey = (ref: { provider: string; modelId: string; variant?: string
 // messages, but they are internal control-plane input rather than conversation
 // history. Their typed `isMeta` marker lets the transcript omit them without
 // hiding a genuine user prompt that happens to contain the same tag.
+//
+// NOTE: an `isMeta` user message is not automatically a notification. Model-switch
+// and compaction boundaries are also carried on `isMeta` messages but as non-text
+// blocks that we DO render (see the block loop in buildItems). Only the `text`
+// block of an `isMeta` message is the notification payload — so this predicate is
+// applied per-text-block, never to skip the whole message. Any future meta message
+// type must keep that distinction: gate text on this, render its own block kind.
 const isNotification = (message: { readonly role: string; readonly isMeta?: boolean }): boolean =>
   message.role === "user" && message.isMeta === true
 interface GroupNode {
@@ -291,9 +298,11 @@ export const buildItems = (
   // persisted row (whose result value is authoritative).
   const draftIds = new Set(draft.tools.map((row) => row.toolCallId))
   for (const message of list) {
-    if (isNotification(message)) continue
     for (const block of message.content ?? []) {
       if (block.type === "text") {
+        // Drop only the notification's text payload, not the whole message —
+        // its sibling meta blocks (model-switch, compaction) still render below.
+        if (isNotification(message)) continue
         items.push({ kind: "text", role: message.role, text: block.text })
       } else if (block.type === "model-switch") {
         items.push({
