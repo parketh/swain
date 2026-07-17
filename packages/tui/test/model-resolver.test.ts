@@ -33,6 +33,27 @@ describe("makeModelResolver", () => {
     }
   })
 
+  test("resolves the Kimi K3 target to a live model with reasoning options and the loss flag", async () => {
+    const config: TuiConfig = {
+      providers: { kimi: { apiKey: "sk-kimi" } },
+      router: { enabled: true, disabledModels: [], disabledTargets: [] },
+    }
+    const result = await resolve(config, "kimi:kimi-k3:max")
+    expect(result._tag).toBe("Right")
+    if (result._tag === "Right") {
+      expect(result.right.model.id as string).toBe("kimi-k3")
+      expect(result.right.modelRef).toEqual({
+        provider: "kimi",
+        modelId: "kimi-k3",
+        variant: "max",
+      })
+      expect(result.right.requestOptions.providerOptions).toEqual({
+        kimi: { reasoningEffort: "max" },
+      })
+      expect(result.right.model.warnOnReasoningLoss).toBe(true)
+    }
+  })
+
   test("a malformed or unknown target id is unknown-target", async () => {
     const malformed = await resolve(enabledConfig, "not-a-target")
     const unknown = await resolve(enabledConfig, "anthropic:no-such-model")

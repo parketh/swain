@@ -822,6 +822,44 @@ describe("App", () => {
     expect(lastFrame()).toContain("claude-opus-4-8")
   })
 
+  test("/model lists Kimi K3 and its single max variant", async () => {
+    const session = createSessionState({
+      workingDirectory: dir,
+      model: testModel,
+      permissionMode: "ask",
+      currentDate: "2026-07-05",
+    })
+    const c = makeController({
+      session,
+      activeModel: { provider: "kimi", modelId: "kimi-k3", variant: "max" },
+      config: { providers: { kimi: { apiKey: "sk-kimi" } } },
+      configPath: join(dir, "config.json"),
+      llmLayer: scripted([[]]),
+      persist: false,
+    })
+    built.push(c)
+    const { stdin, lastFrame } = render(<App controller={c} />)
+    stdin.write("/model ")
+    await flush()
+    stdin.write("\r")
+    await flush()
+    expect(lastFrame()).toContain("Select a model")
+    expect(lastFrame()).toContain("kimi-k3")
+    stdin.write("kimi") // filter to the Kimi K3 row
+    await flush()
+    stdin.write("\r") // single provider → straight to the variant step
+    await flush()
+    expect(lastFrame()).toContain("Select a variant for kimi-k3")
+    expect(lastFrame()).toContain("max")
+    stdin.write("\r") // pick the default max variant → commit
+    await flush()
+    expect(c.getState().activeModel).toMatchObject({
+      provider: "kimi",
+      modelId: "kimi-k3",
+      variant: "max",
+    })
+  })
+
   const makeMultiProviderCtrl = (): Controller => {
     const session = createSessionState({
       workingDirectory: dir,

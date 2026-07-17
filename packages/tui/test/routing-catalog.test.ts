@@ -47,9 +47,26 @@ describe("routing catalog", () => {
     }
   })
 
-  test("every catalog model exposes a reasoning-effort ladder", () => {
+  test("every reasoning model exposes at least one real variant", () => {
+    // Models expose a graded effort ladder or, like Kimi K3, a single fixed
+    // effort — but never zero variants.
     for (const model of allCatalogModels()) {
-      expect(model.variants.length).toBeGreaterThanOrEqual(2)
+      expect(model.variants.length).toBeGreaterThanOrEqual(1)
     }
+  })
+
+  test("Kimi K3 exposes exactly the max variant", () => {
+    const k3 = allCatalogModels().find((m) => m.modelId === "kimi-k3")
+    expect(k3).toBeDefined()
+    expect(k3?.variants.map((v) => v.id)).toEqual(["max"])
+  })
+
+  test("the Kimi K3 target is router-enabled once Kimi is configured", () => {
+    const config: TuiConfig = {
+      providers: { kimi: { apiKey: "sk-kimi" } },
+      router: { enabled: true, disabledModels: [], disabledTargets: [] },
+    }
+    const ids = enabledRouterTargets(config).map((t) => t.id)
+    expect(ids).toContain("kimi:kimi-k3:max")
   })
 })

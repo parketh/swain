@@ -47,6 +47,7 @@ describe("resolveModelSelection limits", () => {
       providers: {
         anthropic: { apiKey: "x" },
         openai: { apiKey: "x" },
+        kimi: { apiKey: "x" },
         deepseek: { apiKey: "x" },
         zai: { apiKey: "x" },
         "openai-codex": { accessToken: "t" },
