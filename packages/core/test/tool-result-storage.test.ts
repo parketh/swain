@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { BunContext } from "@effect/platform-bun"
 import type { Model, ToolResultContent } from "@swain/llms"
@@ -117,13 +117,17 @@ describe("toolResultStore", () => {
     }
   })
 
-  test("re-persisting the same tool call does not duplicate the record", async () => {
+  test("re-persisting the same tool call does not duplicate the record or rewrite the file", async () => {
     const dir = createTempDir()
     try {
       const state = session()
       await persist(dir, state, textResult(big))
+      // Sentinel proves write-once: a second persist must not overwrite the file.
+      const path = join(dir, "call-1.txt")
+      writeFileSync(path, "SENTINEL")
       await persist(dir, state, textResult(big))
       expect(state.toolResults).toHaveLength(1)
+      expect(readFileSync(path, "utf8")).toBe("SENTINEL")
     } finally {
       removeTempDir(dir)
     }

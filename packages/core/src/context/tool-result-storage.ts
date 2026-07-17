@@ -67,10 +67,13 @@ export const toolResultStoreLayer = (
           if (text.length <= TOOL_RESULT_THRESHOLD) return result
           const existing = session.toolResults.find((r) => r.toolCallId === result.toolCallId)
           const path = existing?.path ?? NodePath.join(dir, `${safeStem(result.toolCallId)}.${ext}`)
-          yield* fs.makeDirectory(dir, { recursive: true })
-          yield* fs.writeFileString(path, text)
           const preview = text.slice(0, TOOL_RESULT_PREVIEW_CHARS)
+          // Write once, keyed by tool call id: a body already persisted (repeat
+          // save, resume) reuses its file and metadata rather than rewriting a
+          // 50k+ payload or overwriting the original artifact.
           if (existing === undefined) {
+            yield* fs.makeDirectory(dir, { recursive: true })
+            yield* fs.writeFileString(path, text)
             session.toolResults.push({
               toolCallId: result.toolCallId,
               ...(result.name !== undefined && { name: result.name }),
