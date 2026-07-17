@@ -16,7 +16,7 @@ import {
 } from "@swain/llms"
 import { Effect, Layer, Schema, Stream } from "effect"
 import { type AgentEvent, runTurn, submitPrompt } from "../src/agent"
-import { AgentError } from "../src/errors"
+import { AgentError, ToolError } from "../src/errors"
 import type { Permissions } from "../src/permission"
 import { assembleSystemPrompt } from "../src/prompt"
 import { createSessionState, loadSession, type SessionState, saveSession } from "../src/state"
@@ -299,6 +299,29 @@ describe("runTurn", () => {
     call: (input) => Effect.succeed({ echoed: input.msg }),
   })
 
+  const timedEcho = defineTool({
+    name: "TimedEcho",
+    description: "echoes with timing",
+    inputSchema: Schema.Struct({ msg: Schema.String }),
+    outputSchema: Schema.Struct({ echoed: Schema.String }),
+    readOnly: true,
+    recordDuration: true,
+    call: (input) => Effect.succeed({ echoed: input.msg }),
+  })
+
+  const timedBoom = defineTool({
+    name: "TimedBoom",
+    description: "fails with timing",
+    inputSchema: Schema.Struct({}),
+    outputSchema: Schema.Struct({ ok: Schema.Boolean }),
+    readOnly: true,
+    recordDuration: true,
+    call: () =>
+      Effect.fail(
+        new ToolError({ tool: "TimedBoom", reason: "execution-failed", message: "boom" }),
+      ),
+  })
+
   const drive = (
     turns: Parameters<typeof scriptedLLMClient>[0],
     tools: ReadonlyArray<Parameters<typeof toolRegistryLayer>[0][number]>,
@@ -357,6 +380,35 @@ describe("runTurn", () => {
     expect(state.messages[1]?.turnDurationMs).toBeUndefined()
     expect(state.messages[3]?.responseDurationMs).toBeTypeOf("number")
     expect(state.messages[3]?.turnDurationMs).toBeGreaterThanOrEqual(0)
+  })
+
+  const durationOf = (state: SessionState, index: number): number | undefined => {
+    const block = state.messages[index]?.content[0]
+    return block?.type === "tool-result" ? block.durationMs : undefined
+  }
+
+  test("an opted-in tool result carries durationMs on success", async () => {
+    const { state, run } = drive(
+      [toolCallTurn("TimedEcho", { msg: "hi" }), textTurn("done")],
+      [timedEcho],
+    )
+    await run
+    expect(durationOf(state, 2)).toBeTypeOf("number")
+    expect(durationOf(state, 2)).toBeGreaterThanOrEqual(0)
+  })
+
+  test("an opted-in tool result carries durationMs even when the tool errors", async () => {
+    const { state, run } = drive([toolCallTurn("TimedBoom", {}), textTurn("done")], [timedBoom])
+    await run
+    expect(state.messages[2]?.content[0]).toMatchObject({ type: "tool-result", isError: true })
+    expect(durationOf(state, 2)).toBeTypeOf("number")
+  })
+
+  test("an unflagged tool result has no durationMs", async () => {
+    const { state, run } = drive([toolCallTurn("Echo", { msg: "hi" }), textTurn("done")], [echo])
+    await run
+    expect(state.messages[2]?.content[0]).toMatchObject({ type: "tool-result" })
+    expect(durationOf(state, 2)).toBeUndefined()
   })
 
   test("every core-committed message carries a valid createdAt", async () => {

@@ -173,6 +173,8 @@ interface LoopContext {
   readonly maxIterations: number
   readonly resolver: Option.Option<ModelResolver>
   readonly emit: (event: AgentEvent) => Effect.Effect<void>
+  /** Tool names whose `callTool` latency is persisted as `durationMs`. */
+  readonly timedTools: ReadonlySet<string>
 }
 
 type SwitchOutcome =
@@ -266,26 +268,36 @@ const executeTools = (
   session: SessionState,
   toolCalls: ReadonlyArray<ToolCall>,
   emit: (event: AgentEvent) => Effect.Effect<void>,
+  timedTools: ReadonlySet<string>,
 ): Effect.Effect<Array<ToolResultContent>, never, ToolContext | ToolRegistry> =>
   Effect.gen(function* () {
     const store = yield* Effect.serviceOption(ToolResultStoreService)
-    return yield* Effect.forEach(toolCalls, (toolCall) =>
-      emit({
+    return yield* Effect.forEach(toolCalls, (toolCall) => {
+      const executed = callTool(toolCall, (text) =>
+        emit({
+          type: "tool-execution-delta",
+          name: toolCall.name,
+          toolCallId: toolCall.toolCallId,
+          text,
+        }),
+      )
+      // Time only opted-in tools, and only the `callTool` lifecycle — not the
+      // start/end observer work or later oversized-result offloading.
+      const measured = timedTools.has(toolCall.name)
+        ? Effect.timed(executed).pipe(
+            Effect.map(([elapsed, result]) => ({
+              ...result,
+              durationMs: Duration.toMillis(elapsed),
+            })),
+          )
+        : executed
+      return emit({
         type: "tool-execution-start",
         name: toolCall.name,
         toolCallId: toolCall.toolCallId,
         input: toolCall.input,
       }).pipe(
-        Effect.andThen(
-          callTool(toolCall, (text) =>
-            emit({
-              type: "tool-execution-delta",
-              name: toolCall.name,
-              toolCallId: toolCall.toolCallId,
-              text,
-            }),
-          ),
-        ),
+        Effect.andThen(measured),
         Effect.tap((result) =>
           emit({
             type: "tool-execution-end",
@@ -297,8 +309,8 @@ const executeTools = (
         Effect.flatMap((result) =>
           Option.isSome(store) ? store.value.persist(session, result) : Effect.succeed(result),
         ),
-      ),
-    )
+      )
+    })
   })
 
 /**
@@ -328,6 +340,7 @@ export const runTurn = (
       (tool) => tool.name !== SWITCH_MODEL_NAME || routerActive,
     )
     const llmTools = tools.map(toLLMTool)
+    const timedTools = new Set(tools.filter((tool) => tool.recordDuration).map((tool) => tool.name))
     const toolDescriptors = tools.map((tool) => ({
       name: tool.name,
       description: tool.description,
@@ -357,6 +370,7 @@ export const runTurn = (
       maxIterations: options.maxIterations ?? DEFAULT_MAX_ITERATIONS,
       resolver,
       emit,
+      timedTools,
     }
 
     // Preflight: compact once before the turn if estimated pressure is high.
@@ -549,7 +563,7 @@ const loop = (
         ]),
       )
       const siblings = summary.toolCalls.filter((call) => call.name !== SWITCH_MODEL_NAME)
-      const siblingResults = yield* executeTools(session, siblings, ctx.emit)
+      const siblingResults = yield* executeTools(session, siblings, ctx.emit, ctx.timedTools)
       siblings.forEach((call, index) => resultById.set(call.toolCallId, siblingResults[index]!))
       // Preserve the assistant's original tool_call order in the results.
       const results = summary.toolCalls.map((call) => resultById.get(call.toolCallId)!)
@@ -557,7 +571,7 @@ const loop = (
       return yield* loop(session, ctx, iteration + 1, switched)
     }
 
-    const results = yield* executeTools(session, summary.toolCalls, ctx.emit)
+    const results = yield* executeTools(session, summary.toolCalls, ctx.emit, ctx.timedTools)
     session.messages.push(userMessage(results))
     return yield* loop(session, ctx, iteration + 1, switched)
   })

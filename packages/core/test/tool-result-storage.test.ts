@@ -88,6 +88,18 @@ describe("toolResultStore", () => {
     }
   })
 
+  test("replacing an oversized timed result with a preview preserves durationMs", async () => {
+    const dir = createTempDir()
+    try {
+      const state = session()
+      const replaced = await persist(dir, state, { ...textResult(big), durationMs: 420 })
+      expect(replaced.result.type).toBe("text")
+      expect(replaced.durationMs).toBe(420)
+    } finally {
+      removeTempDir(dir)
+    }
+  })
+
   test("persists an oversized JSON body to a .json file", async () => {
     const dir = createTempDir()
     try {
@@ -144,6 +156,16 @@ describe("runTurn tool-result persistence", () => {
     call: () => Effect.succeed({ blob: big }),
   })
 
+  const timedHuge = defineTool({
+    name: "TimedHuge",
+    description: "returns a huge blob with timing",
+    inputSchema: Schema.Struct({}),
+    outputSchema: Schema.Struct({ blob: Schema.String }),
+    readOnly: true,
+    recordDuration: true,
+    call: () => Effect.succeed({ blob: big }),
+  })
+
   test("an oversized tool result is persisted before entering the transcript", async () => {
     const dir = createTempDir()
     try {
@@ -167,6 +189,33 @@ describe("runTurn tool-result persistence", () => {
         expect(block.result.value.length).toBeLessThan(big.length)
       }
       expect(state.toolResults).toHaveLength(1)
+    } finally {
+      removeTempDir(dir)
+    }
+  })
+
+  test("an offloaded timed tool result keeps its durationMs in the transcript", async () => {
+    const dir = createTempDir()
+    try {
+      const state = session()
+      submitPrompt(state, "go")
+      await Effect.runPromise(
+        runTurn(state).pipe(
+          Effect.provide(scriptedLLMClient([toolCallTurn("TimedHuge", {}), textTurn("done")])),
+          Effect.provide(toolContextLayer(state)),
+          Effect.provide(toolRegistryLayer([timedHuge])),
+          Effect.provide(toolResultStoreLayer(dir)),
+          Effect.provide(BunContext.layer),
+        ),
+      )
+      const block = state.messages[2]?.content[0]
+      expect(block?.type).toBe("tool-result")
+      // The preview replaced the oversized body, but the duration measured around
+      // callTool (before offload) survives.
+      if (block?.type === "tool-result") {
+        expect(block.result.type === "text" && block.result.value).toContain("Output too large")
+        expect(block.durationMs).toBeTypeOf("number")
+      }
     } finally {
       removeTempDir(dir)
     }
