@@ -206,7 +206,13 @@ describe("pure helpers", () => {
       // biome-ignore lint/suspicious/noExplicitAny: opaque message fixtures
     ] as any
     const items = buildItems(messages, draft)
-    expect(items[0]).toMatchObject({ kind: "switch" })
+    expect(items[0]).toMatchObject({
+      kind: "switch",
+      from: "anthropic:a",
+      to: "anthropic:b",
+      reason: "router",
+      requestedBy: "router",
+    })
     expect(items[1]).toMatchObject({ kind: "compaction", compactedMessages: 4 })
   })
 
