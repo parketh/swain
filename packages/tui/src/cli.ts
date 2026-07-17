@@ -1,3 +1,4 @@
+import { runHeadless } from "./headless"
 import { runInteractive } from "./index"
 import { version } from "./version"
 
@@ -187,13 +188,6 @@ export const parseArgs = (argv: ReadonlyArray<string>): ParsedCommand => {
 /** Reads all of stdin as UTF-8 text. */
 const readStdin = (): Promise<string> => Bun.stdin.text()
 
-// Wired to the real headless frontend in Task 4; a successful exec parse that
-// reaches here without an injected handler is a programming error until then.
-const missingHeadless = async (options: HeadlessOptions): Promise<number> => {
-  options.stderr("Headless execution is not available in this build.\n")
-  return 1
-}
-
 /**
  * CLI entrypoint. Parses argv, dispatches to the interactive or headless
  * frontend, and returns a process exit code. Only the binary assigns
@@ -232,7 +226,7 @@ export const runCli = async (deps: CliDeps = {}): Promise<number> => {
       } else {
         prompt = parsed.exec.prompt.text
       }
-      const run = deps.runHeadless ?? missingHeadless
+      const run = deps.runHeadless ?? runHeadless
       return run({
         permissionMode: parsed.exec.permissionMode,
         ...(parsed.exec.model !== undefined && { model: parsed.exec.model }),
