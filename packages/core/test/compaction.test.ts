@@ -259,6 +259,15 @@ describe("selectCut", () => {
     expect(cut).toBeLessThan(5)
     expect(counter.estimateMessages(messages.slice(0, cut))).toBeLessThanOrEqual(tinyInputBudget)
   })
+
+  test("returns 0 when not even the smallest prefix fits the input budget", () => {
+    const messages = transcript()
+    // A budget below the first boundary's prefix: nothing can be summarized
+    // within budget, so the cut must be 0 (caller fails fast, no over-budget
+    // summary request).
+    const cut = selectCut(messages, counter, 100_000, 0)
+    expect(cut).toBe(0)
+  })
 })
 
 describe("isValidlyPaired", () => {

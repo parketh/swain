@@ -2,7 +2,7 @@ import type { CompactionContent, LLMError } from "@swain/llms"
 import { LLMClient, LLMTurnSummary, Message } from "@swain/llms"
 import { Context, Data, Effect } from "effect"
 import type { SessionState } from "../state"
-import { effectiveContextWindow, outputReserve } from "./accounting"
+import { effectiveContextWindow } from "./accounting"
 import { defaultTokenCounter, type TokenCounter } from "./token-counter"
 
 type LLMClientService = Context.Tag.Identifier<typeof LLMClient.Service>
@@ -175,8 +175,10 @@ export const selectCut = (
   }
 
   // Bounded-prefix fallback: summarize the largest prefix that fits the summary
-  // input budget, leaving everything after it (middle + tail) verbatim.
-  let cut = boundaries[0]!
+  // input budget, leaving everything after it (middle + tail) verbatim. If not
+  // even the smallest prefix fits, return 0 so the caller fails fast rather than
+  // issuing an over-budget summary request (which would overflow again).
+  let cut = 0
   for (const i of boundaries) {
     if (i >= tailStart) break
     if (counter.estimateMessages(messages.slice(0, i)) <= summaryInputBudget) cut = i
@@ -204,10 +206,10 @@ export const compactSession = (
       eff === undefined
         ? (options.tailBudget ?? DEFAULT_TAIL_BUDGET)
         : Math.min(options.tailBudget ?? DEFAULT_TAIL_BUDGET, Math.floor(eff / 2))
+    // `eff` is already the usable input window (contextWindow − outputReserve),
+    // so only the summary system prompt's overhead is subtracted here.
     const summaryInputBudget =
-      eff === undefined
-        ? Number.POSITIVE_INFINITY
-        : eff - outputReserve(model) - SUMMARY_PROMPT_OVERHEAD
+      eff === undefined ? Number.POSITIVE_INFINITY : eff - SUMMARY_PROMPT_OVERHEAD
 
     const history = session.messages
     const { messages: context, sourceIndex } = deriveContext(history)
