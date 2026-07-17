@@ -67,11 +67,11 @@ export interface RunOptions {
 }
 
 /**
- * CLI entrypoint: load global config, resolve the active model (flag → stored
- * `activeModel` → first configured provider default → placeholder), build the
- * controller, optionally resume a session, and mount the Ink app.
+ * Interactive entrypoint: load global config, resolve the active model (flag →
+ * stored `activeModel` → first configured provider default → placeholder), build
+ * the controller, optionally resume a session, and mount the Ink app.
  */
-export const run = async (options: RunOptions = {}): Promise<void> => {
+export const runInteractive = async (options: RunOptions = {}): Promise<void> => {
   const env = options.env ?? process.env
   const cwd = options.cwd ?? process.cwd()
   const flags = parseFlags(options.argv ?? process.argv.slice(2))
