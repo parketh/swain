@@ -294,6 +294,9 @@ export const claimTask = (
 export interface FinishTaskInput {
   readonly worktreePath?: string
   readonly worktreeBranch?: string
+  /** Measured child-run duration in milliseconds; written only on terminal
+   * delegated tasks. Kept out of general `UpdateTaskInput`. */
+  readonly durationMs?: number
 }
 
 export const completeTask = (
@@ -337,6 +340,7 @@ const finish = (
       ...patch,
       worktreePath: worktree.worktreePath,
       worktreeBranch: worktree.worktreeBranch,
+      ...(worktree.durationMs !== undefined && { durationMs: worktree.durationMs }),
       updatedAt: now(),
     }
     yield* Ref.update(store.ref, (m) => new Map(m).set(taskId, updated))

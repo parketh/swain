@@ -602,8 +602,8 @@ describe("controller subagent drain", () => {
 
   test("batches multiple completed tasks into one synthetic notification", async () => {
     const { controller: c } = buildWith(scripted([textTurn("ack")]).layer, [
-      completedTask({ id: "t1", subject: "a", result: "found A" }),
-      completedTask({ id: "t2", subject: "b", result: "found B" }),
+      { ...completedTask({ id: "t1", subject: "a", result: "found A" }), durationMs: 1234 },
+      { ...completedTask({ id: "t2", subject: "b", result: "found B" }), durationMs: 5678 },
     ])
     await waitFor(() => hasNotification(c))
     const userMessages = c
@@ -618,6 +618,9 @@ describe("controller subagent drain", () => {
     const value = text && "text" in text ? text.text : ""
     expect(value).toContain("found A")
     expect(value).toContain("found B")
+    // Subagent duration is structured eval data, never surfaced in notifications.
+    expect(value).not.toContain("1234")
+    expect(value).not.toContain("5678")
   })
 
   test("resets a dangling in_progress task on load without re-running it", async () => {

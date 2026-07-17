@@ -9,6 +9,7 @@ import {
   claimTask,
   completeTask,
   createTask,
+  failTask,
   getTask,
   listTasks,
   markParentNotified,
@@ -131,6 +132,34 @@ describe("TaskStore", () => {
     const created = await runIn(dir, createTask({ subject: "keep", description: "me" }))
     const reloaded = await runIn(dir, getTask(created.id))
     expect(reloaded.subject).toBe("keep")
+  })
+
+  test("completeTask and failTask persist a supplied durationMs; direct completion omits it", async () => {
+    const result = await runIn(
+      dir,
+      Effect.gen(function* () {
+        const done = yield* claimTask({
+          owner: "a1",
+          agentType: "Explore",
+          subject: "s",
+          description: "d",
+        })
+        const timedDone = yield* completeTask(done.id, "ok", { durationMs: 1234 })
+        const failed = yield* claimTask({
+          owner: "a2",
+          agentType: "Explore",
+          subject: "s",
+          description: "d",
+        })
+        const timedFail = yield* failTask(failed.id, "boom", { durationMs: 567 })
+        const direct = yield* createTask({ subject: "local", description: "d" })
+        const directDone = yield* completeTask(direct.id, "fin")
+        return { timedDone, timedFail, directDone }
+      }),
+    )
+    expect(result.timedDone.durationMs).toBe(1234)
+    expect(result.timedFail.durationMs).toBe(567)
+    expect(result.directDone.durationMs).toBeUndefined()
   })
 
   test("a terminal delegated task carrying durationMs round-trips through decode", async () => {
