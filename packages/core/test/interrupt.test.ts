@@ -34,6 +34,9 @@ describe("recordInterruption", () => {
       content: [{ type: "text", text: `I was partway through\n\n${INTERRUPT_MESSAGE}` }],
     })
     expect(state.messages[1]?.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
+    // An interruption marker is stamped but fabricates no response/turn duration.
+    expect(state.messages[1]?.responseDurationMs).toBeUndefined()
+    expect(state.messages[1]?.turnDurationMs).toBeUndefined()
     expect(rolesAlternate(state)).toBe(true)
   })
 

@@ -9,7 +9,7 @@ import type {
   Usage,
 } from "@swain/llms"
 import { LLMClient, LLMTurnSummary, Message } from "@swain/llms"
-import { Context, Duration, Effect, Either, Option, Schedule, Schema, Stream } from "effect"
+import { Clock, Context, Duration, Effect, Either, Option, Schedule, Schema, Stream } from "effect"
 import {
   compactSession,
   defaultTokenCounter,
@@ -317,6 +317,9 @@ export const runTurn = (
   options: RunTurnOptions = {},
 ): Effect.Effect<void, AgentError | LLMError, LLMClientService | ToolRegistry | ToolContext> =>
   Effect.gen(function* () {
+    // Whole-turn timer starts at entry — before registry setup and preflight
+    // compaction — so user-visible latency includes every part of the turn.
+    const turnStart = yield* Clock.currentTimeNanos
     const registry = yield* ToolRegistryTag
     const routerActive = options.router !== undefined
     // SwitchModel is only offered to the model when routing is active; it stays
@@ -383,6 +386,17 @@ export const runTurn = (
     }
 
     yield* runWithOverflowRetry(session, ctx)
+
+    // Attach whole-turn latency to the final assistant response only. Guard that
+    // the last message is actually an assistant message so a trailing meta user
+    // message (a same-turn model switch or compaction) never receives it.
+    const turnEnd = yield* Clock.currentTimeNanos
+    const turnDurationMs = Duration.toMillis(Duration.nanos(turnEnd - turnStart))
+    const lastIndex = session.messages.length - 1
+    const last = session.messages[lastIndex]
+    if (last?.role === "assistant") {
+      session.messages[lastIndex] = { ...last, turnDurationMs }
+    }
   })
 
 const isContextOverflowError = (error: AgentError | LLMError): error is LLMError =>
@@ -461,7 +475,10 @@ const loop = (
     // healthy turn; prior iterations' tool-use is already committed to
     // session.messages and untouched. Non-retryable errors (auth, invalid
     // request, context overflow) fail immediately.
-    const collected = yield* streamOnce.pipe(
+    // Time the whole provider-response cycle: stream collection plus any
+    // retryable failed attempts and their backoff. The monotonic clock stops
+    // once the final event is collected; summary decoding is excluded.
+    const [responseElapsed, collected] = yield* streamOnce.pipe(
       Effect.retry(
         Schedule.recurs(MAX_STREAM_RETRIES).pipe(
           Schedule.whileInput((error: LLMError) => error.retryable),
@@ -473,7 +490,9 @@ const loop = (
           .emit({ type: "agent-error", source: "llm", message: error.message, recoverable: false })
           .pipe(Effect.andThen(Effect.fail(error))),
       ),
+      Effect.timed,
     )
+    const responseDurationMs = Duration.toMillis(responseElapsed)
 
     const summary = yield* LLMTurnSummary.fromEvents(collected).pipe(
       Effect.catchAll((error) =>
@@ -483,7 +502,7 @@ const loop = (
       ),
     )
 
-    session.messages.push(assistantMessage(summary.assistantContent))
+    session.messages.push(assistantMessage(summary.assistantContent, { responseDurationMs }))
     session.counters.turns += 1
     if (summary.usage !== undefined) {
       session.counters.inputTokens += summary.usage.inputTokens

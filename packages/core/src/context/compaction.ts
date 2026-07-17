@@ -1,6 +1,6 @@
 import type { CompactionContent, LLMError, Message } from "@swain/llms"
 import { LLMClient, LLMTurnSummary } from "@swain/llms"
-import { Context, Data, Effect } from "effect"
+import { Context, Data, Duration, Effect } from "effect"
 import { type SessionState, userMessage } from "../state"
 import { effectiveContextWindow } from "./accounting"
 import { defaultTokenCounter, type TokenCounter } from "./token-counter"
@@ -237,7 +237,8 @@ export const compactSession = (
       }),
     })
 
-    const response = yield* LLMClient.generateTurn(request)
+    const [responseElapsed, response] = yield* Effect.timed(LLMClient.generateTurn(request))
+    const responseDurationMs = Duration.toMillis(responseElapsed)
     const summary = yield* LLMTurnSummary.fromEvents(response.events)
     if (summary.toolCalls.length > 0) {
       return yield* new CompactionError({
@@ -268,7 +269,11 @@ export const compactSession = (
           contextTailStart,
         },
       ],
-      { isMeta: true, ...(options.now !== undefined && { createdAt: options.now }) },
+      {
+        isMeta: true,
+        responseDurationMs,
+        ...(options.now !== undefined && { createdAt: options.now }),
+      },
     )
 
     // The projection this marker will produce must be validly paired: the tail

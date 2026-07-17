@@ -330,6 +330,11 @@ describe("runTurn", () => {
     expect(state.counters.outputTokens).toBe(1)
     // Provider usage is recorded as the context snapshot, anchored at the end.
     expect(state.contextUsage).toEqual({ activeContextTokens: 2, measuredAtMessageIndex: 2 })
+    // The lone assistant response carries both provider-response and turn latency.
+    const final = state.messages[1]
+    expect(final?.responseDurationMs).toBeTypeOf("number")
+    expect(final?.responseDurationMs).toBeGreaterThanOrEqual(0)
+    expect(final?.turnDurationMs).toBeGreaterThanOrEqual(0)
   })
 
   test("executes a tool call and submits the result to the next turn", async () => {
@@ -347,6 +352,11 @@ describe("runTurn", () => {
       role: "assistant",
       content: [{ type: "text", text: "done" }],
     })
+    // Every provider response is timed; only the final assistant gets turn latency.
+    expect(state.messages[1]?.responseDurationMs).toBeTypeOf("number")
+    expect(state.messages[1]?.turnDurationMs).toBeUndefined()
+    expect(state.messages[3]?.responseDurationMs).toBeTypeOf("number")
+    expect(state.messages[3]?.turnDurationMs).toBeGreaterThanOrEqual(0)
   })
 
   test("every core-committed message carries a valid createdAt", async () => {
@@ -402,6 +412,8 @@ describe("runTurn", () => {
       role: "assistant",
       content: [{ type: "text", text: "recovered" }],
     })
+    // Response duration spans the failed attempt and the retry backoff (~1s).
+    expect(state.messages.at(-1)?.responseDurationMs).toBeGreaterThan(900)
   })
 
   test("gives up after the retry budget and fails the turn", async () => {
@@ -411,6 +423,9 @@ describe("runTurn", () => {
     const exit = await Effect.runPromiseExit(runFlaky(flaky, state))
     expect(exit._tag).toBe("Failure")
     expect(flaky.calls()).toBe(3) // initial + 2 retries (MAX_STREAM_RETRIES)
+    // A failed turn commits no response and fabricates no turn duration.
+    expect(state.messages.every((m) => m.turnDurationMs === undefined)).toBe(true)
+    expect(state.messages.every((m) => m.responseDurationMs === undefined)).toBe(true)
   })
 
   test("does not retry a non-retryable error", async () => {
