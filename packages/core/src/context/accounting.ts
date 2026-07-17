@@ -23,7 +23,13 @@ export const outputReserve = (model: Model): number =>
  */
 export const effectiveContextWindow = (model: Model): number | undefined => {
   const contextWindow = model.limits?.contextWindow
-  return contextWindow === undefined ? undefined : contextWindow - outputReserve(model)
+  if (contextWindow === undefined) return undefined
+  // Never let the reserve consume more than half the window. For a small window
+  // with an unset `maxOutputTokens`, the flat cap would exceed it and yield a
+  // negative window, which makes `shouldAutoCompact` trivially true (perpetual
+  // compaction). Real catalog windows dwarf the reserve, so this is a no-op there.
+  const reserve = Math.min(outputReserve(model), Math.floor(contextWindow / 2))
+  return contextWindow - reserve
 }
 
 /** The active-context value from a provider usage snapshot, defaulting when absent. */

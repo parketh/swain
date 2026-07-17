@@ -3,6 +3,7 @@ import type { Message, Model, Usage } from "@swain/llms"
 import { ModelId, Message as Msg, ProviderId } from "@swain/llms"
 import {
   defaultTokenCounter,
+  effectiveContextWindow,
   estimateCurrentContextTokens,
   type RequestShape,
   recordContextUsage,
@@ -96,6 +97,28 @@ describe("shouldAutoCompact", () => {
   test("false when the model has no known context window", () => {
     const state = session([Msg.user("x"), Msg.assistant("y")])
     recordContextUsage(state, { inputTokens: 9_999, outputTokens: 0, activeContextTokens: 9_999 })
+    expect(shouldAutoCompact(state, shape, counter)).toBe(false)
+  })
+
+  test("a tiny window with no maxOutputTokens does not force perpetual compaction", () => {
+    // contextWindow 8k < the 20k reserve cap; the reserve is clamped so the
+    // effective window stays positive rather than negative.
+    const model: Model = {
+      id: ModelId.make("tiny"),
+      provider: ProviderId.make("test"),
+      limits: { contextWindow: 8_000 },
+      streamTurn: () => {
+        throw new Error("unused")
+      },
+    }
+    expect(effectiveContextWindow(model)).toBeGreaterThan(0)
+    const state = createSessionState({
+      workingDirectory: "/work",
+      model,
+      currentDate: "2026-07-13",
+      messages: [Msg.user("x"), Msg.assistant("y")],
+    })
+    recordContextUsage(state, { inputTokens: 100, outputTokens: 0, activeContextTokens: 100 })
     expect(shouldAutoCompact(state, shape, counter)).toBe(false)
   })
 })
