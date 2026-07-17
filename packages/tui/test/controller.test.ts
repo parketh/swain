@@ -12,7 +12,7 @@ import {
   saveSession,
 } from "@swain/core"
 import type { LLMEvent, LLMRequest, Model } from "@swain/llms"
-import { ContentId, ModelId, ProviderId, ToolCallId } from "@swain/llms"
+import { ContentId, LLMError, ModelId, ProviderId, ToolCallId } from "@swain/llms"
 import { LLMClient } from "@swain/llms/client"
 import { Effect, Layer, Stream } from "effect"
 import { sessionsDir, type TuiConfig } from "../src/config"
@@ -85,6 +85,7 @@ describe("controller", () => {
   const build = (
     llm: ReturnType<typeof scripted>,
     permissionMode: PermissionMode = "auto",
+    persist = false,
   ): Controller => {
     const session = createSessionState({
       workingDirectory: dir,
@@ -98,7 +99,7 @@ describe("controller", () => {
       config,
       configPath: join(dir, "config.json"),
       llmLayer: llm.layer,
-      persist: false,
+      persist,
     })
     return controller
   }
@@ -144,6 +145,46 @@ describe("controller", () => {
     const after = c.getState().session
     expect(after.sessionId).not.toBe(before)
     expect(after.messages).toEqual([])
+  })
+
+  test("/compact appends a compaction marker while retaining full history", async () => {
+    const summary = "## Goal\ncompacted summary"
+    const c = build(scripted([textTurn("a1"), textTurn("a2"), textTurn("a3"), textTurn(summary)]))
+    await c.submitPrompt("one")
+    await c.submitPrompt("two")
+    await c.submitPrompt("three")
+    const before = c.getState().session.messages.length
+    await c.executeCommand({ type: "command", name: "compact", args: "" })
+    const state = c.getState().session
+    expect(state.compaction.summary).toBe(summary)
+    // Full history retained; the marker is appended at the temporal end.
+    expect(state.messages.length).toBe(before + 1)
+    const last = state.messages[state.messages.length - 1]
+    if (last?.role !== "user") throw new Error("expected a user meta message")
+    expect(last.isMeta).toBe(true)
+    const block = last.content[0]
+    expect(block?.type).toBe("compaction")
+    if (block?.type === "compaction") expect(block.summary).toBe(summary)
+  })
+
+  test("a first turn that fails still leaves the session resumable", async () => {
+    // A stream that fails mid-turn: the post-turn save is skipped (the join
+    // rejects), so only the persist-on-submit save can make the session listable.
+    const failing = {
+      requests: [] as Array<LLMRequest>,
+      layer: Layer.succeed(LLMClient.Service, {
+        request: LLMClient.request,
+        streamTurn: () =>
+          Stream.fail(new LLMError({ reason: "server-error", message: "boom", retryable: false })),
+        generateTurn: () =>
+          Effect.fail(new LLMError({ reason: "server-error", message: "boom", retryable: false })),
+      }),
+    }
+    const c = build(failing, "auto", true)
+    await c.submitPrompt("investigate the hang")
+    const listed = c.listSessions()
+    expect(listed).toHaveLength(1)
+    expect(listed[0]?.firstPrompt).toBe("investigate the hang")
   })
 
   test("permission cycling follows ask -> auto -> plan -> ask", () => {
@@ -250,6 +291,35 @@ describe("controller", () => {
       modelId: "claude-opus-4-8",
       variant: "max",
     })
+  })
+
+  test("resuming a session restores its compaction summary", async () => {
+    const persisted = createSessionState({
+      sessionId: "compacted",
+      workingDirectory: dir,
+      model: { ...testModel, id: ModelId.make("claude-opus-4-8") },
+      modelRef: { provider: "anthropic", modelId: "claude-opus-4-8" },
+      currentDate: "2026-07-05",
+      messages: [
+        {
+          role: "user",
+          isMeta: true,
+          content: [
+            { type: "compaction", reason: "manual", compactedMessages: 4, summary: "## Goal\nX" },
+          ],
+          // biome-ignore lint/suspicious/noExplicitAny: compaction content isn't in the narrow helper types
+        } as any,
+      ],
+      compaction: { autoEnabled: false, summary: "## Goal\nX" },
+    })
+    await Effect.runPromise(
+      saveSession(persisted, sessionsDir(join(dir, "config.json"), dir)).pipe(
+        Effect.provide(BunContext.layer),
+      ),
+    )
+    const c = build(scripted([textTurn("ok")]))
+    await c.resumeSession("compacted")
+    expect(c.getState().session.compaction).toEqual({ autoEnabled: false, summary: "## Goal\nX" })
   })
 
   test("an Ask request is forwarded to the UI and resolves with the selected answers", async () => {

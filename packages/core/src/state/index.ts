@@ -1,4 +1,5 @@
 export {
+  type ContextUsageState,
   type CreateSessionInput,
   cacheEntry,
   createSessionState,
@@ -10,10 +11,12 @@ export {
   modelRefKey,
   type RequestOptions,
   recordModelTransition,
+  type SessionCompactionState,
   type SessionCounters,
   type SessionModelRef,
   type SessionState,
   type SystemContext,
+  type ToolResultReplacement,
   withFileLock,
 } from "./session"
 export { type LoadSessionInput, loadSession, readPersistedModelRef, saveSession } from "./store"

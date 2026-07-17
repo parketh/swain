@@ -5,7 +5,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { BunContext } from "@effect/platform-bun"
 import type { Model } from "@swain/llms"
-import { ModelId, ProviderId } from "@swain/llms"
+import { Message, ModelId, ProviderId } from "@swain/llms"
 import { Effect, Stream } from "effect"
 import {
   createSessionState,
@@ -209,5 +209,84 @@ describe("session model persistence", () => {
     expect(loaded.systemContext.pastModels).toEqual([])
     expect(loaded.counters.turns).toBe(3)
     expect(await run(readPersistedModelRef(dir, "legacy"))).toBeUndefined()
+    // Missing compaction metadata defaults to auto-enabled with no summary.
+    expect(loaded.compaction).toEqual({ autoEnabled: true })
+    expect(loaded.toolResults).toEqual([])
+  })
+
+  test("save/load preserves compaction state and its meta message", async () => {
+    const compactionMeta = Message.user(
+      [{ type: "compaction", reason: "manual", compactedMessages: 9, summary: "## Goal\nS" }],
+      true,
+    )
+    const state = createSessionState({
+      sessionId: "s-compact",
+      workingDirectory: dir,
+      model: anthropic,
+      currentDate: "2026-07-10",
+      messages: [compactionMeta, Message.assistant("carrying on")],
+      compaction: {
+        autoEnabled: false,
+        summary: "## Goal\nS",
+        failureReason: "boom",
+        lastCompactedAt: "2026-07-10T00:00:00Z",
+      },
+    })
+    const reloaded = await run(
+      saveSession(state, dir).pipe(
+        Effect.andThen(loadSession({ sessionId: "s-compact", model: anthropic, sessionsDir: dir })),
+      ),
+    )
+    expect(reloaded.compaction).toEqual({
+      autoEnabled: false,
+      summary: "## Goal\nS",
+      failureReason: "boom",
+      lastCompactedAt: "2026-07-10T00:00:00Z",
+    })
+    expect(reloaded.messages[0]).toEqual(compactionMeta)
+    // Context accounting is not persisted; resume re-estimates the full history.
+    expect(reloaded.contextUsage).toBeUndefined()
+  })
+
+  test("save/load preserves tool-result replacement metadata", async () => {
+    const replacement = {
+      toolCallId: "call-1",
+      name: "Bash",
+      path: join(dir, "s-tr", "tool-results", "call-1.txt"),
+      originalChars: 90_000,
+      previewChars: 2_000,
+      createdAt: "2026-07-10T00:00:00Z",
+    }
+    const state = createSessionState({
+      sessionId: "s-tr",
+      workingDirectory: dir,
+      model: anthropic,
+      currentDate: "2026-07-10",
+      toolResults: [replacement],
+    })
+    const reloaded = await run(
+      saveSession(state, dir).pipe(
+        Effect.andThen(loadSession({ sessionId: "s-tr", model: anthropic, sessionsDir: dir })),
+      ),
+    )
+    expect(reloaded.toolResults).toEqual([replacement])
+  })
+
+  test("a missing tool-results sidecar loads as empty metadata, not a failure", async () => {
+    const state = createSessionState({
+      sessionId: "s-nosidecar",
+      workingDirectory: dir,
+      model: anthropic,
+      currentDate: "2026-07-10",
+      messages: [Message.user("hi")],
+    })
+    const reloaded = await run(
+      saveSession(state, dir).pipe(
+        Effect.andThen(
+          loadSession({ sessionId: "s-nosidecar", model: anthropic, sessionsDir: dir }),
+        ),
+      ),
+    )
+    expect(reloaded.toolResults).toEqual([])
   })
 })

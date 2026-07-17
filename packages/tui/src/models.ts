@@ -1,4 +1,4 @@
-import type { GenerationOptions, Model, ProviderOptions } from "@swain/llms"
+import type { GenerationOptions, Model, ModelLimits, ProviderOptions } from "@swain/llms"
 import { Lab, Provider } from "@swain/llms"
 import {
   AnthropicModel,
@@ -141,6 +141,22 @@ interface ModelSpec {
   readonly label: string
   readonly variants: ReadonlyArray<VariantSpec>
   readonly deprecated?: boolean
+}
+
+// PLACEHOLDER model limits carried into @swain/core for compaction policy.
+// These are correctness inputs — audit/replace against provider docs before
+// manual end-to-end testing. Keyed by model id so every serving provider of a
+// model (e.g. gpt-5.5 via OpenAI and Codex) shares one limit entry.
+const LIMITS: Record<string, ModelLimits> = {
+  [AnthropicModel.Claude_Opus_4_8]: { contextWindow: 200_000, maxOutputTokens: 64_000 },
+  [OpenAIModel.GPT_5_5]: { contextWindow: 400_000, maxOutputTokens: 128_000 },
+  [OpenAIModel.GPT_5_5_Pro]: { contextWindow: 400_000, maxOutputTokens: 128_000 },
+  [OpenAIModel.GPT_5_6_Sol]: { contextWindow: 400_000, maxOutputTokens: 128_000 },
+  [OpenAIModel.GPT_5_6_Terra]: { contextWindow: 400_000, maxOutputTokens: 128_000 },
+  [OpenAIModel.GPT_5_6_Luna]: { contextWindow: 400_000, maxOutputTokens: 128_000 },
+  [DeepSeekModel.V4_Flash]: { contextWindow: 128_000, maxOutputTokens: 8_192 },
+  [DeepSeekModel.V4_Pro]: { contextWindow: 128_000, maxOutputTokens: 8_192 },
+  [ZAIModel.GLM_5_2]: { contextWindow: 200_000, maxOutputTokens: 128_000 },
 }
 
 interface ProviderSpec {
@@ -559,10 +575,12 @@ export const resolveModelSelection = (
     }),
     ...(variantSpec?.generation !== undefined && { generation: variantSpec.generation }),
   }
+  const built = spec.build(modelId, config.providers[spec.id])
+  const limits = LIMITS[modelId]
   return {
     type: "ok",
     selection: {
-      model: spec.build(modelId, config.providers[spec.id]),
+      model: limits !== undefined ? { ...built, limits } : built,
       provider,
       modelId,
       ...(variant !== undefined && { variant }),

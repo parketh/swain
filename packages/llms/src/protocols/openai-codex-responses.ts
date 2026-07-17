@@ -13,7 +13,7 @@ import type {
   Usage,
   UserMessage,
 } from "../schema"
-import { ContentId, LLMError, renderModelSwitch, ToolCallId } from "../schema"
+import { ContentId, LLMError, renderCompaction, renderModelSwitch, ToolCallId } from "../schema"
 import type { ToolInputAssembler } from "./tool-input"
 import { ToolInput } from "./tool-input"
 
@@ -82,6 +82,8 @@ const lowerUserMessage = (message: UserMessage): Array<Record<string, unknown>> 
       items.push(lowerToolResult(block))
     } else if (block.type === "model-switch") {
       texts.push({ type: "input_text", text: renderModelSwitch(block) })
+    } else if (block.type === "compaction") {
+      texts.push({ type: "input_text", text: renderCompaction(block) })
     } else {
       texts.push({ type: "input_text", text: block.text })
     }
@@ -164,9 +166,11 @@ const prepare = (request: OpenAICodexRequest, config: OpenAICodexConfig): Prepar
       ...(request.toolChoice !== undefined
         ? { tool_choice: lowerToolChoice(request.toolChoice) }
         : {}),
-      ...(request.generation?.maxTokens !== undefined
-        ? { max_output_tokens: request.generation.maxTokens }
-        : {}),
+      // Both portable `generation` fields are intentionally dropped: the
+      // ChatGPT-account Codex backend rejects `max_output_tokens` as an
+      // unsupported parameter, and the Responses API has no top-level `stop`
+      // (that is a Chat Completions field). Do not re-add either — they will
+      // fail with "Unsupported parameter".
       ...(options.reasoning !== undefined ? { reasoning: options.reasoning } : {}),
     },
   }
@@ -353,9 +357,12 @@ const recordCompletion = (state: DecodeState, chunk: WireChunk, reason: FinishRe
   state.finishReason = reason
   const usage = chunk.response?.usage
   if (usage !== undefined) {
+    const inputTokens = usage.input_tokens ?? 0
+    const outputTokens = usage.output_tokens ?? 0
     state.usage = {
-      inputTokens: usage.input_tokens ?? 0,
-      outputTokens: usage.output_tokens ?? 0,
+      inputTokens,
+      outputTokens,
+      activeContextTokens: inputTokens + outputTokens,
     }
   }
 }

@@ -30,6 +30,10 @@ describe("parseCommand", () => {
     })
   })
 
+  test("/compact parses as a known command", () => {
+    expect(parseCommand("/compact")).toEqual({ type: "command", name: "compact", args: "" })
+  })
+
   test("an unrecognized slash token is an unknown-command", () => {
     expect(parseCommand("/unknown x")).toEqual({
       type: "unknown-command",

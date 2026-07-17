@@ -127,7 +127,8 @@ describe("OpenAICodexResponses.prepare", () => {
         },
       ],
       tool_choice: "auto",
-      max_output_tokens: 256,
+      // `generation.maxTokens` is intentionally dropped: the ChatGPT-account
+      // Codex backend rejects `max_output_tokens` as an unsupported parameter.
       reasoning: { effort: "high", summary: "auto" },
     })
   })
@@ -173,7 +174,11 @@ describe("OpenAICodexResponses.decode", () => {
       { type: "text-delta", contentId: "text-1", text: "Hello" },
       { type: "text-delta", contentId: "text-1", text: " world" },
       { type: "text-end", contentId: "text-1" },
-      { type: "finish", reason: "stop", usage: { inputTokens: 12, outputTokens: 7 } },
+      {
+        type: "finish",
+        reason: "stop",
+        usage: { inputTokens: 12, outputTokens: 7, activeContextTokens: 19 },
+      },
     ])
     const summary = await Effect.runPromise(LLMTurnSummary.fromEvents(events))
     expect(summary.text).toBe("Hello world")
@@ -188,7 +193,11 @@ describe("OpenAICodexResponses.decode", () => {
       { type: "tool-input-delta", toolCallId: "call_1|fc_1", text: '"bun"}' },
       { type: "tool-input-end", toolCallId: "call_1|fc_1", name: "lookup" },
       { type: "tool-call", toolCallId: "call_1|fc_1", name: "lookup", input: { query: "bun" } },
-      { type: "finish", reason: "tool-call", usage: { inputTokens: 25, outputTokens: 11 } },
+      {
+        type: "finish",
+        reason: "tool-call",
+        usage: { inputTokens: 25, outputTokens: 11, activeContextTokens: 36 },
+      },
     ])
   })
 
@@ -214,7 +223,11 @@ describe("OpenAICodexResponses.decode", () => {
       { type: "tool-input-delta", toolCallId: "call_2|fc_2", text: '"deno"}' },
       { type: "tool-input-end", toolCallId: "call_2|fc_2", name: "lookup" },
       { type: "tool-call", toolCallId: "call_2|fc_2", name: "lookup", input: { query: "deno" } },
-      { type: "finish", reason: "tool-call", usage: { inputTokens: 28, outputTokens: 13 } },
+      {
+        type: "finish",
+        reason: "tool-call",
+        usage: { inputTokens: 28, outputTokens: 13, activeContextTokens: 41 },
+      },
     ])
   })
 
@@ -229,7 +242,7 @@ describe("OpenAICodexResponses.decode", () => {
     expect(events.at(-1)).toEqual({
       type: "finish",
       reason: "length",
-      usage: { inputTokens: 9, outputTokens: 3 },
+      usage: { inputTokens: 9, outputTokens: 3, activeContextTokens: 12 },
     })
   })
 

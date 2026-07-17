@@ -31,8 +31,51 @@ const SessionMetadata = Schema.Struct({
     inputTokens: Schema.Number,
     outputTokens: Schema.Number,
   }),
+  // Legacy sessions predate compaction; default to auto-enabled with no summary.
+  compaction: Schema.optionalWith(
+    Schema.Struct({
+      autoEnabled: Schema.Boolean,
+      failureReason: Schema.optional(Schema.String),
+      lastCompactedAt: Schema.optional(Schema.String),
+      summary: Schema.optional(Schema.String),
+    }),
+    { default: () => ({ autoEnabled: true }) },
+  ),
 })
 type SessionMetadata = typeof SessionMetadata.Type
+
+const ToolResultReplacement = Schema.Struct({
+  toolCallId: Schema.String,
+  name: Schema.optional(Schema.String),
+  path: Schema.String,
+  originalChars: Schema.Number,
+  previewChars: Schema.Number,
+  createdAt: Schema.String,
+})
+const ToolResultSidecar = Schema.Array(ToolResultReplacement)
+
+// Monotonic suffix so two concurrent writers never share a temp path; a shared
+// temp would let one writer's rename publish the other's bytes, or rename a file
+// the other already moved.
+let tmpSeq = 0
+
+/**
+ * Writes `path` atomically: write a sibling temp file in full, then rename it
+ * over the destination. A crashed, interrupted, or concurrently-racing write
+ * leaves either the old complete file or the new one, never a truncated mix —
+ * the guarantee mid-turn progress persistence relies on. The temp sits in the
+ * same directory so the rename stays on one filesystem (and is atomic).
+ */
+const writeFileAtomic = (
+  fs: FileSystem.FileSystem,
+  path: string,
+  content: string,
+): Effect.Effect<void, PlatformError> =>
+  Effect.gen(function* () {
+    const tmp = `${path}.tmp-${(tmpSeq += 1)}`
+    yield* fs.writeFileString(tmp, content)
+    yield* fs.rename(tmp, path)
+  })
 
 const sessionPath = (sessionsDir: string, sessionId: string): string =>
   NodePath.join(sessionsDir, sessionId)
@@ -64,14 +107,28 @@ export const saveSession = (
       modelRef: session.systemContext.modelRef,
       pastModels: [...session.systemContext.pastModels],
       counters: { ...session.counters },
+      compaction: { ...session.compaction },
     }
-    yield* fs.writeFileString(NodePath.join(dir, "session.json"), JSON.stringify(metadata, null, 2))
+    yield* writeFileAtomic(
+      fs,
+      NodePath.join(dir, "session.json"),
+      JSON.stringify(metadata, null, 2),
+    )
 
     const transcript = session.messages.map((message) => JSON.stringify(message)).join("\n")
-    yield* fs.writeFileString(
+    yield* writeFileAtomic(
+      fs,
       NodePath.join(dir, "messages.jsonl"),
       transcript.length > 0 ? `${transcript}\n` : "",
     )
+
+    if (session.toolResults.length > 0) {
+      yield* writeFileAtomic(
+        fs,
+        NodePath.join(dir, "tool-results.json"),
+        JSON.stringify(session.toolResults, null, 2),
+      )
+    }
   })
 
 export interface LoadSessionInput {
@@ -135,6 +192,13 @@ export const loadSession = (
       Schema.decode(Schema.parseJson(Message))(line),
     )
 
+    // A missing or unreadable sidecar degrades to no replacement metadata; the
+    // transcript still carries the preview/path wrapper, so the model is intact.
+    const toolResults = yield* fs.readFileString(NodePath.join(dir, "tool-results.json")).pipe(
+      Effect.flatMap(Schema.decode(Schema.parseJson(ToolResultSidecar))),
+      Effect.orElseSucceed(() => []),
+    )
+
     const modelRef = input.modelRef ?? metadata.modelRef
     const state = createSessionState({
       sessionId: metadata.sessionId,
@@ -146,6 +210,8 @@ export const loadSession = (
       permissionMode: metadata.permissionMode,
       currentDate: metadata.currentDate,
       messages,
+      compaction: metadata.compaction,
+      toolResults,
     })
     state.counters.turns = metadata.counters.turns
     state.counters.inputTokens = metadata.counters.inputTokens

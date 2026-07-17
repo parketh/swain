@@ -5,6 +5,9 @@ import {
   type AgentEvent,
   type AgentType,
   type Approval,
+  type CompactionReason,
+  type CompactionResult,
+  compactSession,
   submitPrompt as coreSubmitPrompt,
   createSessionState,
   listTasks,
@@ -30,6 +33,7 @@ import {
   type Task,
   TaskStore,
   type TaskStoreService,
+  toolResultStoreLayer,
 } from "@swain/core"
 import type { AskHandler, AskInput, AskResult } from "@swain/core/tools"
 import type { GenerationOptions, ProviderOptions } from "@swain/llms"
@@ -175,6 +179,12 @@ export interface Controller {
   resolveApproval(id: number, decision: PermissionDecision): void
   submitPrompt(text: string): Promise<void>
   executeCommand(result: CommandParseResult): Promise<void>
+  /**
+   * Runs one full compaction on the live session, summarizing older context.
+   * Resolves to the result on success, or `undefined` when compaction failed
+   * (the failure is surfaced as an `agent-error` event).
+   */
+  compact(reason: CompactionReason): Promise<CompactionResult | undefined>
   /** Global prompt history, most recent last. */
   getHistory(): ReadonlyArray<string>
   /** Records a submitted prompt to global history and persists it. */
@@ -638,6 +648,25 @@ export const makeController = (deps: ControllerDeps): Controller => {
 
   let currentAbort: AbortController | undefined
   let currentFiber: Fiber.RuntimeFiber<void, unknown> | undefined
+  let persistingProgress = false
+  // The in-flight mid-turn save, if any. The authoritative post-turn save awaits
+  // it so a late progress save can never land last and leave a stale snapshot.
+  let progressSave: Promise<void> = Promise.resolve()
+
+  // Persist mid-turn progress (completed, validly-paired iterations) so a hung,
+  // crashed, or force-quit turn leaves its tool-use on disk for resume, not just
+  // the initial prompt. Fire-and-forget and single-flight; the post-turn save is
+  // authoritative.
+  const persistProgress = (): void => {
+    if (!persist || persistingProgress) return
+    persistingProgress = true
+    progressSave = runtime
+      .runPromise(saveSession(session, sessionsDirFor(session)))
+      .catch(() => {})
+      .finally(() => {
+        persistingProgress = false
+      })
+  }
 
   const runTurnNow = async (): Promise<void> => {
     const env = await ensureSessionEnv()
@@ -650,6 +679,10 @@ export const makeController = (deps: ControllerDeps): Controller => {
       onEvent: (event) =>
         Effect.sync(() => {
           emitEvent(event)
+          // At each iteration boundary the prior iterations (assistant + their
+          // tool results) are fully paired on session.messages — persist them so
+          // a stall mid-next-iteration still leaves the completed tool-use.
+          if (event.type === "step-start" && event.iteration > 0) persistProgress()
           // Live-refresh the task panel when the model mutates its to-do list
           // mid-turn, instead of waiting for the whole turn to finish.
           if (
@@ -670,6 +703,7 @@ export const makeController = (deps: ControllerDeps): Controller => {
       }),
     }).pipe(
       Effect.provide(ctxLayer),
+      Effect.provide(toolResultStoreLayer(pathJoin(sessionDirFor(session), "tool-results"))),
       Effect.provide(env.layers),
       Effect.provide(modelResolverLayer(() => config)),
     )
@@ -677,7 +711,12 @@ export const makeController = (deps: ControllerDeps): Controller => {
     currentFiber = fiber
     try {
       await runtime.runPromise(Fiber.join(fiber))
-      if (persist) await runtime.runPromise(saveSession(session, sessionsDirFor(session)))
+      if (persist) {
+        // Let any in-flight mid-turn save finish first so this authoritative
+        // save writes last.
+        await progressSave
+        await runtime.runPromise(saveSession(session, sessionsDirFor(session)))
+      }
     } catch {
       // Fatal LLM/agent failures are surfaced through onEvent as agent-error;
       // interruptions leave the partial draft visible without being persisted.
@@ -693,6 +732,24 @@ export const makeController = (deps: ControllerDeps): Controller => {
         drainPending = false
         void maybeDrainCompletions()
       }
+    }
+  }
+
+  const compact = async (reason: CompactionReason): Promise<CompactionResult | undefined> => {
+    if (running) return undefined
+    running = true
+    notify()
+    try {
+      const result = await runtime.runPromise(compactSession(session, { reason }))
+      if (persist) await runtime.runPromise(saveSession(session, sessionsDirFor(session)))
+      return result
+    } catch (error) {
+      const message = (error as { message?: string }).message ?? String(error)
+      emitEvent({ type: "agent-error", source: "agent", message: `Compaction failed: ${message}` })
+      return undefined
+    } finally {
+      running = false
+      notify()
     }
   }
 
@@ -748,6 +805,23 @@ export const makeController = (deps: ControllerDeps): Controller => {
   const submitPrompt = async (text: string): Promise<void> => {
     coreSubmitPrompt(session, text)
     notify()
+    // Persist the session before running its first turn so a hung, crashed, or
+    // force-quit turn still leaves a resumable session. `listSessions` requires
+    // session.json, and the post-turn save is otherwise the first to write it —
+    // meaning a first turn that never completes vanishes from `/resume`. Only
+    // needed until the session exists on disk; later turns already have it.
+    if (persist) {
+      const marker = pathJoin(sessionDirFor(session), "session.json")
+      let exists = true
+      try {
+        statSync(marker)
+      } catch {
+        exists = false
+      }
+      if (!exists) {
+        await runtime.runPromise(saveSession(session, sessionsDirFor(session))).catch(() => {})
+      }
+    }
     await runTurnNow()
   }
 
@@ -797,6 +871,9 @@ export const makeController = (deps: ControllerDeps): Controller => {
     switch (result.name) {
       case "clear":
         clearConversation()
+        return
+      case "compact":
+        await compact("manual")
         return
       case "plan": {
         setActiveMode("plan")
@@ -864,6 +941,7 @@ export const makeController = (deps: ControllerDeps): Controller => {
 
     submitPrompt,
     executeCommand,
+    compact,
 
     cyclePermissionMode: () => {
       setActiveMode(NEXT_MODE[session.systemContext.permissionMode])

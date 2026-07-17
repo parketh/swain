@@ -62,6 +62,43 @@ export interface SessionCounters {
   outputTokens: number
 }
 
+/**
+ * Context accounting derived from the last provider usage snapshot. Local
+ * transcript added after `measuredAtMessageIndex` is estimated and added on top
+ * before each request. A mutation to an older message invalidates the snapshot.
+ */
+export interface ContextUsageState {
+  readonly activeContextTokens: number
+  readonly measuredAtMessageIndex: number
+}
+
+/**
+ * Bounded compaction policy for a session. Exactly one compound summary is kept
+ * and updated on each later compaction. `autoEnabled` starts true and is
+ * disabled after the first automatic compaction failure; manual `/compact`
+ * ignores it.
+ */
+export interface SessionCompactionState {
+  readonly autoEnabled: boolean
+  readonly failureReason?: string
+  readonly lastCompactedAt?: string
+  readonly summary?: string
+}
+
+/**
+ * Metadata for a tool result whose oversized body was persisted to disk before
+ * it could bloat the transcript. The model-visible result is a preview plus the
+ * `path`; the full body lives at `path`.
+ */
+export interface ToolResultReplacement {
+  readonly toolCallId: string
+  readonly name?: string
+  readonly path: string
+  readonly originalChars: number
+  readonly previewChars: number
+  readonly createdAt: string
+}
+
 export interface SessionState {
   readonly sessionId: string
   readonly workingDirectory: string
@@ -70,6 +107,11 @@ export interface SessionState {
   readonly locks: Map<string, Effect.Semaphore>
   readonly messages: Array<Message>
   readonly counters: SessionCounters
+  readonly compaction: SessionCompactionState
+  /** Persisted oversized tool-result bodies, keyed durably by tool call id. */
+  readonly toolResults: Array<ToolResultReplacement>
+  /** Undefined until the first provider usage is recorded. */
+  contextUsage?: ContextUsageState
 }
 
 export interface CreateSessionInput {
@@ -83,6 +125,8 @@ export interface CreateSessionInput {
   readonly permissionMode?: PermissionMode
   readonly currentDate: string
   readonly messages?: ReadonlyArray<Message>
+  readonly compaction?: SessionCompactionState
+  readonly toolResults?: ReadonlyArray<ToolResultReplacement>
 }
 
 export const createSessionState = (input: CreateSessionInput): SessionState => ({
@@ -100,6 +144,8 @@ export const createSessionState = (input: CreateSessionInput): SessionState => (
   locks: new Map(),
   messages: [...(input.messages ?? [])],
   counters: { turns: 0, inputTokens: 0, outputTokens: 0 },
+  compaction: input.compaction ?? { autoEnabled: true },
+  toolResults: [...(input.toolResults ?? [])],
 })
 
 export interface ModelTransition {

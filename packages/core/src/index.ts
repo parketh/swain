@@ -7,6 +7,32 @@ export {
   runTurn,
   submitPrompt,
 } from "./agent"
+export {
+  AUTO_COMPACT_FRACTION,
+  activeContextTokens,
+  CompactionError,
+  type CompactionReason,
+  type CompactionResult,
+  type CompactOptions,
+  compactSession,
+  defaultTokenCounter,
+  deriveContext,
+  effectiveContextWindow,
+  estimateCurrentContextTokens,
+  isValidlyPaired,
+  OUTPUT_RESERVE_CAP,
+  outputReserve,
+  type RequestShape,
+  recordContextUsage,
+  selectCut,
+  shouldAutoCompact,
+  TOOL_RESULT_PREVIEW_CHARS,
+  TOOL_RESULT_THRESHOLD,
+  type TokenCounter,
+  type ToolResultStore,
+  ToolResultStoreService,
+  toolResultStoreLayer,
+} from "./context"
 export { AgentError, ToolError, type ToolErrorReason } from "./errors"
 export {
   ModelResolveError,
@@ -61,6 +87,7 @@ export {
   type SessionState,
   type SystemContext,
   saveSession,
+  type ToolResultReplacement,
 } from "./state"
 export {
   type ChildRegistryOptions,

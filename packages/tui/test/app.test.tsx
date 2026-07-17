@@ -532,7 +532,9 @@ describe("App", () => {
           subject: "investigate the bug",
           description: "d",
           status: "in_progress",
-          agentType: "Explore",
+          // Parent-owned (owner set, no agentType): must show in the panel, not
+          // be treated as delegated subagent work and hidden.
+          owner: "Swain",
           blockedBy: [],
           createdAt: "2026-07-08T00:00:00.000Z",
           updatedAt: "2026-07-08T00:00:00.000Z",

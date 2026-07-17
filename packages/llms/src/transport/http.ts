@@ -45,6 +45,26 @@ const parseRetryAfter = (value: string | undefined): Duration.Duration | undefin
   return Duration.millis(Math.max(0, date - Date.now()))
 }
 
+// Substrings providers use when the request exceeds the model's context window.
+const CONTEXT_OVERFLOW_PATTERNS = [
+  "context length",
+  "context_length",
+  "context window",
+  "context_window",
+  "prompt is too long",
+  "maximum context",
+  "too many tokens",
+  "reduce the length",
+  "input is too long",
+  "maximum number of tokens",
+]
+
+/** Whether an error body describes a context-window overflow (vs any other 4xx). */
+export const isContextOverflow = (text: string): boolean => {
+  const lower = text.toLowerCase()
+  return CONTEXT_OVERFLOW_PATTERNS.some((pattern) => lower.includes(pattern))
+}
+
 const statusToError = (response: HttpClientResponse.HttpClientResponse, body: string): LLMError => {
   const status = response.status
   const detail = body === "" ? "" : `: ${body.slice(0, 500)}`
@@ -66,6 +86,9 @@ const statusToError = (response: HttpClientResponse.HttpClientResponse, body: st
   }
   if (status >= 500) {
     return new LLMError({ reason: "server-error", message, retryable: true })
+  }
+  if (isContextOverflow(body)) {
+    return new LLMError({ reason: "context-length-exceeded", message, retryable: false })
   }
   return new LLMError({ reason: "invalid-request", message, retryable: false })
 }

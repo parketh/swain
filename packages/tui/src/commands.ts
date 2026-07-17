@@ -8,6 +8,7 @@ export type CommandName =
   | "plan"
   | "usage"
   | "connect"
+  | "compact"
 
 export type CommandParseResult =
   | { readonly type: "command"; readonly name: CommandName; readonly args: string }
@@ -24,6 +25,7 @@ export const COMMAND_NAMES: ReadonlyArray<CommandName> = [
   "plan",
   "usage",
   "connect",
+  "compact",
 ]
 
 export interface CommandInfo {
@@ -42,6 +44,7 @@ export const COMMANDS: ReadonlyArray<CommandInfo> = [
   { name: "plan", summary: "Switch to plan mode; args submit as a prompt" },
   { name: "usage", summary: "Show token and turn counters" },
   { name: "connect", summary: "Store credentials for a provider" },
+  { name: "compact", summary: "Summarize older context into one summary" },
 ]
 
 const isCommandName = (value: string): value is CommandName =>

@@ -9,7 +9,16 @@ import type {
   Usage,
 } from "@swain/llms"
 import { LLMClient, LLMTurnSummary, Message } from "@swain/llms"
-import { Context, Effect, Either, Option, Schema, Stream } from "effect"
+import { Context, Duration, Effect, Either, Option, Schedule, Schema, Stream } from "effect"
+import {
+  compactSession,
+  defaultTokenCounter,
+  deriveContext,
+  type RequestShape,
+  recordContextUsage,
+  shouldAutoCompact,
+  ToolResultStoreService,
+} from "./context"
 import { AgentError } from "./errors"
 import { type ModelResolver, ModelResolverService } from "./model-resolver"
 import { assembleSystemPrompt, type RouterPromptTarget } from "./prompt"
@@ -34,6 +43,12 @@ import {
 type LLMClientService = Context.Tag.Identifier<typeof LLMClient.Service>
 
 const DEFAULT_MAX_ITERATIONS = 20
+
+// Bounded retry for a single LLM request that fails with a retryable error
+// (network stall, rate-limit, overload, 5xx). Intermittent provider drops
+// usually succeed on the next attempt, so a few quick retries keep a turn alive.
+const MAX_STREAM_RETRIES = 2
+const STREAM_RETRY_DELAY = Duration.seconds(1)
 
 export const submitPrompt = (session: SessionState, prompt: string, isMeta = false): void => {
   session.messages.push(Message.user(prompt, isMeta))
@@ -229,38 +244,50 @@ const resolveSwitch = (
     return { kind: "switched", meta }
   })
 
-/** Executes tool calls, emitting lifecycle events, and returns their results. */
+/**
+ * Executes tool calls, emitting lifecycle events, and returns their results.
+ * Oversized result bodies are persisted to disk (replaced with a preview + path)
+ * when a `ToolResultStoreService` is provided, so they never enter the transcript
+ * as full model-visible text; without the service, results pass through.
+ */
 const executeTools = (
+  session: SessionState,
   toolCalls: ReadonlyArray<ToolCall>,
   emit: (event: AgentEvent) => Effect.Effect<void>,
 ): Effect.Effect<Array<ToolResultContent>, never, ToolContext | ToolRegistry> =>
-  Effect.forEach(toolCalls, (toolCall) =>
-    emit({
-      type: "tool-execution-start",
-      name: toolCall.name,
-      toolCallId: toolCall.toolCallId,
-      input: toolCall.input,
-    }).pipe(
-      Effect.andThen(
-        callTool(toolCall, (text) =>
+  Effect.gen(function* () {
+    const store = yield* Effect.serviceOption(ToolResultStoreService)
+    return yield* Effect.forEach(toolCalls, (toolCall) =>
+      emit({
+        type: "tool-execution-start",
+        name: toolCall.name,
+        toolCallId: toolCall.toolCallId,
+        input: toolCall.input,
+      }).pipe(
+        Effect.andThen(
+          callTool(toolCall, (text) =>
+            emit({
+              type: "tool-execution-delta",
+              name: toolCall.name,
+              toolCallId: toolCall.toolCallId,
+              text,
+            }),
+          ),
+        ),
+        Effect.tap((result) =>
           emit({
-            type: "tool-execution-delta",
+            type: "tool-execution-end",
             name: toolCall.name,
             toolCallId: toolCall.toolCallId,
-            text,
+            isError: result.isError === true,
           }),
         ),
+        Effect.flatMap((result) =>
+          Option.isSome(store) ? store.value.persist(session, result) : Effect.succeed(result),
+        ),
       ),
-      Effect.tap((result) =>
-        emit({
-          type: "tool-execution-end",
-          name: toolCall.name,
-          toolCallId: toolCall.toolCallId,
-          isError: result.isError === true,
-        }),
-      ),
-    ),
-  )
+    )
+  })
 
 /**
  * Runs the agent loop over the session: assemble the system prompt, stream an
@@ -309,19 +336,64 @@ export const runTurn = (
       })
     const resolver = yield* Effect.serviceOption(ModelResolverService)
     const emit = (event: AgentEvent): Effect.Effect<void> => options.onEvent?.(event) ?? Effect.void
-    yield* loop(
-      session,
-      {
-        buildSystem,
-        llmTools,
-        maxIterations: options.maxIterations ?? DEFAULT_MAX_ITERATIONS,
-        resolver,
-        emit,
-      },
-      0,
-      false,
-    )
+    const ctx: LoopContext = {
+      buildSystem,
+      llmTools,
+      maxIterations: options.maxIterations ?? DEFAULT_MAX_ITERATIONS,
+      resolver,
+      emit,
+    }
+
+    // Preflight: compact once before the turn if estimated pressure is high.
+    // A failed auto compaction disables auto for the session (manual stays
+    // available) and surfaces a recoverable error, but the turn proceeds.
+    const shape: RequestShape = { system: buildSystem(), tools: llmTools }
+    if (shouldAutoCompact(session, shape, defaultTokenCounter)) {
+      yield* compactSession(session, { reason: "auto" }).pipe(
+        Effect.catchAll((error) =>
+          Effect.sync(() => {
+            Object.assign(session.compaction, {
+              autoEnabled: false,
+              failureReason: error.message,
+            })
+          }).pipe(
+            Effect.andThen(
+              emit({
+                type: "agent-error",
+                source: "agent",
+                message: `Automatic compaction failed: ${error.message}`,
+                recoverable: true,
+              }),
+            ),
+          ),
+        ),
+      )
+    }
+
+    yield* runWithOverflowRetry(session, ctx)
   })
+
+const isContextOverflowError = (error: AgentError | LLMError): error is LLMError =>
+  error._tag === "LLMError" && error.reason === "context-length-exceeded"
+
+/**
+ * Runs the loop, and on a provider context-overflow runs one full compaction
+ * (reason `overflow`) and retries the turn once. A failed compaction re-surfaces
+ * the original overflow; a second overflow after the retry propagates as the
+ * typed error.
+ */
+const runWithOverflowRetry = (
+  session: SessionState,
+  ctx: LoopContext,
+): Effect.Effect<void, AgentError | LLMError, LLMClientService | ToolContext | ToolRegistry> =>
+  loop(session, ctx, 0, false).pipe(
+    Effect.catchIf(isContextOverflowError, (overflow) =>
+      compactSession(session, { reason: "overflow" }).pipe(
+        Effect.catchAll(() => Effect.fail(overflow)),
+        Effect.andThen(loop(session, ctx, 0, false)),
+      ),
+    ),
+  )
 
 const loop = (
   session: SessionState,
@@ -344,7 +416,7 @@ const loop = (
     const request = LLMClient.request({
       model: session.systemContext.model,
       system: ctx.buildSystem(),
-      messages: session.messages,
+      messages: deriveContext(session.messages).messages,
       ...(toolsAllowed &&
         ctx.llmTools.length > 0 && { tools: ctx.llmTools, toolChoice: "auto" as const }),
       ...(requestOptions.generation !== undefined && { generation: requestOptions.generation }),
@@ -357,12 +429,31 @@ const loop = (
 
     // Stream events as they arrive: forward each as `llm-event` (including
     // provider-error, which is never re-emitted as `agent-error`) while still
-    // collecting them for the turn summary.
-    const collected: Array<LLMEvent> = []
-    yield* LLMClient.streamTurn(request).pipe(
-      Stream.runForEach((event) =>
-        Effect.sync(() => collected.push(event)).pipe(
-          Effect.andThen(ctx.emit({ type: "llm-event", event })),
+    // collecting them for the turn summary. A fresh buffer per attempt so a
+    // retried request never mixes partial output from a failed one.
+    const streamOnce = Effect.suspend(() => {
+      const events: Array<LLMEvent> = []
+      return LLMClient.streamTurn(request).pipe(
+        Stream.runForEach((event) =>
+          Effect.sync(() => events.push(event)).pipe(
+            Effect.andThen(ctx.emit({ type: "llm-event", event })),
+          ),
+        ),
+        Effect.as(events),
+      )
+    })
+
+    // Intermittent provider stalls (e.g. a Codex stream that never produces a
+    // response) surface as retryable errors. Retry the request a bounded number
+    // of times before giving up so a transient drop doesn't kill an otherwise
+    // healthy turn; prior iterations' tool-use is already committed to
+    // session.messages and untouched. Non-retryable errors (auth, invalid
+    // request, context overflow) fail immediately.
+    const collected = yield* streamOnce.pipe(
+      Effect.retry(
+        Schedule.recurs(MAX_STREAM_RETRIES).pipe(
+          Schedule.whileInput((error: LLMError) => error.retryable),
+          Schedule.addDelay(() => STREAM_RETRY_DELAY),
         ),
       ),
       Effect.catchAll((error) =>
@@ -385,6 +476,7 @@ const loop = (
     if (summary.usage !== undefined) {
       session.counters.inputTokens += summary.usage.inputTokens
       session.counters.outputTokens += summary.usage.outputTokens
+      recordContextUsage(session, summary.usage)
     }
 
     yield* ctx.emit({
@@ -426,7 +518,7 @@ const loop = (
         ]),
       )
       const siblings = summary.toolCalls.filter((call) => call.name !== SWITCH_MODEL_NAME)
-      const siblingResults = yield* executeTools(siblings, ctx.emit)
+      const siblingResults = yield* executeTools(session, siblings, ctx.emit)
       siblings.forEach((call, index) => resultById.set(call.toolCallId, siblingResults[index]!))
       // Preserve the assistant's original tool_call order in the results.
       const results = summary.toolCalls.map((call) => resultById.get(call.toolCallId)!)
@@ -434,7 +526,7 @@ const loop = (
       return yield* loop(session, ctx, iteration + 1, switched)
     }
 
-    const results = yield* executeTools(summary.toolCalls, ctx.emit)
+    const results = yield* executeTools(session, summary.toolCalls, ctx.emit)
     session.messages.push(Message.user(results))
     return yield* loop(session, ctx, iteration + 1, switched)
   })

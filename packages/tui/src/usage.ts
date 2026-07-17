@@ -1,4 +1,4 @@
-import type { SessionState } from "@swain/core"
+import { defaultTokenCounter, deriveContext, type SessionState } from "@swain/core"
 import type { ActiveModel } from "./config"
 import { costUsd } from "./models"
 
@@ -7,6 +7,12 @@ export interface UsageSnapshot {
   readonly inputTokens: number
   readonly outputTokens: number
   readonly totalTokens: number
+  /**
+   * Estimated size of the context the next request would send — bounded by
+   * compaction, unlike `totalTokens` (cumulative billed across every iteration).
+   * This is the "how full is the window" number, matching what users expect.
+   */
+  readonly contextTokens: number
   readonly costUsd?: number
   readonly provider: string
   readonly modelId: string
@@ -25,6 +31,7 @@ export const usageSnapshot = (session: SessionState, activeModel: ActiveModel): 
     inputTokens: session.counters.inputTokens,
     outputTokens: session.counters.outputTokens,
     totalTokens: session.counters.inputTokens + session.counters.outputTokens,
+    contextTokens: defaultTokenCounter.estimateMessages(deriveContext(session.messages).messages),
     ...(cost !== undefined && { costUsd: cost }),
     provider: activeModel.provider,
     modelId: activeModel.modelId,

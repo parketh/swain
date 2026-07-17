@@ -15,11 +15,13 @@ export { Lab } from "./schema/labs"
 export {
   AssistantContent,
   AssistantMessage,
+  CompactionContent,
   JsonSchemaObject,
   Message,
   ModelSwitchContent,
   NamedToolChoice,
   ReasoningContent,
+  renderCompaction,
   renderModelSwitch,
   SystemContent,
   TextContent,

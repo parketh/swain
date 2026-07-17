@@ -1,5 +1,5 @@
 import type { HttpClient } from "@effect/platform"
-import { Effect, Stream } from "effect"
+import { Duration, Effect, Stream } from "effect"
 import { LLMError } from "./schema/errors"
 import type { LLMEvent } from "./schema/events"
 import type { ToolChoice, UserContent } from "./schema/messages"
@@ -36,9 +36,32 @@ const request = (input: LLMRequestInput): LLMRequest => {
   }
 }
 
+/**
+ * Fail a turn whose provider stream goes silent for this long instead of hanging
+ * the whole loop indefinitely. Idle-based (resets on every event), so it catches
+ * a stream that stalls mid-response, not just one that never starts. Healthy
+ * streams emit within ~1s and never gap more than ~10s, so 60s is ample headroom
+ * while still failing fast enough for the agent's bounded retry to recover.
+ */
+const STREAM_IDLE_TIMEOUT = Duration.seconds(60)
+
 const streamTurn = (
   request: LLMRequest,
-): Stream.Stream<LLMEvent, LLMError, HttpClient.HttpClient> => request.model.streamTurn(request)
+): Stream.Stream<LLMEvent, LLMError, HttpClient.HttpClient> =>
+  request.model.streamTurn(request).pipe(
+    // Debug-level trace of each event so a stall is diagnosable (last event
+    // before silence). Filtered out unless the min log level is Debug.
+    Stream.tap((event) => Effect.logDebug(`llm.stream ${event.type}`)),
+    Stream.timeoutFail(
+      () =>
+        new LLMError({
+          reason: "network-error",
+          message: `Provider stream stalled: no data for ${Duration.toSeconds(STREAM_IDLE_TIMEOUT)}s.`,
+          retryable: true,
+        }),
+      STREAM_IDLE_TIMEOUT,
+    ),
+  )
 
 /**
  * Convenience wrapper over `LLM.streamTurn`: collects the streamed events of

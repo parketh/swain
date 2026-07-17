@@ -162,7 +162,11 @@ describe("OpenAIChat.decode", () => {
       { type: "text-delta", contentId: "text-1", text: "Hello" },
       { type: "text-delta", contentId: "text-1", text: " world" },
       { type: "text-end", contentId: "text-1" },
-      { type: "finish", reason: "stop", usage: { inputTokens: 12, outputTokens: 4 } },
+      {
+        type: "finish",
+        reason: "stop",
+        usage: { inputTokens: 12, outputTokens: 4, activeContextTokens: 16 },
+      },
     ])
     const summary = await Effect.runPromise(LLMTurnSummary.fromEvents(events))
     expect(summary.text).toBe("Hello world")
@@ -176,7 +180,11 @@ describe("OpenAIChat.decode", () => {
       { type: "tool-input-delta", toolCallId: "call_abc", text: '"bun"}' },
       { type: "tool-input-end", toolCallId: "call_abc", name: "lookup" },
       { type: "tool-call", toolCallId: "call_abc", name: "lookup", input: { query: "bun" } },
-      { type: "finish", reason: "tool-call", usage: { inputTokens: 30, outputTokens: 9 } },
+      {
+        type: "finish",
+        reason: "tool-call",
+        usage: { inputTokens: 30, outputTokens: 9, activeContextTokens: 39 },
+      },
     ])
   })
 
