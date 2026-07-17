@@ -349,6 +349,17 @@ describe("runTurn", () => {
     })
   })
 
+  test("every core-committed message carries a valid createdAt", async () => {
+    const isoRe = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
+    const { state, run } = drive([toolCallTurn("Echo", { msg: "hi" }), textTurn("done")], [echo])
+    await run
+    // user prompt, assistant(tool-call), user(tool-result), assistant(done)
+    expect(state.messages).toHaveLength(4)
+    for (const message of state.messages) {
+      expect(message.createdAt).toMatch(isoRe)
+    }
+  })
+
   // LLM client whose stream fails `failures` times (with a retryable or
   // non-retryable error) before replaying `success`, counting attempts.
   const flakyLLM = (failures: number, retryable: boolean, success: ReadonlyArray<LLMEvent>) => {

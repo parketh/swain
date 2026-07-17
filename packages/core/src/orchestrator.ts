@@ -1,6 +1,6 @@
 import type { CommandExecutor, FileSystem } from "@effect/platform"
 import type { Model } from "@swain/llms"
-import { LLMClient, Message } from "@swain/llms"
+import { LLMClient } from "@swain/llms"
 import { Context, Effect, Fiber, Queue, Ref } from "effect"
 import type { AgentEvent } from "./agent"
 import { runTurn } from "./agent"
@@ -11,6 +11,7 @@ import {
   type RequestOptions,
   type SessionModelRef,
   type SessionState,
+  userMessage,
 } from "./state"
 import { getSubagentDefinition, type SubagentDefinition } from "./subagents/definitions"
 import { makeChildToolRegistry } from "./subagents/tools"
@@ -232,7 +233,7 @@ export const makeOrchestrator = (config: OrchestratorConfig = {}): Effect.Effect
           requestOptions: input.requestOptions ?? parent.session.systemContext.requestOptions,
           permissionMode: parent.session.systemContext.permissionMode,
           currentDate: parent.session.systemContext.currentDate,
-          messages: [Message.user(childBrief(definition, input))],
+          messages: [userMessage(childBrief(definition, input))],
         })
         const childContext: ToolContextValue = {
           session: childSession,

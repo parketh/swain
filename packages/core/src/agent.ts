@@ -23,10 +23,12 @@ import { AgentError } from "./errors"
 import { type ModelResolver, ModelResolverService } from "./model-resolver"
 import { assembleSystemPrompt, type RouterPromptTarget } from "./prompt"
 import {
+  assistantMessage,
   modelRefKey,
   recordModelTransition,
   type SessionModelRef,
   type SessionState,
+  userMessage,
 } from "./state"
 import type { AgentType, Task } from "./tasks"
 import type { ToolContext, ToolRegistry } from "./tools"
@@ -51,7 +53,7 @@ const MAX_STREAM_RETRIES = 2
 const STREAM_RETRY_DELAY = Duration.seconds(1)
 
 export const submitPrompt = (session: SessionState, prompt: string, isMeta = false): void => {
-  session.messages.push(Message.user(prompt, isMeta))
+  session.messages.push(userMessage(prompt, { isMeta }))
 }
 
 export const INTERRUPT_MESSAGE = "[Request interrupted by user]"
@@ -74,14 +76,14 @@ export const recordInterruption = (session: SessionState, partialText?: string):
       : []
   if (pendingCalls.length > 0) {
     messages.push(
-      Message.user(pendingCalls.map((call) => errorResult(call, INTERRUPT_MESSAGE_FOR_TOOL_USE))),
+      userMessage(pendingCalls.map((call) => errorResult(call, INTERRUPT_MESSAGE_FOR_TOOL_USE))),
     )
-    messages.push(Message.assistant([{ type: "text", text: INTERRUPT_MESSAGE }]))
+    messages.push(assistantMessage([{ type: "text", text: INTERRUPT_MESSAGE }]))
     return
   }
   const trimmed = partialText?.trim()
   const text = trimmed ? `${trimmed}\n\n${INTERRUPT_MESSAGE}` : INTERRUPT_MESSAGE
-  messages.push(Message.assistant([{ type: "text", text }]))
+  messages.push(assistantMessage([{ type: "text", text }]))
 }
 
 /**
@@ -221,7 +223,11 @@ const resolveSwitch = (
         modelRef: target.modelRef,
         requestOptions: target.requestOptions,
       }) ?? from
-    const meta = Message.user(
+    // The meta replaces the just-committed assistant response, so it inherits
+    // that response's commit timestamp and provider-response duration rather than
+    // fabricating a later, unrelated one.
+    const replaced = session.messages[session.messages.length - 1]
+    const meta = userMessage(
       [
         {
           type: "model-switch" as const,
@@ -239,7 +245,13 @@ const resolveSwitch = (
           requestedBy: "router" as const,
         },
       ],
-      true,
+      {
+        isMeta: true,
+        ...(replaced?.createdAt !== undefined && { createdAt: replaced.createdAt }),
+        ...(replaced?.responseDurationMs !== undefined && {
+          responseDurationMs: replaced.responseDurationMs,
+        }),
+      },
     )
     return { kind: "switched", meta }
   })
@@ -471,7 +483,7 @@ const loop = (
       ),
     )
 
-    session.messages.push(Message.assistant(summary.assistantContent))
+    session.messages.push(assistantMessage(summary.assistantContent))
     session.counters.turns += 1
     if (summary.usage !== undefined) {
       session.counters.inputTokens += summary.usage.inputTokens
@@ -522,11 +534,11 @@ const loop = (
       siblings.forEach((call, index) => resultById.set(call.toolCallId, siblingResults[index]!))
       // Preserve the assistant's original tool_call order in the results.
       const results = summary.toolCalls.map((call) => resultById.get(call.toolCallId)!)
-      session.messages.push(Message.user(results))
+      session.messages.push(userMessage(results))
       return yield* loop(session, ctx, iteration + 1, switched)
     }
 
     const results = yield* executeTools(session, summary.toolCalls, ctx.emit)
-    session.messages.push(Message.user(results))
+    session.messages.push(userMessage(results))
     return yield* loop(session, ctx, iteration + 1, switched)
   })

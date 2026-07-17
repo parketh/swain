@@ -91,6 +91,8 @@ describe("compaction", () => {
     const last = state.messages[state.messages.length - 1]!
     if (last.role !== "user") throw new Error("expected a user meta message")
     expect(last.isMeta).toBe(true)
+    // The meta reuses the deterministic `now` override as its commit timestamp.
+    expect(last.createdAt).toBe("2026-07-13T00:00:00Z")
     const block = last.content[0]!
     expect(block.type).toBe("compaction")
     if (block.type === "compaction") {

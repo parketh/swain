@@ -248,6 +248,29 @@ describe("session model persistence", () => {
     expect(reloaded.contextUsage).toBeUndefined()
   })
 
+  test("save/load preserves explicitly supplied timing metadata exactly", async () => {
+    const user = Message.user("investigate", false, { createdAt: "2026-07-17T10:00:00.000Z" })
+    const assistant = Message.assistant([{ type: "text", text: "done" }], {
+      createdAt: "2026-07-17T10:00:02.000Z",
+      responseDurationMs: 330,
+      turnDurationMs: 2000,
+    })
+    const state = createSessionState({
+      sessionId: "s-timing",
+      workingDirectory: dir,
+      model: anthropic,
+      currentDate: "2026-07-17",
+      messages: [user, assistant],
+    })
+    const reloaded = await run(
+      saveSession(state, dir).pipe(
+        Effect.andThen(loadSession({ sessionId: "s-timing", model: anthropic, sessionsDir: dir })),
+      ),
+    )
+    expect(reloaded.messages[0]).toEqual(user)
+    expect(reloaded.messages[1]).toEqual(assistant)
+  })
+
   test("save/load preserves tool-result replacement metadata", async () => {
     const replacement = {
       toolCallId: "call-1",

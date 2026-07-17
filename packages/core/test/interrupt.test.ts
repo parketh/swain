@@ -33,6 +33,7 @@ describe("recordInterruption", () => {
       role: "assistant",
       content: [{ type: "text", text: `I was partway through\n\n${INTERRUPT_MESSAGE}` }],
     })
+    expect(state.messages[1]?.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
     expect(rolesAlternate(state)).toBe(true)
   })
 
@@ -78,6 +79,9 @@ describe("recordInterruption", () => {
       role: "assistant",
       content: [{ type: "text", text: INTERRUPT_MESSAGE }],
     })
+    const isoRe = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
+    expect(state.messages[2]?.createdAt).toMatch(isoRe)
+    expect(state.messages[3]?.createdAt).toMatch(isoRe)
     expect(rolesAlternate(state)).toBe(true)
   })
 
