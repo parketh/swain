@@ -94,6 +94,27 @@ const switchTurn = (
   { type: "finish", reason: "tool-call", usage: { inputTokens: 1, outputTokens: 1 } },
 ]
 
+const reasoningSwitchTurn = (siblings: ReadonlyArray<ToolCall> = []): ReadonlyArray<LLMEvent> => {
+  const r = ContentId.make("r")
+  const c = ContentId.make("c")
+  return [
+    { type: "reasoning-start", contentId: r },
+    { type: "reasoning-delta", contentId: r, text: "weigh the options" },
+    { type: "reasoning-end", contentId: r },
+    { type: "text-start", contentId: c },
+    { type: "text-delta", contentId: c, text: "escalating now" },
+    { type: "text-end", contentId: c },
+    ...toEvents({
+      type: "tool-call",
+      toolCallId: ToolCallId.make("sw-1"),
+      name: "SwitchModel",
+      input: { model: "deepseek:deepseek-v4-pro:max", reason: "escalate" },
+    }),
+    ...siblings.flatMap(toEvents),
+    { type: "finish", reason: "tool-call", usage: { inputTokens: 1, outputTokens: 1 } },
+  ]
+}
+
 const textTurn = (text: string): ReadonlyArray<LLMEvent> => {
   const c = ContentId.make("c")
   return [
@@ -245,6 +266,57 @@ describe("SwitchModel control flow", () => {
       textTurn("done"),
     ])
     expect(hasBlock(state, "user", (b) => b.toolCallId === "read-1")).toBe(false)
+  })
+
+  test("a successful switch retains the assistant reasoning/text and drops all tool calls", async () => {
+    const state = session()
+    submitPrompt(state, "hi")
+    const read: ToolCall = {
+      type: "tool-call",
+      toolCallId: ToolCallId.make("read-1"),
+      name: "Read",
+      input: { path: "/etc/hosts" },
+    }
+    await drive(state, [reasoningSwitchTurn([read]), textTurn("done")])
+
+    const switching = state.messages.find(
+      (m) =>
+        m.role === "assistant" &&
+        m.content.some((b) => (b as Record<string, unknown>).type === "reasoning"),
+    )
+    expect(switching).toBeDefined()
+    expect(switching!.content.map((b) => (b as Record<string, unknown>).type)).toEqual([
+      "reasoning",
+      "text",
+    ])
+    // No tool_use survives the switch (neither the SwitchModel call nor siblings).
+    expect(hasBlock(state, "assistant", (b) => b.type === "tool-call")).toBe(false)
+    // The message immediately after the switching assistant is the switch marker.
+    const next = state.messages[state.messages.indexOf(switching!) + 1]
+    expect(next?.role).toBe("user")
+    expect(next?.content.some((b) => (b as Record<string, unknown>).type === "model-switch")).toBe(
+      true,
+    )
+    // No tool_result is owed for the removed calls.
+    expect(hasBlock(state, "user", (b) => b.type === "tool-result")).toBe(false)
+    // The turn continues on the target.
+    expect(state.systemContext.modelRef.provider).toBe("deepseek")
+  })
+
+  test("a tool-only switching step leaves only the marker, no empty assistant message", async () => {
+    const state = session()
+    submitPrompt(state, "hi")
+    await drive(state, [switchTurn("deepseek:deepseek-v4-pro:max", "escalate"), textTurn("done")])
+    expect(state.messages.some((m) => m.role === "assistant" && m.content.length === 0)).toBe(false)
+    const markerIndex = state.messages.findIndex(
+      (m) =>
+        m.role === "user" &&
+        m.content.some((b) => (b as Record<string, unknown>).type === "model-switch"),
+    )
+    expect(markerIndex).toBeGreaterThanOrEqual(0)
+    // The switching assistant message was tool-only, so it is replaced by the
+    // marker outright rather than leaving an empty assistant message before it.
+    expect(state.messages[markerIndex - 1]?.role).toBe("user")
   })
 
   test("plan permission mode does not deny a switch", async () => {
