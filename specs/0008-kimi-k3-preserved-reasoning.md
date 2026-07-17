@@ -426,3 +426,11 @@ Expected: the Kimi target streams reasoning/text events and finishes successfull
 - Displaying reasoning in the TUI.
 - Truncating or summarizing reasoning blocks themselves, or converting reasoning to visible text. (Ordinary conversation compaction still applies to K3 and may drop whole turns, including their reasoning.)
 - More than one successful switch per user turn.
+
+## Post-Implementation Changes
+
+- Implemented on branch `feat/kimi-k3-impl` (branched from the spec commit) as seven conventional commits, one per task.
+- `KimiModel`/`KimiVariant` model cards live in `@swain/llms/models` (imported from `@swain/llms/models`), matching the other labs; `Provider.Kimi`/`Lab.Kimi` live in `schema/`.
+- The opt-in lowering is carried on `OpenAIChatProfile` (`reasoningHistory`, `maxTokensField`) and threaded through `OpenAICompatibleConfig`; the Kimi facade sets `reasoning_content`, `max_completion_tokens`, and `warnOnReasoningLoss: true`. `warnOnReasoningLoss` is a net-new optional field on the llms `Model` interface.
+- Compaction warning: a new `compaction-warning` `AgentEvent` variant plus `warnsOnReasoningLoss`/`REASONING_LOSS_COMPACTION_WARNING` helpers in `context/compaction.ts`. `runTurn` emits it after auto/overflow compaction; the TUI controller emits it after manual compaction; `Transcript.foldEvent` surfaces it on the existing (non-persisted) errors/notice channel.
+- **Unresolved (unchanged):** the `kimi-k3` model id and `reasoning_effort: "max"`-only ladder still rest on the K3 blog citation, not the live API reference. The credentialed smoke test (Task 7 Step 4) remains the intended gate and was **not** run (no funded `MOONSHOT_API_KEY`); all other verification commands pass.
