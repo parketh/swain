@@ -649,6 +649,9 @@ export const makeController = (deps: ControllerDeps): Controller => {
   let currentAbort: AbortController | undefined
   let currentFiber: Fiber.RuntimeFiber<void, unknown> | undefined
   let persistingProgress = false
+  // The in-flight mid-turn save, if any. The authoritative post-turn save awaits
+  // it so a late progress save can never land last and leave a stale snapshot.
+  let progressSave: Promise<void> = Promise.resolve()
 
   // Persist mid-turn progress (completed, validly-paired iterations) so a hung,
   // crashed, or force-quit turn leaves its tool-use on disk for resume, not just
@@ -657,7 +660,7 @@ export const makeController = (deps: ControllerDeps): Controller => {
   const persistProgress = (): void => {
     if (!persist || persistingProgress) return
     persistingProgress = true
-    void runtime
+    progressSave = runtime
       .runPromise(saveSession(session, sessionsDirFor(session)))
       .catch(() => {})
       .finally(() => {
@@ -708,7 +711,12 @@ export const makeController = (deps: ControllerDeps): Controller => {
     currentFiber = fiber
     try {
       await runtime.runPromise(Fiber.join(fiber))
-      if (persist) await runtime.runPromise(saveSession(session, sessionsDirFor(session)))
+      if (persist) {
+        // Let any in-flight mid-turn save finish first so this authoritative
+        // save writes last.
+        await progressSave
+        await runtime.runPromise(saveSession(session, sessionsDirFor(session)))
+      }
     } catch {
       // Fatal LLM/agent failures are surfaced through onEvent as agent-error;
       // interruptions leave the partial draft visible without being persisted.
