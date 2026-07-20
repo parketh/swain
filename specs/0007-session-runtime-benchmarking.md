@@ -323,3 +323,10 @@ bun test packages/tui/test
 - Subagent setup, cleanup, queueing, and notification-lag metrics separate from child runtime.
 - Aggregate benchmark/eval reports and TUI timing display.
 - Explicit schema refinements or branded non-negative duration types if invalid external data becomes a real ingestion problem.
+
+## Post-Implementation Changes
+
+- Timing tests run on the live clock and assert bounds (non-negative, or `> ~1s` where a retry backoff or injected sleep must be included) rather than advancing Effect's `TestClock` as the plan specified, matching the repo's existing retry tests.
+- Web-tool duration behaviour is tested through `runTurn` in `agent.test.ts` and `tool-result-storage.test.ts` instead of the plan's `agent-tool.test.ts`, since `durationMs` is attached in `executeTools`, not `callTool`; the web-tool tests assert the `recordDuration` opt-in flag directly.
+- Session-persistence timing docs live in `ARCHITECTURE.md` only; the planned README section was dropped to keep implementation detail out of user-facing docs.
+- Non-negative duration and ISO-UTC `createdAt` schema validation (listed above as a deferred follow-up) was pulled forward in response to review feedback.
