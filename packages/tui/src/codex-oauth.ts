@@ -61,7 +61,7 @@ export type CodexLoginResult =
   | { readonly ok: true; readonly accountId?: string }
   | {
       readonly ok: false
-      readonly reason: "port-busy" | "timeout" | "invalid-callback" | "exchange-failed"
+      readonly reason: "port-busy" | "timeout" | "invalid-callback" | "exchange-failed" | "cancelled"
       readonly message?: string
     }
 
@@ -71,6 +71,8 @@ export interface CodexLoginOptions {
   /** Prints the authorize URL as a fallback when the browser cannot open. */
   readonly onUrl?: (url: string) => void
   readonly timeoutMs?: number
+  /** Aborts an in-flight login (dialog cancelled/unmounted), tearing down the callback server. */
+  readonly signal?: AbortSignal
 }
 
 const closeTabHtml = (ok: boolean): string =>
@@ -88,6 +90,9 @@ export const loginCodex = async (
   configPath: string,
   options: CodexLoginOptions = {},
 ): Promise<CodexLoginResult> => {
+  const { signal } = options
+  if (signal?.aborted === true) return { ok: false, reason: "cancelled" }
+
   const pkce = generatePkce()
   const state = randomBytes(16).toString("hex")
   const authorizeUrl = buildAuthorizeUrl({ codeChallenge: pkce.challenge, state })
@@ -125,10 +130,17 @@ export const loginCodex = async (
     const timeout = new Promise<"timeout">((resolve) => {
       timer = setTimeout(() => resolve("timeout"), options.timeoutMs ?? CALLBACK_TIMEOUT_MS)
     })
-    const outcome = await Promise.race([callback, timeout])
+    let onAbort: (() => void) | undefined
+    const aborted = new Promise<"cancelled">((resolve) => {
+      onAbort = () => resolve("cancelled")
+      signal?.addEventListener("abort", onAbort, { once: true })
+    })
+    const outcome = await Promise.race([callback, timeout, aborted])
     if (timer !== undefined) clearTimeout(timer)
+    if (onAbort !== undefined) signal?.removeEventListener("abort", onAbort)
 
     if (outcome === "timeout") return { ok: false, reason: "timeout" }
+    if (outcome === "cancelled") return { ok: false, reason: "cancelled" }
     if ("error" in outcome) return { ok: false, reason: "invalid-callback", message: outcome.error }
 
     try {

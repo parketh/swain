@@ -1,5 +1,5 @@
 import { Box, Text, useInput } from "ink"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import type { ProviderConfig } from "../config"
 import type { ConnectResult } from "../controller"
 import type { CredentialField, ProviderOption } from "../models"
@@ -11,8 +11,13 @@ export interface ConnectDialogProps {
   readonly providers: ReadonlyArray<ProviderOption>
   readonly onSubmit: (provider: string, creds: ProviderConfig) => void
   /** Runs the browser OAuth login for an OAuth provider (Codex). `onUrl` receives
-   * the authorize URL for manual sign-in when the browser can't be opened. */
-  readonly onOAuthLogin: (provider: string, onUrl: (url: string) => void) => Promise<ConnectResult>
+   * the authorize URL for manual sign-in when the browser can't be opened; `signal`
+   * aborts the login when the dialog is cancelled. */
+  readonly onOAuthLogin: (
+    provider: string,
+    onUrl: (url: string) => void,
+    signal: AbortSignal,
+  ) => Promise<ConnectResult>
   /** Called after a successful OAuth login, once the user acknowledges it. */
   readonly onOAuthComplete: () => void
   readonly onCancel: () => void
@@ -29,7 +34,7 @@ const OAuthPanel = ({
   onCancel,
 }: {
   readonly provider: ProviderOption
-  readonly onLogin: (onUrl: (url: string) => void) => Promise<ConnectResult>
+  readonly onLogin: (onUrl: (url: string) => void, signal: AbortSignal) => Promise<ConnectResult>
   readonly onComplete: () => void
   readonly onCancel: () => void
 }) => {
@@ -37,6 +42,7 @@ const OAuthPanel = ({
   const [message, setMessage] = useState<string | undefined>(undefined)
   const [url, setUrl] = useState<string | undefined>(undefined)
   const [remaining, setRemaining] = useState(OAUTH_TIMEOUT_S)
+  const abortRef = useRef<AbortController | undefined>(undefined)
 
   useEffect(() => {
     if (phase !== "running") return
@@ -44,11 +50,17 @@ const OAuthPanel = ({
     return () => clearInterval(id)
   }, [phase])
 
+  // Abort an in-flight login when the panel unmounts (Esc/cancel), so the callback
+  // server is torn down instead of lingering until its own timeout.
+  useEffect(() => () => abortRef.current?.abort(), [])
+
   const start = (): void => {
     setPhase("running")
     setRemaining(OAUTH_TIMEOUT_S)
     setUrl(undefined)
-    void onLogin(setUrl).then((result) => {
+    const controller = new AbortController()
+    abortRef.current = controller
+    void onLogin(setUrl, controller.signal).then((result) => {
       if (result.ok) {
         setMessage(result.accountId)
         setPhase("success")
@@ -171,7 +183,7 @@ export const ConnectDialog = ({
       return (
         <OAuthPanel
           provider={provider}
-          onLogin={(onUrl) => onOAuthLogin(provider.id, onUrl)}
+          onLogin={(onUrl, signal) => onOAuthLogin(provider.id, onUrl, signal)}
           onComplete={onOAuthComplete}
           onCancel={onCancel}
         />

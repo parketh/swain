@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { generatePkce, parseCallback } from "../src/codex-oauth"
+import { generatePkce, loginCodex, parseCallback } from "../src/codex-oauth"
 
 describe("generatePkce", () => {
   test("verifier is 43+ url-safe chars, challenge is base64url, and it is random", () => {
@@ -26,5 +26,12 @@ describe("parseCallback", () => {
       "error" in
         parseCallback("http://localhost:1455/auth/callback?error=access_denied&state=st", "st"),
     ).toBe(true)
+  })
+})
+
+describe("loginCodex", () => {
+  test("returns cancelled without binding the port when the signal is already aborted", async () => {
+    const result = await loginCodex("/tmp/none/config.json", { signal: AbortSignal.abort() })
+    expect(result).toEqual({ ok: false, reason: "cancelled" })
   })
 })
