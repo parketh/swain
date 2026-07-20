@@ -201,9 +201,10 @@ export interface Controller {
   /**
    * Runs the browser OAuth login for an OAuth provider (Codex), persisting the
    * minted credentials to `auth.json` and reflecting them in live config so the
-   * provider becomes usable immediately.
+   * provider becomes usable immediately. `onUrl` receives the authorize URL so the
+   * UI can offer it for manual sign-in when the browser can't be opened.
    */
-  loginProvider(provider: string): Promise<ConnectResult>
+  loginProvider(provider: string, onUrl?: (url: string) => void): Promise<ConnectResult>
   /** Connected models with router enablement, for the /router dialog. */
   getRouterView(): RouterView
   /** Toggles the global router master switch. */
@@ -972,14 +973,14 @@ export const makeController = (deps: ControllerDeps): Controller => {
       return persistConfig(next)
     },
 
-    loginProvider: async (provider) => {
+    loginProvider: async (provider, onUrl) => {
       // loginCodex is Codex-specific; guard against wiring it to another provider.
       if (provider !== OPENAI_CODEX_PROVIDER_ID) {
         throw new Error(`loginProvider does not support provider "${provider}"`)
       }
       // loginCodex persists the minted tokens straight to auth.json; here we only
       // mirror them into live config so the provider is configured immediately.
-      const result = await loginCodex(deps.configPath)
+      const result = await loginCodex(deps.configPath, { ...(onUrl !== undefined && { onUrl }) })
       if (!result.ok) {
         return {
           ok: false,

@@ -352,8 +352,8 @@ export const App = ({ controller }: AppProps) => {
     setDialog(undefined)
   }
 
-  const oauthLogin = (provider: string): Promise<ConnectResult> =>
-    controller.loginProvider(provider)
+  const oauthLogin = (provider: string, onUrl: (url: string) => void): Promise<ConnectResult> =>
+    controller.loginProvider(provider, onUrl)
 
   // After a successful browser login, mirror the post-connect flow: continue into
   // model selection when nothing was configured yet, otherwise just close.

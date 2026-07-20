@@ -10,8 +10,9 @@ import { ListSelect, type ListSelectItem } from "./ListSelect"
 export interface ConnectDialogProps {
   readonly providers: ReadonlyArray<ProviderOption>
   readonly onSubmit: (provider: string, creds: ProviderConfig) => void
-  /** Runs the browser OAuth login for an OAuth provider (Codex). */
-  readonly onOAuthLogin: (provider: string) => Promise<ConnectResult>
+  /** Runs the browser OAuth login for an OAuth provider (Codex). `onUrl` receives
+   * the authorize URL for manual sign-in when the browser can't be opened. */
+  readonly onOAuthLogin: (provider: string, onUrl: (url: string) => void) => Promise<ConnectResult>
   /** Called after a successful OAuth login, once the user acknowledges it. */
   readonly onOAuthComplete: () => void
   readonly onCancel: () => void
@@ -28,12 +29,13 @@ const OAuthPanel = ({
   onCancel,
 }: {
   readonly provider: ProviderOption
-  readonly onLogin: () => Promise<ConnectResult>
+  readonly onLogin: (onUrl: (url: string) => void) => Promise<ConnectResult>
   readonly onComplete: () => void
   readonly onCancel: () => void
 }) => {
   const [phase, setPhase] = useState<"idle" | "running" | "success" | "error">("idle")
   const [message, setMessage] = useState<string | undefined>(undefined)
+  const [url, setUrl] = useState<string | undefined>(undefined)
   const [remaining, setRemaining] = useState(OAUTH_TIMEOUT_S)
 
   useEffect(() => {
@@ -45,7 +47,8 @@ const OAuthPanel = ({
   const start = (): void => {
     setPhase("running")
     setRemaining(OAUTH_TIMEOUT_S)
-    void onLogin().then((result) => {
+    setUrl(undefined)
+    void onLogin(setUrl).then((result) => {
       if (result.ok) {
         setMessage(result.accountId)
         setPhase("success")
@@ -70,7 +73,12 @@ const OAuthPanel = ({
       {phase === "idle" ? (
         <Text>Press Enter to sign in with your browser.</Text>
       ) : phase === "running" ? (
-        <Text color="cyan">Opening browser… waiting for sign-in ({remaining}s)</Text>
+        <Box flexDirection="column">
+          <Text color="cyan">Opening browser… waiting for sign-in ({remaining}s)</Text>
+          {url !== undefined && (
+            <Text color={theme.muted}>Or open this URL manually: {url}</Text>
+          )}
+        </Box>
       ) : phase === "success" ? (
         <Text color="green">
           Signed in{message !== undefined ? ` as ${message}` : ""}. Press Enter to continue.
@@ -163,7 +171,7 @@ export const ConnectDialog = ({
       return (
         <OAuthPanel
           provider={provider}
-          onLogin={() => onOAuthLogin(provider.id)}
+          onLogin={(onUrl) => onOAuthLogin(provider.id, onUrl)}
           onComplete={onOAuthComplete}
           onCancel={onCancel}
         />
