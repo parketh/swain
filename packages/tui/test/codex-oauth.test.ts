@@ -12,9 +12,9 @@ describe("generatePkce", () => {
 
 describe("parseCallback", () => {
   test("returns the code when state matches", () => {
-    expect(
-      parseCallback("http://localhost:1455/auth/callback?code=abc&state=st", "st"),
-    ).toEqual({ code: "abc" })
+    expect(parseCallback("http://localhost:1455/auth/callback?code=abc&state=st", "st")).toEqual({
+      code: "abc",
+    })
   })
   test("rejects a state mismatch", () => {
     expect(

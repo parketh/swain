@@ -978,7 +978,8 @@ export const makeController = (deps: ControllerDeps): Controller => {
       if (!result.ok) {
         return {
           ok: false,
-          error: result.message !== undefined ? `${result.reason}: ${result.message}` : result.reason,
+          error:
+            result.message !== undefined ? `${result.reason}: ${result.message}` : result.reason,
         }
       }
       const stored = await runtime

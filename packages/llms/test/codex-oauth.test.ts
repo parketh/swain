@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { HttpClient, type HttpClientRequest, HttpClientResponse } from "@effect/platform"
-import {
-  buildAuthorizeUrl,
-  exchangeCode,
-  OPENAI_CODEX_REDIRECT_URI,
-} from "@swain/llms/providers"
+import { buildAuthorizeUrl, exchangeCode, OPENAI_CODEX_REDIRECT_URI } from "@swain/llms/providers"
 import { Effect, Layer } from "effect"
 
 // A JWT is header.payload.signature; only the base64url payload is read.

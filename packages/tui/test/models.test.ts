@@ -11,7 +11,10 @@ describe("mergeModelsByProvider", () => {
   test("collapses a model served by multiple providers into one entry", () => {
     // OpenAI and OpenAI Codex both serve gpt-5.5 / gpt-5.6-sol / gpt-5.6-terra.
     const config: TuiConfig = {
-      providers: { openai: { apiKey: "x" }, "openai-codex": { accessToken: "t", refreshToken: "rt" } },
+      providers: {
+        openai: { apiKey: "x" },
+        "openai-codex": { accessToken: "t", refreshToken: "rt" },
+      },
     }
     const merged = mergeModelsByProvider(availableModels(config))
 
@@ -36,7 +39,10 @@ describe("mergeModelsByProvider", () => {
 
   test("preserves first-seen catalog order", () => {
     const config: TuiConfig = {
-      providers: { openai: { apiKey: "x" }, "openai-codex": { accessToken: "t", refreshToken: "rt" } },
+      providers: {
+        openai: { apiKey: "x" },
+        "openai-codex": { accessToken: "t", refreshToken: "rt" },
+      },
     }
     const source = availableModels(config)
     const merged = mergeModelsByProvider(source)
@@ -82,7 +88,10 @@ describe("resolveModelSelection limits", () => {
 
   test("Codex caps the context window below the raw OpenAI API limit", () => {
     const config: TuiConfig = {
-      providers: { openai: { apiKey: "x" }, "openai-codex": { accessToken: "t", refreshToken: "rt" } },
+      providers: {
+        openai: { apiKey: "x" },
+        "openai-codex": { accessToken: "t", refreshToken: "rt" },
+      },
     }
     const viaOpenAI = resolveModelSelection("openai", "gpt-5.5", undefined, config)
     const viaCodex = resolveModelSelection("openai-codex", "gpt-5.5", undefined, config)
