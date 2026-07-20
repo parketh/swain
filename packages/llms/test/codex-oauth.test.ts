@@ -59,4 +59,12 @@ describe("exchangeCode", () => {
     expect(creds).toEqual({ accessToken: FRESH, refreshToken: "rt_new", accountId: "acct_new" })
     expect(requests.find((r) => r.url.includes("/oauth/token"))).toBeDefined()
   })
+
+  test("fails with a typed auth error (not a defect) when the token body is null", async () => {
+    const { layer } = harness(null)
+    const error = await Effect.runPromise(
+      exchangeCode("auth_code", "verifier").pipe(Effect.provide(layer), Effect.flip),
+    )
+    expect(error._tag).toBe("LLMError")
+  })
 })

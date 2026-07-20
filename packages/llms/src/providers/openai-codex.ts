@@ -113,6 +113,9 @@ export const tokensToCredentials = (
   json: unknown,
   fallbackRefresh?: string,
 ): Effect.Effect<RefreshedCodexCredentials, LLMError> => {
+  if (typeof json !== "object" || json === null) {
+    return Effect.fail(authFailed("token response is not an object"))
+  }
   const tokens = json as TokenResponse
   const accessToken = tokens.access_token
   if (typeof accessToken !== "string" || accessToken === "") {
