@@ -30,7 +30,7 @@
 - K3 replays canonical reasoning for every assistant message in its projected context, using the same compacted projection as any other model. Retained (non-compacted) messages carry their reasoning; a compaction summary legitimately supplants the turns it folds.
 - Compaction operates on K3 exactly as on other models — automatic, overflow, and manual all run. Moonshot flags reasoning loss across turns as risky, so Swain surfaces a warning when compaction runs on a K3 session, but does not block it or force a new session. This is the same lossy tradeoff compaction makes for every model.
 - Switching into and out of K3 remains allowed. Document that Moonshot warns switching another model's active session into K3 may still be unstable even when the wire history is complete; Swain guarantees serialization correctness, not model quality.
-- Add K3 to automatic routing using current Artificial Analysis data: `capability: 57`, `avgCostPerTask: 0.94`. Record Kimi's published prices as `$3/MTok` cache-miss input and `$15/MTok` output; the existing catalog does not model cache-hit price.
+- Add K3 to automatic routing using Artificial Analysis data retrieved 2026-07-17 from <https://artificialanalysis.ai/models/kimi-k3>: `capability: 57`, `avgCostPerTask: 0.94`. Record Kimi's published prices as `$3/MTok` cache-miss input and `$15/MTok` output; the existing catalog does not model cache-hit price.
 
 ## References
 
@@ -415,7 +415,7 @@ Expected: the Kimi target streams reasoning/text events and finishes successfull
 - **Anthropic reasoning is signed.** Swain currently discards Anthropic signature deltas, so Kimi reasoning cannot be replayed as native Anthropic thinking and vice versa. The canonical text remains stored; signed-thinking replay is a separate feature.
 - **The max-only ladder is temporary.** When Moonshot actually enables `low`/`high`, add them from verified docs in a follow-up spec; do not predeclare them.
 - **The `kimi-k3` model id and max-only ladder are not confirmed by the API reference.** As of 2026-07-17 the reachable Moonshot docs (thinking-model guide, Chat Completions reference) describe preserved thinking for `kimi-k2.6` / `kimi-k2.7-code`; the `kimi-k3` id, pay-as-you-go availability, and `reasoning_effort: "max"`-only rest on the K3 blog citation, not the API reference. <!-- UNRESOLVED: confirm `kimi-k3` id + accepted `reasoning_effort` values against the live /v1/models or a credentialed smoke call before shipping; the Task 7 Step 4 smoke test is the intended gate. -->
-- **Routing data is newly published and volatile.** Record the retrieval date in the implementation comment or post-implementation notes and update it independently of protocol behavior when benchmarks change.
+- **Routing data is newly published and volatile.** Retrieved 2026-07-17 from Artificial Analysis (<https://artificialanalysis.ai/models/kimi-k3>); the same date is recorded in the `ROUTING` comment in `packages/tui/src/models.ts`. Update it independently of protocol behavior when benchmarks change.
 
 ## Out of Scope
 
