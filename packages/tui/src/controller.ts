@@ -38,8 +38,11 @@ import {
 import type { AskHandler, AskInput, AskResult } from "@swain/core/tools"
 import type { GenerationOptions, ProviderOptions } from "@swain/llms"
 import { LLMClient } from "@swain/llms/client"
+import { OPENAI_CODEX_PROVIDER_ID } from "@swain/llms/providers"
 import { Effect, Fiber, Layer, Queue } from "effect"
 import { authPath, saveAuth } from "./auth"
+import { loadStoredCodexCredentials } from "./codex-auth"
+import { loginCodex } from "./codex-oauth"
 import type { CommandParseResult } from "./commands"
 import {
   type ActiveModel,
@@ -120,6 +123,8 @@ export interface PendingApproval {
 export interface ConnectResult {
   readonly ok: boolean
   readonly error?: string
+  /** The signed-in account, when an OAuth login resolved one. */
+  readonly accountId?: string
 }
 
 /** A live, still-running subagent, surfaced in the subagent monitor panel. */
@@ -193,6 +198,18 @@ export interface Controller {
   selectModel(provider: string, modelId: string, variant?: string): Promise<void>
   setVariant(variant?: string): Promise<void>
   connectProvider(provider: string, creds: ProviderConfig): Promise<ConnectResult>
+  /**
+   * Runs the browser OAuth login for an OAuth provider (Codex), persisting the
+   * minted credentials to `auth.json` and reflecting them in live config so the
+   * provider becomes usable immediately. `onUrl` receives the authorize URL so the
+   * UI can offer it for manual sign-in when the browser can't be opened; `signal`
+   * cancels an in-flight login (dialog dismissed) and tears down the callback server.
+   */
+  loginProvider(
+    provider: string,
+    onUrl?: (url: string) => void,
+    signal?: AbortSignal,
+  ): Promise<ConnectResult>
   /** Connected models with router enablement, for the /router dialog. */
   getRouterView(): RouterView
   /** Toggles the global router master switch. */
@@ -959,6 +976,48 @@ export const makeController = (deps: ControllerDeps): Controller => {
         providers: { ...config.providers, [provider]: creds },
       }
       return persistConfig(next)
+    },
+
+    loginProvider: async (provider, onUrl, signal) => {
+      // loginCodex is Codex-specific; guard against wiring it to another provider.
+      if (provider !== OPENAI_CODEX_PROVIDER_ID) {
+        throw new Error(`loginProvider does not support provider "${provider}"`)
+      }
+      // loginCodex persists the minted tokens straight to auth.json; here we only
+      // mirror them into live config so the provider is configured immediately.
+      // A throwing onUrl callback escapes loginCodex's own handling, so catch it
+      // and return the documented failure result rather than rejecting.
+      let result: Awaited<ReturnType<typeof loginCodex>>
+      try {
+        result = await loginCodex(deps.configPath, {
+          ...(onUrl !== undefined && { onUrl }),
+          ...(signal !== undefined && { signal }),
+        })
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) }
+      }
+      if (!result.ok) {
+        return {
+          ok: false,
+          error:
+            result.message !== undefined ? `${result.reason}: ${result.message}` : result.reason,
+        }
+      }
+      const stored = await runtime
+        .runPromise(loadStoredCodexCredentials(deps.configPath))
+        .catch(() => undefined)
+      if (stored === undefined) {
+        return { ok: false, error: "Login succeeded but credentials could not be read back" }
+      }
+      const creds: ProviderConfig = {
+        ...(stored.accessToken !== "" && { accessToken: stored.accessToken }),
+        ...(stored.refreshToken !== undefined && { refreshToken: stored.refreshToken }),
+        ...(stored.accountId !== undefined && { accountId: stored.accountId }),
+      }
+      config = { ...config, providers: { ...config.providers, [provider]: creds } }
+      refreshDerived()
+      notify()
+      return { ok: true, ...(stored.accountId !== undefined && { accountId: stored.accountId }) }
     },
 
     getRouterView: () => {

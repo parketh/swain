@@ -132,7 +132,7 @@ describe("resolveModelSelection", () => {
     providers: {
       anthropic: { apiKey: "sk-anthropic" },
       openai: { apiKey: "sk-openai" },
-      "openai-codex": { accessToken: "tok", accountId: "acct" },
+      "openai-codex": { accessToken: "tok", refreshToken: "rt", accountId: "acct" },
     },
   }
 

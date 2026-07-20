@@ -32,6 +32,9 @@ import { redactKey } from "./config"
 
 export type CredentialField = "apiKey" | "baseURL" | "accountId" | "accessToken"
 
+/** How a provider is connected: a pasted API key, or a browser OAuth login. */
+export type ProviderAuthKind = "api-key" | "oauth"
+
 /** Router comparison signals for a single model variant. */
 export interface RoutingProfile {
   /** Rough 0-100 capability tier; higher is better. */
@@ -179,6 +182,8 @@ interface ProviderSpec {
   readonly id: string
   readonly label: string
   readonly popular: boolean
+  /** Connection method; defaults to `"api-key"` when omitted. */
+  readonly auth?: ProviderAuthKind
   readonly requiredFields: ReadonlyArray<CredentialField>
   readonly models: ReadonlyArray<ModelSpec>
   readonly build: (modelId: string, creds: ProviderConfig | undefined) => Model
@@ -370,7 +375,8 @@ const CATALOG: ReadonlyArray<ProviderSpec> = [
     id: Provider.OpenAICodex,
     label: "OpenAI Codex",
     popular: false,
-    requiredFields: ["accessToken"],
+    auth: "oauth",
+    requiredFields: [],
     models: [
       {
         id: OpenAIModel.GPT_5_5,
@@ -407,6 +413,11 @@ const specById = (id: string): ProviderSpec | undefined => CATALOG.find((p) => p
 const isConfigured = (spec: ProviderSpec, config: TuiConfig): boolean => {
   const stored = config.providers[spec.id]
   if (stored === undefined) return false
+  // OAuth providers own their tokens: a stored refresh token is what makes the
+  // provider durable (an access token alone expires and can't be renewed).
+  if (spec.auth === "oauth") {
+    return typeof stored.refreshToken === "string" && stored.refreshToken.length > 0
+  }
   return spec.requiredFields.every((field) => {
     const value = stored[field]
     return typeof value === "string" && value.length > 0
@@ -418,6 +429,7 @@ export interface ProviderOption {
   readonly label: string
   readonly popular: boolean
   readonly configured: boolean
+  readonly auth: ProviderAuthKind
   readonly requiredFields: ReadonlyArray<CredentialField>
   readonly redactedKey?: string
 }
@@ -447,6 +459,7 @@ const toProviderOption = (spec: ProviderSpec, config: TuiConfig): ProviderOption
     label: spec.label,
     popular: spec.popular,
     configured: isConfigured(spec, config),
+    auth: spec.auth ?? "api-key",
     requiredFields: spec.requiredFields,
     ...(stored?.apiKey !== undefined && { redactedKey: redactKey(stored.apiKey) }),
   }
