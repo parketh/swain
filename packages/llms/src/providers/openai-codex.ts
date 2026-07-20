@@ -103,6 +103,37 @@ interface TokenResponse {
   readonly id_token?: unknown
 }
 
+/**
+ * Normalizes an OpenAI OAuth token response into rotated credentials, shared by
+ * both the refresh and initial-login paths so they interpret the response
+ * consistently. `fallbackRefresh` (the refresh token just spent) is kept when the
+ * endpoint omits a rotated one, as OpenAI does on some refreshes.
+ */
+export const tokensToCredentials = (
+  json: unknown,
+  fallbackRefresh?: string,
+): Effect.Effect<RefreshedCodexCredentials, LLMError> => {
+  const tokens = json as TokenResponse
+  const accessToken = tokens.access_token
+  if (typeof accessToken !== "string" || accessToken === "") {
+    return Effect.fail(authFailed("token response is missing access_token"))
+  }
+  const nextRefresh =
+    typeof tokens.refresh_token === "string" && tokens.refresh_token !== ""
+      ? tokens.refresh_token
+      : fallbackRefresh
+  if (nextRefresh === undefined || nextRefresh === "") {
+    return Effect.fail(authFailed("token response is missing refresh_token"))
+  }
+  const idToken = typeof tokens.id_token === "string" ? tokens.id_token : accessToken
+  const accountId = accountIdFromToken(idToken) ?? accountIdFromToken(accessToken)
+  return Effect.succeed({
+    accessToken,
+    refreshToken: nextRefresh,
+    ...(accountId !== undefined && { accountId }),
+  })
+}
+
 /** Exchanges a refresh token for a fresh access token via the OpenAI OAuth endpoint. */
 const refreshAccessToken = (
   refreshToken: string,
@@ -114,26 +145,7 @@ const refreshAccessToken = (
       refresh_token: refreshToken,
       client_id: OPENAI_CODEX_CLIENT_ID,
     },
-  }).pipe(
-    Effect.flatMap((json) => {
-      const tokens = json as TokenResponse
-      const accessToken = tokens.access_token
-      if (typeof accessToken !== "string" || accessToken === "") {
-        return Effect.fail(authFailed("token refresh response is missing access_token"))
-      }
-      const nextRefresh =
-        typeof tokens.refresh_token === "string" && tokens.refresh_token !== ""
-          ? tokens.refresh_token
-          : refreshToken
-      const idToken = typeof tokens.id_token === "string" ? tokens.id_token : accessToken
-      const accountId = accountIdFromToken(idToken) ?? accountIdFromToken(accessToken)
-      return Effect.succeed({
-        accessToken,
-        refreshToken: nextRefresh,
-        ...(accountId !== undefined && { accountId }),
-      })
-    }),
-  )
+  }).pipe(Effect.flatMap((json) => tokensToCredentials(json, refreshToken)))
 
 /**
  * In-flight refreshes keyed by refresh token. Concurrent turns (e.g. parallel
