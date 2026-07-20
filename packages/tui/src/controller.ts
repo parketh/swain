@@ -985,17 +985,18 @@ export const makeController = (deps: ControllerDeps): Controller => {
       const stored = await runtime
         .runPromise(loadStoredCodexCredentials(deps.configPath))
         .catch(() => undefined)
-      if (stored !== undefined) {
-        const creds: ProviderConfig = {
-          ...(stored.accessToken !== "" && { accessToken: stored.accessToken }),
-          ...(stored.refreshToken !== undefined && { refreshToken: stored.refreshToken }),
-          ...(stored.accountId !== undefined && { accountId: stored.accountId }),
-        }
-        config = { ...config, providers: { ...config.providers, [provider]: creds } }
-        refreshDerived()
-        notify()
+      if (stored === undefined) {
+        return { ok: false, error: "Login succeeded but credentials could not be read back" }
       }
-      return { ok: true, ...(stored?.accountId !== undefined && { accountId: stored.accountId }) }
+      const creds: ProviderConfig = {
+        ...(stored.accessToken !== "" && { accessToken: stored.accessToken }),
+        ...(stored.refreshToken !== undefined && { refreshToken: stored.refreshToken }),
+        ...(stored.accountId !== undefined && { accountId: stored.accountId }),
+      }
+      config = { ...config, providers: { ...config.providers, [provider]: creds } }
+      refreshDerived()
+      notify()
+      return { ok: true, ...(stored.accountId !== undefined && { accountId: stored.accountId }) }
     },
 
     getRouterView: () => {
