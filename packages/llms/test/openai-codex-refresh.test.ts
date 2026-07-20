@@ -112,7 +112,9 @@ describe("OpenAICodex automatic token refresh", () => {
       },
       layer,
     )
-    await expect(run).rejects.toThrow()
+    // Assert the persistence failure specifically, so a turn that failed earlier
+    // (or leaked a raw error) can't pass this test.
+    await expect(run).rejects.toThrow(/failed to persist refreshed credentials/)
   })
 
   test("does not refresh a still-valid access token", async () => {
