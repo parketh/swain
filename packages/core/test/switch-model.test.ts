@@ -3,7 +3,7 @@ import {
   ContentId,
   LLMClient,
   type LLMEvent,
-  type Message,
+  Message,
   type Model,
   ModelId,
   ProviderId,
@@ -387,6 +387,64 @@ describe("SwitchModel control flow", () => {
     expect(assistant?.reasoning_content).toBe("weigh the options")
     // Reasoning is never converted to visible assistant text.
     expect(String(assistant?.content ?? "")).not.toContain("weigh the options")
+  })
+
+  test("switching into K3 omits reasoning_content on a prior non-reasoning tool-call turn", async () => {
+    const state = createSessionState({
+      workingDirectory: "/w",
+      model: anthropic,
+      modelRef: { provider: "anthropic", modelId: "claude-sonnet-5" },
+      currentDate: "2026-07-10",
+      messages: [
+        Message.user("earlier"),
+        Message.assistant([
+          { type: "text", text: "reading" },
+          {
+            type: "tool-call",
+            toolCallId: ToolCallId.make("c0"),
+            name: "Read",
+            input: { path: "/x" },
+          },
+        ]),
+        Message.user([
+          {
+            type: "tool-result",
+            toolCallId: ToolCallId.make("c0"),
+            name: "Read",
+            result: { type: "text", value: "contents" },
+          },
+        ]),
+      ],
+    })
+    submitPrompt(state, "hi")
+    const requests: Array<{ messages: ReadonlyArray<Message> }> = []
+    await Effect.runPromise(
+      runTurn(state, { router: { targets: [] } }).pipe(
+        Effect.provide(
+          capturingScriptedLayer(
+            [reasoningSwitchTurn([], "kimi:kimi-k3:max"), textTurn("done")],
+            requests,
+          ),
+        ),
+        Effect.provide(ctxLayer(state)),
+        Effect.provide(toolRegistryLayer(builtinTools)),
+        Effect.provide(resolverLayer()),
+      ),
+    )
+    expect(state.systemContext.modelRef.provider).toBe("kimi")
+    const k3Request = requests[requests.length - 1]!
+    const wire = OpenAIChat.prepare(
+      { modelId: "kimi-k3", messages: k3Request.messages },
+      { optionsKey: "kimi", reasoningHistory: "reasoning_content" },
+    ).body.messages as Array<Record<string, unknown>>
+    // The pre-switch tool-call turn produced no reasoning: it keeps its
+    // tool_calls but must omit reasoning_content rather than send an empty one.
+    const priorToolCall = wire.find((m) => m.role === "assistant" && m.tool_calls !== undefined)
+    expect(priorToolCall).toBeDefined()
+    expect(priorToolCall).not.toHaveProperty("reasoning_content")
+    // The switching turn's own reasoning still replays.
+    const switching = wire.find((m) => m.reasoning_content !== undefined)
+    expect(switching?.reasoning_content).toBe("weigh the options")
   })
 
   test("plan permission mode does not deny a switch", async () => {
