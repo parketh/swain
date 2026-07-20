@@ -61,7 +61,7 @@ export const saveAuth = (
     const tmp = `${path}.${process.pid}.${saveSeq++}.tmp`
     yield* Effect.gen(function* () {
       yield* fs.writeFileString(tmp, body, { mode: FILE_MODE }).pipe(Effect.mapError(failWrite))
-      yield* fs.chmod(tmp, FILE_MODE).pipe(Effect.orElseSucceed(() => undefined))
+      yield* fs.chmod(tmp, FILE_MODE).pipe(Effect.mapError(failWrite))
       yield* fs.rename(tmp, path).pipe(Effect.mapError(failWrite))
     }).pipe(Effect.tapError(() => fs.remove(tmp).pipe(Effect.ignore)))
   })
