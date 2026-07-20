@@ -38,6 +38,7 @@ import {
 import type { AskHandler, AskInput, AskResult } from "@swain/core/tools"
 import type { GenerationOptions, ProviderOptions } from "@swain/llms"
 import { LLMClient } from "@swain/llms/client"
+import { OPENAI_CODEX_PROVIDER_ID } from "@swain/llms/providers"
 import { Effect, Fiber, Layer, Queue } from "effect"
 import { authPath, saveAuth } from "./auth"
 import { loadStoredCodexCredentials } from "./codex-auth"
@@ -972,6 +973,10 @@ export const makeController = (deps: ControllerDeps): Controller => {
     },
 
     loginProvider: async (provider) => {
+      // loginCodex is Codex-specific; guard against wiring it to another provider.
+      if (provider !== OPENAI_CODEX_PROVIDER_ID) {
+        throw new Error(`loginProvider does not support provider "${provider}"`)
+      }
       // loginCodex persists the minted tokens straight to auth.json; here we only
       // mirror them into live config so the provider is configured immediately.
       const result = await loginCodex(deps.configPath)
