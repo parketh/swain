@@ -26,16 +26,21 @@ export const loadAuth = (path: string): Effect.Effect<AuthStore, never, FileSyst
 
 /**
  * Like {@link loadAuth} but keeps an existing-yet-unreadable/corrupt file distinct
- * from an absent one: a missing file resolves to empty, while a read or parse
- * failure fails with `ConfigError`. Callers that would otherwise revert to stale
- * credentials on a transient error use this instead of silently getting `{}`.
+ * from an absent one: a missing file resolves to empty, while an existence,
+ * read, or parse failure fails with `ConfigError`. Callers that would otherwise
+ * revert to stale credentials on a transient error use this instead of silently
+ * getting `{}`.
  */
 export const loadAuthStrict = (
   path: string,
 ): Effect.Effect<AuthStore, ConfigError, FileSystem.FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
-    const exists = yield* fs.exists(path).pipe(Effect.orElseSucceed(() => false))
+    // `exists` reports a genuinely absent file as false; an EACCES or other probe
+    // failure must surface, not masquerade as absent and trip the stale fallback.
+    const exists = yield* fs
+      .exists(path)
+      .pipe(Effect.mapError((e) => new ConfigError({ reason: "read-failed", message: String(e) })))
     if (!exists) return {}
     return yield* fs.readFileString(path).pipe(
       Effect.flatMap(Schema.decode(Schema.parseJson(AuthStore))),
