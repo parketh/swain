@@ -3,7 +3,7 @@ import { BunContext } from "@effect/platform-bun"
 import type { Model } from "@swain/llms"
 import { OPENAI_CODEX_PROVIDER_ID, OpenAICodex as OpenAICodexProvider } from "@swain/llms/providers"
 import { Effect } from "effect"
-import { type AuthStore, authPath, loadAuth, saveAuth } from "./auth"
+import { type AuthStore, authPath, loadAuth, loadAuthStrict, saveAuth } from "./auth"
 import { type ConfigError, defaultConfigPath, type ProviderConfig } from "./config"
 
 type Env = Record<string, string | undefined>
@@ -17,9 +17,9 @@ export interface CodexCredentials {
 /** Reads swain's persisted Codex credentials from `auth.json`, or `undefined` when none are stored. */
 export const loadStoredCodexCredentials = (
   configPath: string,
-): Effect.Effect<CodexCredentials | undefined, never, FileSystem.FileSystem> =>
+): Effect.Effect<CodexCredentials | undefined, ConfigError, FileSystem.FileSystem> =>
   Effect.gen(function* () {
-    const store = yield* loadAuth(authPath(configPath))
+    const store = yield* loadAuthStrict(authPath(configPath))
     const stored = store[OPENAI_CODEX_PROVIDER_ID]
     if (stored?.accessToken === undefined && stored?.refreshToken === undefined) return undefined
     return {
@@ -55,8 +55,9 @@ export const persistCodexCredentials = (
  * of truth that refreshes are written back to — so a refresh token rotated by an
  * earlier turn is never replayed (which fails with `refresh_token_reused`). The
  * config-supplied `creds` only seed the first turn, until `auth.json` holds a
- * codex entry. Falls back to the provider's env credentials when nothing is
- * stored.
+ * codex entry; a read/parse failure of an existing `auth.json` rejects the turn
+ * rather than reverting to that stale seed. Falls back to the provider's env
+ * credentials when nothing is stored.
  */
 export const buildCodexModel = (
   modelId: string,

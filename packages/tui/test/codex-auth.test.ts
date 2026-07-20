@@ -61,4 +61,14 @@ describe("loadStoredCodexCredentials", () => {
       accountId: "acct_1",
     })
   })
+
+  test("fails when an existing auth.json is unreadable instead of falling back", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "swain-cfg-"))
+    const configPath = join(dir, "config.json")
+    // auth.json exists but is corrupt. Returning undefined here would let the
+    // resolver replay the stale config seed and re-trigger refresh_token_reused,
+    // so a read/parse failure must surface as an error, not empty credentials.
+    await writeFile(authPath(configPath), "{ not valid json")
+    await expect(run(loadStoredCodexCredentials(configPath))).rejects.toThrow()
+  })
 })
