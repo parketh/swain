@@ -1,6 +1,7 @@
 import { Box, Text, useInput } from "ink"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import type { ProviderConfig } from "../config"
+import type { ConnectResult } from "../controller"
 import type { CredentialField, ProviderOption } from "../models"
 import { isMouseEvent } from "../mouse"
 import { theme } from "../theme"
@@ -9,9 +10,77 @@ import { ListSelect, type ListSelectItem } from "./ListSelect"
 export interface ConnectDialogProps {
   readonly providers: ReadonlyArray<ProviderOption>
   readonly onSubmit: (provider: string, creds: ProviderConfig) => void
+  /** Runs the browser OAuth login for an OAuth provider (Codex). */
+  readonly onOAuthLogin: (provider: string) => Promise<ConnectResult>
+  /** Called after a successful OAuth login, once the user acknowledges it. */
+  readonly onOAuthComplete: () => void
   readonly onCancel: () => void
   /** Preselect a provider (from `/connect <provider>`); skips the picker. */
   readonly initialProvider?: string
+}
+
+const OAUTH_TIMEOUT_S = 180
+
+const OAuthPanel = ({
+  provider,
+  onLogin,
+  onComplete,
+  onCancel,
+}: {
+  readonly provider: ProviderOption
+  readonly onLogin: () => Promise<ConnectResult>
+  readonly onComplete: () => void
+  readonly onCancel: () => void
+}) => {
+  const [phase, setPhase] = useState<"idle" | "running" | "success" | "error">("idle")
+  const [message, setMessage] = useState<string | undefined>(undefined)
+  const [remaining, setRemaining] = useState(OAUTH_TIMEOUT_S)
+
+  useEffect(() => {
+    if (phase !== "running") return
+    const id = setInterval(() => setRemaining((r) => Math.max(0, r - 1)), 1000)
+    return () => clearInterval(id)
+  }, [phase])
+
+  const start = (): void => {
+    setPhase("running")
+    setRemaining(OAUTH_TIMEOUT_S)
+    void onLogin().then((result) => {
+      if (result.ok) {
+        setMessage(result.accountId)
+        setPhase("success")
+      } else {
+        setMessage(result.error)
+        setPhase("error")
+      }
+    })
+  }
+
+  useInput((input, key) => {
+    if (isMouseEvent(input)) return
+    if (key.escape) return onCancel()
+    if (!key.return) return
+    if (phase === "idle" || phase === "error") return start()
+    if (phase === "success") return onComplete()
+  })
+
+  return (
+    <Box flexDirection="column" borderStyle="round" paddingX={1}>
+      <Text bold>Connect {provider.label}</Text>
+      {phase === "idle" ? (
+        <Text>Press Enter to sign in with your browser.</Text>
+      ) : phase === "running" ? (
+        <Text color="cyan">Opening browser… waiting for sign-in ({remaining}s)</Text>
+      ) : phase === "success" ? (
+        <Text color="green">
+          Signed in{message !== undefined ? ` as ${message}` : ""}. Press Enter to continue.
+        </Text>
+      ) : (
+        <Text color="red">Login failed: {message ?? "unknown error"}. Press Enter to retry.</Text>
+      )}
+      <Text color={theme.muted}>Esc to cancel</Text>
+    </Box>
+  )
 }
 
 const fieldLabel: Record<CredentialField, string> = {
@@ -80,6 +149,8 @@ const CredentialForm = ({
 export const ConnectDialog = ({
   providers,
   onSubmit,
+  onOAuthLogin,
+  onOAuthComplete,
   onCancel,
   initialProvider,
 }: ConnectDialogProps) => {
@@ -88,6 +159,16 @@ export const ConnectDialog = ({
   const provider = providers.find((p) => p.id === selected)
 
   if (provider !== undefined) {
+    if (provider.auth === "oauth") {
+      return (
+        <OAuthPanel
+          provider={provider}
+          onLogin={() => onOAuthLogin(provider.id)}
+          onComplete={onOAuthComplete}
+          onCancel={onCancel}
+        />
+      )
+    }
     return (
       <CredentialForm
         provider={provider}

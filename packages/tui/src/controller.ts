@@ -40,6 +40,8 @@ import type { GenerationOptions, ProviderOptions } from "@swain/llms"
 import { LLMClient } from "@swain/llms/client"
 import { Effect, Fiber, Layer, Queue } from "effect"
 import { authPath, saveAuth } from "./auth"
+import { loadStoredCodexCredentials } from "./codex-auth"
+import { loginCodex } from "./codex-oauth"
 import type { CommandParseResult } from "./commands"
 import {
   type ActiveModel,
@@ -120,6 +122,8 @@ export interface PendingApproval {
 export interface ConnectResult {
   readonly ok: boolean
   readonly error?: string
+  /** The signed-in account, when an OAuth login resolved one. */
+  readonly accountId?: string
 }
 
 /** A live, still-running subagent, surfaced in the subagent monitor panel. */
@@ -193,6 +197,12 @@ export interface Controller {
   selectModel(provider: string, modelId: string, variant?: string): Promise<void>
   setVariant(variant?: string): Promise<void>
   connectProvider(provider: string, creds: ProviderConfig): Promise<ConnectResult>
+  /**
+   * Runs the browser OAuth login for an OAuth provider (Codex), persisting the
+   * minted credentials to `auth.json` and reflecting them in live config so the
+   * provider becomes usable immediately.
+   */
+  loginProvider(provider: string): Promise<ConnectResult>
   /** Connected models with router enablement, for the /router dialog. */
   getRouterView(): RouterView
   /** Toggles the global router master switch. */
@@ -959,6 +969,32 @@ export const makeController = (deps: ControllerDeps): Controller => {
         providers: { ...config.providers, [provider]: creds },
       }
       return persistConfig(next)
+    },
+
+    loginProvider: async (provider) => {
+      // loginCodex persists the minted tokens straight to auth.json; here we only
+      // mirror them into live config so the provider is configured immediately.
+      const result = await loginCodex(deps.configPath)
+      if (!result.ok) {
+        return {
+          ok: false,
+          error: result.message !== undefined ? `${result.reason}: ${result.message}` : result.reason,
+        }
+      }
+      const stored = await runtime
+        .runPromise(loadStoredCodexCredentials(deps.configPath))
+        .catch(() => undefined)
+      if (stored !== undefined) {
+        const creds: ProviderConfig = {
+          ...(stored.accessToken !== "" && { accessToken: stored.accessToken }),
+          ...(stored.refreshToken !== undefined && { refreshToken: stored.refreshToken }),
+          ...(stored.accountId !== undefined && { accountId: stored.accountId }),
+        }
+        config = { ...config, providers: { ...config.providers, [provider]: creds } }
+        refreshDerived()
+        notify()
+      }
+      return { ok: true, ...(stored?.accountId !== undefined && { accountId: stored.accountId }) }
     },
 
     getRouterView: () => {
