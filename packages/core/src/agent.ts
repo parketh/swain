@@ -328,9 +328,10 @@ const executeTools = (
  * it.
  */
 /**
- * Emits the one-time reasoning-loss notice after compaction runs on a model that
- * depends on full reasoning history (Kimi K3). Compaction itself is unchanged —
- * this only surfaces Moonshot's cross-turn-loss warning to the user.
+ * Emits the reasoning-loss notice after compaction runs on a model that depends
+ * on full reasoning history (Kimi K3) — once per compaction, not once per
+ * session. Compaction itself is unchanged; this only surfaces Moonshot's
+ * cross-turn-loss warning to the user.
  */
 const warnCompactionReasoningLoss = (
   session: SessionState,
