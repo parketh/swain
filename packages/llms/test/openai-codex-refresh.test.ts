@@ -90,6 +90,17 @@ describe("OpenAICodex automatic token refresh", () => {
     expect(refreshed?.refreshToken).toBe("rt_old")
   })
 
+  test("refreshes an empty access token when a refresh token is stored", async () => {
+    const { requests, layer } = harness({ access_token: FRESH, refresh_token: "rt_new" })
+    await runTurn(
+      { credentialResolver: () => ({ accessToken: "", refreshToken: "rt_old" }) },
+      layer,
+    )
+    expect(requests.some((r) => r.url.includes("/oauth/token"))).toBe(true)
+    const responsesReq = requests.find((r) => r.url.includes("/codex/responses"))
+    expect(responsesReq?.headers.authorization).toBe(`Bearer ${FRESH}`)
+  })
+
   test("does not refresh a still-valid access token", async () => {
     const { requests, layer } = harness({ access_token: FRESH, refresh_token: "rt_new" })
     let refreshedCalled = false

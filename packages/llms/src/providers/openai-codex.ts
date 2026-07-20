@@ -240,7 +240,10 @@ const resolveCredentials = (
   Effect.gen(function* () {
     const raw = yield* rawCredentials(config.credentialResolver)
     const expiry = expiryMsFromToken(raw.accessToken)
-    const stale = expiry !== undefined && expiry <= Date.now() + REFRESH_SKEW_MS
+    // An empty access token has no expiry to parse; treat it as stale so a stored
+    // refresh token still mints one instead of sending an empty bearer.
+    const stale =
+      raw.accessToken === "" || (expiry !== undefined && expiry <= Date.now() + REFRESH_SKEW_MS)
     if (raw.refreshToken === undefined || !stale) {
       return yield* normalizeCredentials(raw)
     }
