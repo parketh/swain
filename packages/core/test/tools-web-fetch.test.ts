@@ -43,6 +43,12 @@ const run = (url: string): Promise<ToolResultContent> =>
     ),
   )
 
+describe("WebFetch timing opt-in", () => {
+  test("opts into duration recording", () => {
+    expect(WebFetch.recordDuration).toBe(true)
+  })
+})
+
 describe("WebFetch input validation", () => {
   test.each([
     ["localhost", "http://localhost:8080/x"],

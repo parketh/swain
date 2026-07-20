@@ -147,6 +147,7 @@ export const WebFetch = defineTool({
   inputSchema: WebFetchInput,
   outputSchema: WebFetchResult,
   readOnly: true,
+  recordDuration: true,
   call: (input) =>
     Effect.scoped(
       Effect.gen(function* () {

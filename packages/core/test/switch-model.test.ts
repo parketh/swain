@@ -171,6 +171,14 @@ describe("SwitchModel control flow", () => {
     expect(hasBlock(state, "user", (b) => b.type === "model-switch")).toBe(true)
     // No orphan SwitchModel tool_use survives into history.
     expect(hasBlock(state, "assistant", (b) => b.name === "SwitchModel")).toBe(false)
+    // The meta replaces the switching response, retaining its response duration
+    // but never the whole-turn duration (that belongs to the final assistant).
+    const meta = state.messages.find((m) => m.content.some((b) => b.type === "model-switch"))
+    expect(meta?.responseDurationMs).toBeTypeOf("number")
+    expect(meta?.turnDurationMs).toBeUndefined()
+    const last = state.messages.at(-1)
+    expect(last?.role).toBe("assistant")
+    expect(last?.turnDurationMs).toBeGreaterThanOrEqual(0)
   })
 
   test("a valid switch emits a model-switch event with the new target", async () => {

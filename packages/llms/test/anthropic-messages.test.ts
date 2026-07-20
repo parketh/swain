@@ -20,6 +20,7 @@ import {
   thinkingTurnChunks,
   toolUseTurnChunks,
 } from "./fixtures/anthropic-message-events"
+import { timingTurn } from "./fixtures/timing"
 
 const prepareSync = (
   ...args: Parameters<typeof AnthropicMessages.prepare>
@@ -39,7 +40,24 @@ const decodeFailure = (chunks: Array<unknown>) =>
     AnthropicMessages.decode(Stream.fromIterable(chunks)).pipe(Stream.runCollect, Effect.flip),
   )
 
+const bunTurn = (timed: boolean) =>
+  timingTurn({
+    callId: "toolu_01",
+    result: { type: "json", value: { answer: "a fast js runtime" } },
+    timed,
+  })
+
 describe("AnthropicMessages.prepare", () => {
+  test("timing metadata never reaches the request body", () => {
+    const timed = prepareSync({ modelId: "claude-sonnet-4-5", messages: bunTurn(true) })
+    const untimed = prepareSync({ modelId: "claude-sonnet-4-5", messages: bunTurn(false) })
+    expect(timed.body).toEqual(untimed.body)
+    const serialized = JSON.stringify(timed.body)
+    for (const key of ["createdAt", "responseDurationMs", "turnDurationMs", "durationMs"]) {
+      expect(serialized).not.toContain(key)
+    }
+  })
+
   test("builds the expected body for system + user + tool definitions", () => {
     const lookup = Tool.define({
       name: "lookup",

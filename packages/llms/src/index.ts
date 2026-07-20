@@ -18,6 +18,7 @@ export {
   CompactionContent,
   JsonSchemaObject,
   Message,
+  type MessageTiming,
   ModelSwitchContent,
   NamedToolChoice,
   ReasoningContent,

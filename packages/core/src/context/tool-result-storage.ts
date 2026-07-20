@@ -89,6 +89,7 @@ export const toolResultStoreLayer = (
             ...(result.name !== undefined && { name: result.name }),
             result: { type: "text", value: wrap(text.length, path, preview) },
             ...(result.isError !== undefined && { isError: result.isError }),
+            ...(result.durationMs !== undefined && { durationMs: result.durationMs }),
           })
         }).pipe(Effect.catchAll(() => Effect.succeed(result)))
       return { persist }
