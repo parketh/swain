@@ -6,6 +6,10 @@ import { ConfigError, ProviderConfig } from "./config"
 const DIR_MODE = 0o700
 const FILE_MODE = 0o600
 
+// Distinguishes temp files of concurrent saves in one process, where `process.pid`
+// alone would collide and let one save rename away another's temp file.
+let saveSeq = 0
+
 const AuthStore = Schema.Record({ key: Schema.String, value: ProviderConfig })
 export type AuthStore = typeof AuthStore.Type
 
@@ -54,8 +58,10 @@ export const saveAuth = (
       .pipe(Effect.mapError(failWrite))
     // Write to a temp file and rename over the target so a crash mid-write can
     // never leave a truncated auth.json (which would read back as empty creds).
-    const tmp = `${path}.${process.pid}.tmp`
-    yield* fs.writeFileString(tmp, body, { mode: FILE_MODE }).pipe(Effect.mapError(failWrite))
-    yield* fs.chmod(tmp, FILE_MODE).pipe(Effect.orElseSucceed(() => undefined))
-    yield* fs.rename(tmp, path).pipe(Effect.mapError(failWrite))
+    const tmp = `${path}.${process.pid}.${saveSeq++}.tmp`
+    yield* Effect.gen(function* () {
+      yield* fs.writeFileString(tmp, body, { mode: FILE_MODE }).pipe(Effect.mapError(failWrite))
+      yield* fs.chmod(tmp, FILE_MODE).pipe(Effect.orElseSucceed(() => undefined))
+      yield* fs.rename(tmp, path).pipe(Effect.mapError(failWrite))
+    }).pipe(Effect.tapError(() => fs.remove(tmp).pipe(Effect.ignore)))
   })
