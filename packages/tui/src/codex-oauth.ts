@@ -101,6 +101,7 @@ export const loginCodex = async (
   try {
     server = Bun.serve({
       port: CODEX_CALLBACK_PORT,
+      hostname: "127.0.0.1",
       fetch(request) {
         const { pathname } = new URL(request.url)
         if (pathname !== CALLBACK_PATH) return new Response("Not found", { status: 404 })
