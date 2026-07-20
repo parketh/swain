@@ -47,6 +47,8 @@ describe("buildAuthorizeUrl", () => {
     expect(q.get("redirect_uri")).toBe(OPENAI_CODEX_REDIRECT_URI)
     expect(q.get("codex_cli_simplified_flow")).toBe("true")
     expect(q.get("client_id")).toBe("app_EMoamEEZ73f0CkXaXp7hrann")
+    expect(q.get("scope")).toBe("openid profile email offline_access")
+    expect(q.get("originator")).toBe("codex_cli_rs")
   })
 })
 
