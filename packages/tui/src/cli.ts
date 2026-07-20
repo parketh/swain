@@ -21,6 +21,7 @@ export interface ExecInvocation {
   readonly permissionMode: "auto" | "plan"
   readonly model?: ParsedModelRef
   readonly router: boolean
+  readonly outputFormat: "text" | "stream-json"
   readonly prompt: ExecPromptSource
 }
 
@@ -36,6 +37,7 @@ export interface HeadlessOptions {
   readonly permissionMode: "auto" | "plan"
   readonly model?: ParsedModelRef
   readonly router: boolean
+  readonly outputFormat: "text" | "stream-json"
   readonly prompt: string
   readonly env: Env
   readonly cwd: string
@@ -66,11 +68,17 @@ Usage:
   swain [--resume <id>] [--model provider:model[:variant]] [--permission-mode ask|auto|plan]
       Start the interactive TUI.
 
-  swain exec --permission-mode auto|plan [--model provider:model[:variant]] [--router] "<prompt>"
-  swain exec --permission-mode auto|plan [--model provider:model[:variant]] [--router] -
-      Run one prompt non-interactively to completion and print only the final
-      assistant text. Pass the prompt as a positional argument or "-" to read it
-      from stdin. Routing is off by default; pass --router to enable it.
+  swain exec --permission-mode auto|plan [--model provider:model[:variant]] [--router]
+      [--output-format text|stream-json] "<prompt>" | -
+      Run one prompt non-interactively to completion. Pass the prompt as a
+      positional argument or "-" to read it from stdin. Routing is off by
+      default; pass --router to enable it.
+
+      Output format (default "text"):
+        text         Print only the final assistant text.
+        stream-json  Stream committed events as newline-delimited JSON: an
+                     init line, one line per assistant/tool message, and a
+                     terminal result line.
 
 Options:
   --help, -h       Show this help and exit.
@@ -97,6 +105,7 @@ const parseExec = (args: ReadonlyArray<string>): ParsedCommand => {
   let permissionMode: "auto" | "plan" | undefined
   let model: ParsedModelRef | undefined
   let router = false
+  let outputFormat: "text" | "stream-json" = "text"
   let promptText: string | undefined
   let promptStdin = false
   let onlyPositional = false
@@ -140,6 +149,16 @@ const parseExec = (args: ReadonlyArray<string>): ParsedCommand => {
         case "--router":
           router = true
           break
+        case "--output-format": {
+          const value = args[i + 1]
+          i += 1
+          if (value === undefined)
+            return usage("--output-format requires a value (text or stream-json).")
+          if (value !== "text" && value !== "stream-json")
+            return usage(`Invalid output format "${value}"; expected text or stream-json.`)
+          outputFormat = value
+          break
+        }
         default:
           return usage(`Unknown flag "${arg}".`)
       }
@@ -167,6 +186,7 @@ const parseExec = (args: ReadonlyArray<string>): ParsedCommand => {
       permissionMode,
       ...(model !== undefined && { model }),
       router,
+      outputFormat,
       prompt: promptStdin ? { source: "stdin" } : { source: "text", text: promptText! },
     },
   }
@@ -231,6 +251,7 @@ export const runCli = async (deps: CliDeps = {}): Promise<number> => {
         permissionMode: parsed.exec.permissionMode,
         ...(parsed.exec.model !== undefined && { model: parsed.exec.model }),
         router: parsed.exec.router,
+        outputFormat: parsed.exec.outputFormat,
         prompt,
         env,
         cwd,

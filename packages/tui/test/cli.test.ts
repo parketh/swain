@@ -60,6 +60,7 @@ describe("parseArgs", () => {
       exec: {
         permissionMode: "auto",
         router: false,
+        outputFormat: "text",
         prompt: { source: "text", text: "do the thing" },
       },
     })
@@ -69,7 +70,12 @@ describe("parseArgs", () => {
     const parsed = parseArgs(["exec", "--permission-mode", "plan", "-"])
     expect(parsed).toEqual({
       kind: "exec",
-      exec: { permissionMode: "plan", router: false, prompt: { source: "stdin" } },
+      exec: {
+        permissionMode: "plan",
+        router: false,
+        outputFormat: "text",
+        prompt: { source: "stdin" },
+      },
     })
   })
 
@@ -78,6 +84,30 @@ describe("parseArgs", () => {
     expect(on.kind === "exec" && on.exec.router).toBe(true)
     const off = parseArgs(["exec", "--permission-mode", "auto", "p"])
     expect(off.kind === "exec" && off.exec.router).toBe(false)
+  })
+
+  test("--output-format defaults to text and accepts stream-json", () => {
+    const def = parseArgs(["exec", "--permission-mode", "auto", "p"])
+    expect(def.kind === "exec" && def.exec.outputFormat).toBe("text")
+    const stream = parseArgs([
+      "exec",
+      "--permission-mode",
+      "auto",
+      "--output-format",
+      "stream-json",
+      "p",
+    ])
+    expect(stream.kind === "exec" && stream.exec.outputFormat).toBe("stream-json")
+  })
+
+  test("an invalid --output-format is a usage error", () => {
+    const parsed = parseArgs(["exec", "--permission-mode", "auto", "--output-format", "yaml", "p"])
+    expect(parsed.kind).toBe("usage-error")
+  })
+
+  test("--output-format without a value is a usage error", () => {
+    const parsed = parseArgs(["exec", "--permission-mode", "auto", "--output-format"])
+    expect(parsed.kind).toBe("usage-error")
   })
 
   test("provider:model:variant parses without losing the variant", () => {

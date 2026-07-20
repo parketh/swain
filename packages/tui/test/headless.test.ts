@@ -81,6 +81,7 @@ describe("runHeadless", () => {
     permissionMode: "auto",
     model: { provider: "anthropic", modelId: "claude-opus-4-8" },
     router: false,
+    outputFormat: "text",
     prompt,
     // Isolate HOME so no real ~/.codex or ~/.config leaks in.
     env: { HOME: configDir, XDG_CONFIG_HOME: configDir },
