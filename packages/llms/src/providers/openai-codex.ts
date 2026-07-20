@@ -250,12 +250,11 @@ const resolveCredentials = (
     const refreshed = yield* sharedRefresh(raw.refreshToken)
     if (config.onCredentialsRefreshed !== undefined) {
       const persist = config.onCredentialsRefreshed
-      yield* Effect.promise(async () => {
-        try {
-          await persist(refreshed)
-        } catch {
-          // Persistence is best-effort; a write failure must not fail the turn.
-        }
+      // Fail the turn if the rotated token can't be persisted: proceeding would
+      // let the next turn replay the now-spent refresh token (refresh_token_reused).
+      yield* Effect.tryPromise({
+        try: () => Promise.resolve(persist(refreshed)),
+        catch: (cause) => authFailed(`failed to persist refreshed credentials: ${String(cause)}`),
       })
     }
     return yield* normalizeCredentials(refreshed)

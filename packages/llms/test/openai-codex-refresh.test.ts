@@ -101,6 +101,20 @@ describe("OpenAICodex automatic token refresh", () => {
     expect(responsesReq?.headers.authorization).toBe(`Bearer ${FRESH}`)
   })
 
+  test("fails the turn when persisting the rotated token fails", async () => {
+    const { layer } = harness({ access_token: FRESH, refresh_token: "rt_new" })
+    const run = runTurn(
+      {
+        credentialResolver: () => ({ accessToken: EXPIRED, refreshToken: "rt_old" }),
+        onCredentialsRefreshed: () => {
+          throw new Error("disk full")
+        },
+      },
+      layer,
+    )
+    await expect(run).rejects.toThrow()
+  })
+
   test("does not refresh a still-valid access token", async () => {
     const { requests, layer } = harness({ access_token: FRESH, refresh_token: "rt_new" })
     let refreshedCalled = false

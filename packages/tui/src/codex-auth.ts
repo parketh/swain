@@ -81,6 +81,8 @@ export const buildCodexModel = (
         loadStoredCodexCredentials(configPath).pipe(Effect.provide(BunContext.layer)),
       ).then((stored) => stored ?? seed),
     onCredentialsRefreshed: (next) =>
+      // Let a persist failure reject so the provider fails the turn loudly rather
+      // than silently dropping the rotated token and replaying it next turn.
       Effect.runPromise(
         persistCodexCredentials(configPath, {
           accessToken: next.accessToken,
@@ -89,9 +91,6 @@ export const buildCodexModel = (
             accountId: next.accountId ?? seed.accountId,
           }),
         }).pipe(Effect.provide(BunContext.layer)),
-      ).then(
-        () => undefined,
-        () => undefined,
       ),
     ...(creds?.baseURL !== undefined && { baseURL: creds.baseURL }),
   }).model(modelId)

@@ -36,11 +36,14 @@ export const saveAuth = (
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
     const body = JSON.stringify(store, null, 2)
+    const failWrite = (e: unknown) => new ConfigError({ reason: "write-failed", message: String(e) })
     yield* fs
       .makeDirectory(NodePath.dirname(path), { recursive: true, mode: DIR_MODE })
-      .pipe(Effect.mapError((e) => new ConfigError({ reason: "write-failed", message: String(e) })))
-    yield* fs
-      .writeFileString(path, body, { mode: FILE_MODE })
-      .pipe(Effect.mapError((e) => new ConfigError({ reason: "write-failed", message: String(e) })))
-    yield* fs.chmod(path, FILE_MODE).pipe(Effect.orElseSucceed(() => undefined))
+      .pipe(Effect.mapError(failWrite))
+    // Write to a temp file and rename over the target so a crash mid-write can
+    // never leave a truncated auth.json (which would read back as empty creds).
+    const tmp = `${path}.${process.pid}.tmp`
+    yield* fs.writeFileString(tmp, body, { mode: FILE_MODE }).pipe(Effect.mapError(failWrite))
+    yield* fs.chmod(tmp, FILE_MODE).pipe(Effect.orElseSucceed(() => undefined))
+    yield* fs.rename(tmp, path).pipe(Effect.mapError(failWrite))
   })
