@@ -114,7 +114,7 @@ const ROUTING: Record<string, Record<string, RoutingProfile>> = {
   },
   // AA data retrieved 2026-07-17; K3 is newly published, so revisit as benchmarks settle.
   [KimiModel.K3]: {
-    [KimiVariant.Max]: { capability: 57, avgCostPerTask: 0.94 },
+    [KimiVariant.Max]: { capability: 57, avgCostPerTask: 0.95 },
   },
 }
 

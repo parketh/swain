@@ -30,7 +30,7 @@
 - K3 replays canonical reasoning for every assistant message in its projected context, using the same compacted projection as any other model. Retained (non-compacted) messages carry their reasoning; a compaction summary legitimately supplants the turns it folds.
 - Compaction operates on K3 exactly as on other models — automatic, overflow, and manual all run. Moonshot flags reasoning loss across turns as risky, so Swain surfaces a warning when compaction runs on a K3 session, but does not block it or force a new session. This is the same lossy tradeoff compaction makes for every model.
 - Switching into and out of K3 remains allowed. Document that Moonshot warns switching another model's active session into K3 may still be unstable even when the wire history is complete; Swain guarantees serialization correctness, not model quality.
-- Add K3 to automatic routing using Artificial Analysis data retrieved 2026-07-17 from <https://artificialanalysis.ai/models/kimi-k3>: `capability: 57`, `avgCostPerTask: 0.94`. Record Kimi's published prices as `$3/MTok` cache-miss input and `$15/MTok` output; the existing catalog does not model cache-hit price.
+- Add K3 to automatic routing using Artificial Analysis data retrieved 2026-07-17 from <https://artificialanalysis.ai/models/kimi-k3>: `capability: 57`, `avgCostPerTask: 0.95`. Record Kimi's published prices as `$3/MTok` cache-miss input and `$15/MTok` output; the existing catalog does not model cache-hit price.
 
 ## References
 
@@ -294,7 +294,7 @@ Add Kimi after the popular providers with:
 - `requiredFields: ["apiKey"]`;
 - model `kimi-k3`, lab `Lab.Kimi`, label `Kimi K3`;
 - one `max` variant carrying `providerOptions: { kimi: { reasoningEffort: "max" } }` and marked default;
-- routing `{ capability: 57, avgCostPerTask: 0.94 }` added to the module-level `ROUTING` record (keyed by model id), merged onto the variant via the existing `withRouting` path — not inlined on the entry;
+- routing `{ capability: 57, avgCostPerTask: 0.95 }` added to the module-level `ROUTING` record (keyed by model id), merged onto the variant via the existing `withRouting` path — not inlined on the entry;
 - price `{ input: 3, output: 15 }` added to the module-level `PRICES` record;
 - limits `{ contextWindow: 1_048_576, maxOutputTokens: 131_072 }` added to the module-level `LIMITS` record (omitting it fails `models.test.ts`, which asserts every configured model resolves with positive context/output limits);
 - builder `KimiProvider.configure({ apiKey, baseURL }).chat(modelId)` (OpenAI-compatible facades expose `.chat()`; `.model()` is the Anthropic-only builder method).
