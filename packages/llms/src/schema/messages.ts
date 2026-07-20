@@ -36,12 +36,23 @@ export const ToolResultValue = Schema.Union(
 )
 export type ToolResultValue = typeof ToolResultValue.Type
 
+/** ISO-8601 UTC timestamp string (e.g. `2026-07-17T10:00:00.000Z`); fractional
+ * seconds optional. Validated at decode so malformed persisted rows are rejected. */
+const UtcTimestamp = Schema.String.pipe(
+  Schema.pattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/),
+)
+/** Non-negative elapsed milliseconds; rejects negative persisted durations. */
+const DurationMs = Schema.Number.pipe(Schema.nonNegative())
+
 export const ToolResultContent = Schema.Struct({
   type: Schema.Literal("tool-result"),
   toolCallId: ToolCallId,
   name: Schema.optional(Schema.String),
   result: ToolResultValue,
   isError: Schema.optional(Schema.Boolean),
+  /** Local-only tool execution latency in milliseconds. Present only for tools
+   * whose core definition opts into timing; never sent to a provider. */
+  durationMs: Schema.optional(DurationMs),
 })
 export type ToolResultContent = typeof ToolResultContent.Type
 
@@ -109,18 +120,32 @@ export const renderCompaction = (block: CompactionContent): string =>
 export const AssistantContent = Schema.Union(TextContent, ReasoningContent, ToolCallContent)
 export type AssistantContent = typeof AssistantContent.Type
 
+/**
+ * Local-only timing metadata carried on every persisted transcript message.
+ * `createdAt` is required (an ISO-8601 UTC commit timestamp); the duration
+ * fields are conditionally present depending on runtime placement. None of
+ * these are ever lowered into a provider request.
+ */
+const timingFields = {
+  createdAt: UtcTimestamp,
+  responseDurationMs: Schema.optional(DurationMs),
+  turnDurationMs: Schema.optional(DurationMs),
+}
+
 export const UserMessage = Schema.Struct({
   role: Schema.Literal("user"),
   content: Schema.Array(UserContent),
   /** Harness-injected (e.g. a subagent task notification) rather than user-typed.
    * Model-visible, but consumers must not treat it as genuine user input. */
   isMeta: Schema.optional(Schema.Boolean),
+  ...timingFields,
 })
 export type UserMessage = typeof UserMessage.Type
 
 export const AssistantMessage = Schema.Struct({
   role: Schema.Literal("assistant"),
   content: Schema.Array(AssistantContent),
+  ...timingFields,
 })
 export type AssistantMessage = typeof AssistantMessage.Type
 
@@ -128,17 +153,41 @@ const text = (value: string): TextContent => TextContent.make({ type: "text", te
 
 const MessageSchema = Schema.Union(UserMessage, AssistantMessage)
 
+/** Optional local timing passed through to the persisted message. `createdAt`
+ * defaults to current UTC at the constructor boundary so in-memory call sites
+ * (facades, provider-lowering tests) still produce a stamped message. */
+export interface MessageTiming {
+  readonly createdAt?: string
+  readonly responseDurationMs?: number
+  readonly turnDurationMs?: number
+}
+
+const withTiming = (timing: MessageTiming) => ({
+  createdAt: timing.createdAt ?? new Date().toISOString(),
+  ...(timing.responseDurationMs !== undefined && { responseDurationMs: timing.responseDurationMs }),
+  ...(timing.turnDurationMs !== undefined && { turnDurationMs: timing.turnDurationMs }),
+})
+
 export const Message = Object.assign(MessageSchema, {
-  user: (input: string | ReadonlyArray<UserContent>, isMeta = false): UserMessage =>
+  user: (
+    input: string | ReadonlyArray<UserContent>,
+    isMeta = false,
+    timing: MessageTiming = {},
+  ): UserMessage =>
     UserMessage.make({
       role: "user",
       content: typeof input === "string" ? [text(input)] : input,
       ...(isMeta && { isMeta: true }),
+      ...withTiming(timing),
     }),
-  assistant: (input: string | ReadonlyArray<AssistantContent>): AssistantMessage =>
+  assistant: (
+    input: string | ReadonlyArray<AssistantContent>,
+    timing: MessageTiming = {},
+  ): AssistantMessage =>
     AssistantMessage.make({
       role: "assistant",
       content: typeof input === "string" ? [text(input)] : input,
+      ...withTiming(timing),
     }),
 })
 export type Message = typeof MessageSchema.Type

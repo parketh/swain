@@ -1,7 +1,7 @@
-import type { CompactionContent, LLMError } from "@swain/llms"
-import { LLMClient, LLMTurnSummary, Message } from "@swain/llms"
-import { Context, Data, Effect } from "effect"
-import type { SessionState } from "../state"
+import type { CompactionContent, LLMError, Message } from "@swain/llms"
+import { LLMClient, LLMTurnSummary } from "@swain/llms"
+import { Context, Data, Duration, Effect } from "effect"
+import { type SessionState, userMessage } from "../state"
 import { effectiveContextWindow } from "./accounting"
 import { defaultTokenCounter, type TokenCounter } from "./token-counter"
 
@@ -249,7 +249,8 @@ export const compactSession = (
       }),
     })
 
-    const response = yield* LLMClient.generateTurn(request)
+    const [responseElapsed, response] = yield* Effect.timed(LLMClient.generateTurn(request))
+    const responseDurationMs = Duration.toMillis(responseElapsed)
     const summary = yield* LLMTurnSummary.fromEvents(response.events)
     if (summary.toolCalls.length > 0) {
       return yield* new CompactionError({
@@ -270,7 +271,7 @@ export const compactSession = (
     // folded (excluding a prior summary meta) for the display notice.
     const contextTailStart = sourceIndex[cut]!
     const compactedMessages = prefix.filter((m) => compactionBlock(m) === undefined).length
-    const meta = Message.user(
+    const meta = userMessage(
       [
         {
           type: "compaction",
@@ -280,7 +281,11 @@ export const compactSession = (
           contextTailStart,
         },
       ],
-      true,
+      {
+        isMeta: true,
+        responseDurationMs,
+        ...(options.now !== undefined && { createdAt: options.now }),
+      },
     )
 
     // The projection this marker will produce must be validly paired: the tail

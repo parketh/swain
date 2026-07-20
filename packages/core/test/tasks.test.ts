@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { FileSystem } from "@effect/platform"
@@ -9,6 +9,7 @@ import {
   claimTask,
   completeTask,
   createTask,
+  failTask,
   getTask,
   listTasks,
   markParentNotified,
@@ -131,6 +132,58 @@ describe("TaskStore", () => {
     const created = await runIn(dir, createTask({ subject: "keep", description: "me" }))
     const reloaded = await runIn(dir, getTask(created.id))
     expect(reloaded.subject).toBe("keep")
+  })
+
+  test("completeTask and failTask persist a supplied durationMs; direct completion omits it", async () => {
+    const result = await runIn(
+      dir,
+      Effect.gen(function* () {
+        const done = yield* claimTask({
+          owner: "a1",
+          agentType: "Explore",
+          subject: "s",
+          description: "d",
+        })
+        const timedDone = yield* completeTask(done.id, "ok", { durationMs: 1234 })
+        const failed = yield* claimTask({
+          owner: "a2",
+          agentType: "Explore",
+          subject: "s",
+          description: "d",
+        })
+        const timedFail = yield* failTask(failed.id, "boom", { durationMs: 567 })
+        const direct = yield* createTask({ subject: "local", description: "d" })
+        const directDone = yield* completeTask(direct.id, "fin")
+        return { timedDone, timedFail, directDone }
+      }),
+    )
+    expect(result.timedDone.durationMs).toBe(1234)
+    expect(result.timedFail.durationMs).toBe(567)
+    expect(result.directDone.durationMs).toBeUndefined()
+  })
+
+  test("a terminal delegated task carrying durationMs round-trips through decode", async () => {
+    const ts = "2026-07-17T10:00:00.000Z"
+    writeFileSync(
+      join(dir, "tasks.json"),
+      JSON.stringify([
+        {
+          id: "t1",
+          subject: "s",
+          description: "d",
+          status: "completed",
+          owner: "agent-1",
+          agentType: "Explore",
+          result: "done",
+          blockedBy: [],
+          createdAt: ts,
+          updatedAt: ts,
+          durationMs: 1234,
+        },
+      ]),
+    )
+    const reloaded = await runIn(dir, getTask("t1"))
+    expect(reloaded.durationMs).toBe(1234)
   })
 
   test("claim records worktree info; reset clears it but returns it for cleanup", async () => {

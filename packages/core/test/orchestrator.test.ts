@@ -6,7 +6,7 @@ import { join } from "node:path"
 import { BunContext } from "@effect/platform-bun"
 import type { Model } from "@swain/llms"
 import { ModelId, ProviderId } from "@swain/llms"
-import { Effect, Layer, Queue, Stream } from "effect"
+import { Duration, Effect, Layer, Queue, Stream } from "effect"
 import {
   type ChildRunContext,
   type ChildRunner,
@@ -73,6 +73,8 @@ describe("orchestrator", () => {
     )
     expect(result.status).toBe("completed")
     expect(result.result).toBe("the findings")
+    expect(result.durationMs).toBeTypeOf("number")
+    expect(result.durationMs).toBeGreaterThanOrEqual(0)
   })
 
   test("child failure writes failed status and error", async () => {
@@ -91,6 +93,26 @@ describe("orchestrator", () => {
     )
     expect(result.status).toBe("failed")
     expect(result.error).toContain("child blew up")
+    expect(result.durationMs).toBeTypeOf("number")
+    expect(result.durationMs).toBeGreaterThanOrEqual(0)
+  })
+
+  test("durationMs measures the child run, not orchestration overhead", async () => {
+    const runner: ChildRunner = () =>
+      Effect.sleep(Duration.millis(50)).pipe(Effect.as("slept")) as ReturnType<ChildRunner>
+    const result = await runProgram(() =>
+      Effect.gen(function* () {
+        const orch = yield* makeOrchestrator({ runChild: runner })
+        const spawned = yield* orch.spawn(
+          { description: "probe", prompt: "look", agentType: "Explore" },
+          parent(),
+        )
+        yield* Queue.take(orch.completions)
+        return yield* getTask(spawned.taskId)
+      }),
+    )
+    // The timer wraps the sleeping child run, so it spans at least that delay.
+    expect(result.durationMs).toBeGreaterThanOrEqual(40)
   })
 
   test("child sessions never include the Agent tool", async () => {

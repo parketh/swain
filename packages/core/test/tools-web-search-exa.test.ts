@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import type { HttpClientRequest } from "@effect/platform"
 import { HttpClient, HttpClientResponse } from "@effect/platform"
 import { Effect, Layer } from "effect"
-import { exaSearch } from "../src/tools/web-search"
+import { exaSearch, makeWebSearch } from "../src/tools/web-search"
 
 const jsonResponse = (payload: unknown) =>
   Layer.succeed(
@@ -60,6 +60,13 @@ const exaPayload = {
   ],
   costDollars: { total: 0.001 },
 }
+
+describe("WebSearch timing opt-in", () => {
+  test("opts into duration recording", () => {
+    const tool = makeWebSearch({ search: () => Effect.succeed({ results: [] }) })
+    expect(tool.recordDuration).toBe(true)
+  })
+})
 
 describe("exaSearch", () => {
   test("sends a provider-neutral body with the api key header", async () => {

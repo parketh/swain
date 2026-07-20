@@ -49,5 +49,6 @@ export const makeWebSearch = (
     inputSchema: WebSearchInput,
     outputSchema: WebSearchOutput,
     readOnly: true,
+    recordDuration: true,
     call: (input) => provider.search(input),
   })

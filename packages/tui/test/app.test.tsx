@@ -894,7 +894,12 @@ describe("App", () => {
       session,
       activeModel: { provider: "openai", modelId: "gpt-5.5" },
       // Both providers serve gpt-5.5, so it merges into one row with a 2nd step.
-      config: { providers: { openai: { apiKey: "x" }, "openai-codex": { accessToken: "t" } } },
+      config: {
+        providers: {
+          openai: { apiKey: "x" },
+          "openai-codex": { accessToken: "t", refreshToken: "rt" },
+        },
+      },
       configPath: join(dir, "config.json"),
       llmLayer: scripted([[]]),
       persist: false,
@@ -1214,7 +1219,7 @@ describe("App", () => {
     // The turn is preserved: the user prompt stays and an interrupt marker is appended.
     const messages = c.getState().session.messages
     expect(messages).toHaveLength(2)
-    expect(messages[1]).toEqual({
+    expect(messages[1]).toMatchObject({
       role: "assistant",
       content: [{ type: "text", text: "[Request interrupted by user]" }],
     })

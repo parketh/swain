@@ -14,6 +14,9 @@ export interface Tool<Input, Output, ExtraRequirements = never> {
   // biome-ignore lint: encoded type is invariant; `any` lets any concrete schema fit
   readonly outputSchema: Schema.Schema<Output, any>
   readonly readOnly: boolean
+  /** Opt in to persisting `callTool` latency as `ToolResultContent.durationMs`.
+   * Core-only capability; never exposed in the model-facing tool definition. */
+  readonly recordDuration?: boolean
   readonly call: (input: Input) => Effect.Effect<Output, ToolError, ExtraRequirements | ToolContext>
 }
 

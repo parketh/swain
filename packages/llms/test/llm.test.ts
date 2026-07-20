@@ -69,7 +69,7 @@ describe("LLM.request", () => {
     const request = LLM.request({ model, prompt: "Say hello." })
 
     expect(request.messages).toHaveLength(1)
-    expect(request.messages[0]).toEqual({
+    expect(request.messages[0]).toMatchObject({
       role: "user",
       content: [{ type: "text", text: "Say hello." }],
     })

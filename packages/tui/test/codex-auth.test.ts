@@ -1,46 +1,16 @@
 import { describe, expect, test } from "bun:test"
 import { mkdtempSync } from "node:fs"
-import { mkdir, writeFile } from "node:fs/promises"
+import { writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { FileSystem } from "@effect/platform"
 import { BunContext } from "@effect/platform-bun"
 import { Effect } from "effect"
 import { authPath, loadAuth } from "../src/auth"
-import { loadCodexCliCredentials, persistCodexCredentials } from "../src/codex-auth"
+import { loadStoredCodexCredentials, persistCodexCredentials } from "../src/codex-auth"
 
 const run = <A>(effect: Effect.Effect<A, unknown, FileSystem.FileSystem>): Promise<A> =>
   Effect.runPromise(effect.pipe(Effect.provide(BunContext.layer)))
-
-describe("loadCodexCliCredentials", () => {
-  test("maps the Codex CLI auth.json into swain credentials", async () => {
-    const home = mkdtempSync(join(tmpdir(), "codex-home-"))
-    await mkdir(join(home, ".codex"), { recursive: true })
-    await writeFile(
-      join(home, ".codex", "auth.json"),
-      JSON.stringify({
-        tokens: { access_token: "at_1", refresh_token: "rt_1", account_id: "acct_1" },
-        last_refresh: "2026-07-07T09:59:23Z",
-      }),
-    )
-    const creds = await run(loadCodexCliCredentials({ HOME: home }))
-    expect(creds).toEqual({ accessToken: "at_1", refreshToken: "rt_1", accountId: "acct_1" })
-  })
-
-  test("returns undefined when the file is absent", async () => {
-    const home = mkdtempSync(join(tmpdir(), "codex-home-"))
-    const creds = await run(loadCodexCliCredentials({ HOME: home }))
-    expect(creds).toBeUndefined()
-  })
-
-  test("returns undefined when there is no access token", async () => {
-    const home = mkdtempSync(join(tmpdir(), "codex-home-"))
-    await mkdir(join(home, ".codex"), { recursive: true })
-    await writeFile(join(home, ".codex", "auth.json"), JSON.stringify({ tokens: {} }))
-    const creds = await run(loadCodexCliCredentials({ HOME: home }))
-    expect(creds).toBeUndefined()
-  })
-})
 
 describe("persistCodexCredentials", () => {
   test("writes the codex entry into swain auth.json, preserving other providers", async () => {
@@ -62,5 +32,43 @@ describe("persistCodexCredentials", () => {
       zai: { apiKey: "zk" },
       "openai-codex": { accessToken: "at_2", refreshToken: "rt_2", accountId: "acct_2" },
     })
+  })
+})
+
+describe("loadStoredCodexCredentials", () => {
+  test("returns undefined when auth.json has no codex entry", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "swain-cfg-"))
+    const configPath = join(dir, "config.json")
+    await writeFile(authPath(configPath), JSON.stringify({ zai: { apiKey: "zk" } }))
+    expect(await run(loadStoredCodexCredentials(configPath))).toBeUndefined()
+  })
+
+  test("reads back the freshest persisted token after a refresh rotation", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "swain-cfg-"))
+    const configPath = join(dir, "config.json")
+    // A prior turn rotated the refresh token and persisted it. The resolver must
+    // see the rotated token, not the stale one it started with.
+    await run(
+      persistCodexCredentials(configPath, {
+        accessToken: "at_new",
+        refreshToken: "rt_new",
+        accountId: "acct_1",
+      }),
+    )
+    expect(await run(loadStoredCodexCredentials(configPath))).toEqual({
+      accessToken: "at_new",
+      refreshToken: "rt_new",
+      accountId: "acct_1",
+    })
+  })
+
+  test("fails when an existing auth.json is unreadable instead of falling back", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "swain-cfg-"))
+    const configPath = join(dir, "config.json")
+    // auth.json exists but is corrupt. Returning undefined here would let the
+    // resolver replay the stale config seed and re-trigger refresh_token_reused,
+    // so a read/parse failure must surface as an error, not empty credentials.
+    await writeFile(authPath(configPath), "{ not valid json")
+    await expect(run(loadStoredCodexCredentials(configPath))).rejects.toThrow()
   })
 })

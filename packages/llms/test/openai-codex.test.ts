@@ -20,6 +20,7 @@ import {
   quotaErrorChunks,
   textReasoningTurnChunks,
 } from "./fixtures/openai-codex-events"
+import { timingTurn } from "./fixtures/timing"
 
 const config = { accessToken: "tok_123", accountId: "acct_456" }
 
@@ -33,7 +34,31 @@ const decodeFailure = (chunks: Array<unknown>) =>
     OpenAICodexResponses.decode(Stream.fromIterable(chunks)).pipe(Stream.runCollect, Effect.flip),
   )
 
+const bunTurn = (timed: boolean) =>
+  timingTurn({
+    callId: "call_1|fc_1",
+    assistantText: "Let me check.",
+    result: { type: "json", value: { answer: "a fast js runtime" } },
+    timed,
+  })
+
 describe("OpenAICodexResponses.prepare", () => {
+  test("timing metadata never reaches the request body", () => {
+    const timed = OpenAICodexResponses.prepare(
+      { modelId: "gpt-5.1-codex", messages: bunTurn(true) },
+      config,
+    )
+    const untimed = OpenAICodexResponses.prepare(
+      { modelId: "gpt-5.1-codex", messages: bunTurn(false) },
+      config,
+    )
+    expect(timed.body).toEqual(untimed.body)
+    const serialized = JSON.stringify(timed.body)
+    for (const key of ["createdAt", "responseDurationMs", "turnDurationMs", "durationMs"]) {
+      expect(serialized).not.toContain(key)
+    }
+  })
+
   test("builds the expected body for system, messages, and tools", () => {
     const lookup = Tool.define({
       name: "lookup",

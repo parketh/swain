@@ -58,19 +58,95 @@ const expectInvalidProviderOutput = (events: ReadonlyArray<LLMEvent>) => {
   }
 }
 
+const isoRe = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
+
 describe("message constructors", () => {
   test("Message.user normalizes strings into TextContent", () => {
-    expect(Message.user("hi")).toEqual({
+    const message = Message.user("hi")
+    expect(message).toMatchObject({
       role: "user",
       content: [{ type: "text", text: "hi" }],
     })
+    expect(message.createdAt).toMatch(isoRe)
   })
 
   test("Message.assistant normalizes strings into TextContent", () => {
-    expect(Message.assistant("hello")).toEqual({
+    const message = Message.assistant("hello")
+    expect(message).toMatchObject({
       role: "assistant",
       content: [{ type: "text", text: "hello" }],
     })
+    expect(message.createdAt).toMatch(isoRe)
+  })
+
+  test("constructors accept explicit createdAt and duration timing", () => {
+    const user = Message.user("hi", false, { createdAt: "2026-07-17T10:00:00.000Z" })
+    expect(user.createdAt).toBe("2026-07-17T10:00:00.000Z")
+    const assistant = Message.assistant("done", {
+      createdAt: "2026-07-17T10:00:02.000Z",
+      responseDurationMs: 330,
+      turnDurationMs: 2000,
+    })
+    expect(assistant.responseDurationMs).toBe(330)
+    expect(assistant.turnDurationMs).toBe(2000)
+  })
+
+  test("a fully timed message round-trips through decode", () => {
+    const message = Message.assistant(
+      [{ type: "tool-call", toolCallId, name: "WebSearch", input: { query: "x" } }],
+      { createdAt: "2026-07-17T10:00:01.250Z", responseDurationMs: 1250, turnDurationMs: 2000 },
+    )
+    const decoded = Schema.decodeUnknownEither(Message)(JSON.parse(JSON.stringify(message)))
+    expect(Either.isRight(decoded)).toBe(true)
+    if (Either.isRight(decoded) && decoded.right.role === "assistant") {
+      expect(decoded.right.createdAt).toBe("2026-07-17T10:00:01.250Z")
+      expect(decoded.right.responseDurationMs).toBe(1250)
+      expect(decoded.right.turnDurationMs).toBe(2000)
+    }
+  })
+
+  test("a tool result carrying durationMs round-trips through decode", () => {
+    const result = ToolResultContent.make({
+      type: "tool-result",
+      toolCallId,
+      name: "WebSearch",
+      result: { type: "json", value: { results: [] } },
+      durationMs: 420,
+    })
+    const message = Message.user([result], false, { createdAt: "2026-07-17T10:00:01.670Z" })
+    const decoded = Schema.decodeUnknownEither(Message)(JSON.parse(JSON.stringify(message)))
+    expect(Either.isRight(decoded)).toBe(true)
+    if (Either.isRight(decoded)) {
+      const block = decoded.right.content[0] as ToolResultContent
+      expect(block.durationMs).toBe(420)
+    }
+  })
+
+  test("a message missing createdAt fails to decode", () => {
+    const decoded = Schema.decodeUnknownEither(Message)({
+      role: "user",
+      content: [{ type: "text", text: "unstamped" }],
+    })
+    expect(Either.isLeft(decoded)).toBe(true)
+  })
+
+  test("a non-ISO createdAt fails to decode", () => {
+    const decoded = Schema.decodeUnknownEither(Message)({
+      role: "user",
+      content: [{ type: "text", text: "hi" }],
+      createdAt: "yesterday",
+    })
+    expect(Either.isLeft(decoded)).toBe(true)
+  })
+
+  test("a negative duration fails to decode", () => {
+    const decoded = Schema.decodeUnknownEither(Message)({
+      role: "assistant",
+      content: [{ type: "text", text: "hi" }],
+      createdAt: "2026-07-17T10:00:00.000Z",
+      responseDurationMs: -1,
+    })
+    expect(Either.isLeft(decoded)).toBe(true)
   })
 
   test("no constructor permits a system role in messages", () => {

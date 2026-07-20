@@ -1,7 +1,7 @@
 import type { CommandExecutor, FileSystem } from "@effect/platform"
 import type { Model } from "@swain/llms"
-import { LLMClient, Message } from "@swain/llms"
-import { Context, Effect, Fiber, Queue, Ref } from "effect"
+import { LLMClient } from "@swain/llms"
+import { Context, Duration, Effect, Fiber, Queue, Ref } from "effect"
 import type { AgentEvent } from "./agent"
 import { runTurn } from "./agent"
 import { ToolError } from "./errors"
@@ -11,6 +11,7 @@ import {
   type RequestOptions,
   type SessionModelRef,
   type SessionState,
+  userMessage,
 } from "./state"
 import { getSubagentDefinition, type SubagentDefinition } from "./subagents/definitions"
 import { makeChildToolRegistry } from "./subagents/tools"
@@ -232,7 +233,7 @@ export const makeOrchestrator = (config: OrchestratorConfig = {}): Effect.Effect
           requestOptions: input.requestOptions ?? parent.session.systemContext.requestOptions,
           permissionMode: parent.session.systemContext.permissionMode,
           currentDate: parent.session.systemContext.currentDate,
-          messages: [Message.user(childBrief(definition, input))],
+          messages: [userMessage(childBrief(definition, input))],
         })
         const childContext: ToolContextValue = {
           session: childSession,
@@ -266,18 +267,25 @@ export const makeOrchestrator = (config: OrchestratorConfig = {}): Effect.Effect
         }
 
         const finalize = Effect.gen(function* () {
-          const outcome = yield* runChild({
-            session: childSession,
-            registry,
-            context: childContext,
-            agentType: input.agentType,
-            emit: childEmit,
-          }).pipe(
-            Effect.map((result) => ({ ok: true as const, result })),
-            Effect.catchAll((error) =>
-              Effect.succeed({ ok: false as const, error: errorMessage(error) }),
+          // Time only the child run itself — excluding worktree cleanup and
+          // durable persistence — so `durationMs` reflects agent execution, not
+          // orchestration overhead. The effect never fails (failures fold into
+          // the outcome), so timing covers both completion and failure.
+          const [elapsed, outcome] = yield* Effect.timed(
+            runChild({
+              session: childSession,
+              registry,
+              context: childContext,
+              agentType: input.agentType,
+              emit: childEmit,
+            }).pipe(
+              Effect.map((result) => ({ ok: true as const, result })),
+              Effect.catchAll((error) =>
+                Effect.succeed({ ok: false as const, error: errorMessage(error) }),
+              ),
             ),
           )
+          const durationMs = Duration.toMillis(elapsed)
           const cleanup =
             worktree !== undefined
               ? yield* cleanupAgentWorktree(worktree)
@@ -297,7 +305,7 @@ export const makeOrchestrator = (config: OrchestratorConfig = {}): Effect.Effect
           const logPersistFailure = (error: unknown): Effect.Effect<void> =>
             Effect.logError(`Failed to persist result of task ${taskId}: ${errorMessage(error)}`)
           if (outcome.ok) {
-            yield* completeTask(taskId, outcome.result, worktreeFields).pipe(
+            yield* completeTask(taskId, outcome.result, { ...worktreeFields, durationMs }).pipe(
               Effect.catchAll(logPersistFailure),
             )
             yield* emitEvent({
@@ -309,7 +317,7 @@ export const makeOrchestrator = (config: OrchestratorConfig = {}): Effect.Effect
                 cleanup.path !== undefined && { worktreePath: cleanup.path }),
             })
           } else {
-            yield* failTask(taskId, outcome.error, worktreeFields).pipe(
+            yield* failTask(taskId, outcome.error, { ...worktreeFields, durationMs }).pipe(
               Effect.catchAll(logPersistFailure),
             )
             yield* emitEvent({ type: "subagent-failed", agentId, taskId, error: outcome.error })

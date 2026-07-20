@@ -12,7 +12,7 @@ import {
   saveSession,
 } from "@swain/core"
 import type { LLMEvent, LLMRequest, Model } from "@swain/llms"
-import { ContentId, LLMError, ModelId, ProviderId, ToolCallId } from "@swain/llms"
+import { ContentId, LLMError, Message, ModelId, ProviderId, ToolCallId } from "@swain/llms"
 import { LLMClient } from "@swain/llms/client"
 import { OpenAIChat } from "@swain/llms/protocols"
 import { Effect, Layer, Stream } from "effect"
@@ -163,7 +163,7 @@ describe("controller", () => {
     const c = build(scripted([textTurn("ok")]))
     await c.submitPrompt("hello")
     const messages = c.getState().session.messages
-    expect(messages[0]).toEqual({ role: "user", content: [{ type: "text", text: "hello" }] })
+    expect(messages[0]).toMatchObject({ role: "user", content: [{ type: "text", text: "hello" }] })
   })
 
   test("forwards both text deltas to the event subscriber in order", async () => {
@@ -356,14 +356,10 @@ describe("controller", () => {
       modelRef: { provider: "anthropic", modelId: "claude-opus-4-8" },
       currentDate: "2026-07-05",
       messages: [
-        {
-          role: "user",
-          isMeta: true,
-          content: [
-            { type: "compaction", reason: "manual", compactedMessages: 4, summary: "## Goal\nX" },
-          ],
-          // biome-ignore lint/suspicious/noExplicitAny: compaction content isn't in the narrow helper types
-        } as any,
+        Message.user(
+          [{ type: "compaction", reason: "manual", compactedMessages: 4, summary: "## Goal\nX" }],
+          true,
+        ),
       ],
       compaction: { autoEnabled: false, summary: "## Goal\nX" },
     })
@@ -661,8 +657,8 @@ describe("controller subagent drain", () => {
 
   test("batches multiple completed tasks into one synthetic notification", async () => {
     const { controller: c } = buildWith(scripted([textTurn("ack")]).layer, [
-      completedTask({ id: "t1", subject: "a", result: "found A" }),
-      completedTask({ id: "t2", subject: "b", result: "found B" }),
+      { ...completedTask({ id: "t1", subject: "a", result: "found A" }), durationMs: 1234 },
+      { ...completedTask({ id: "t2", subject: "b", result: "found B" }), durationMs: 5678 },
     ])
     await waitFor(() => hasNotification(c))
     const userMessages = c
@@ -677,6 +673,9 @@ describe("controller subagent drain", () => {
     const value = text && "text" in text ? text.text : ""
     expect(value).toContain("found A")
     expect(value).toContain("found B")
+    // Subagent duration is structured eval data, never surfaced in notifications.
+    expect(value).not.toContain("1234")
+    expect(value).not.toContain("5678")
   })
 
   test("resets a dangling in_progress task on load without re-running it", async () => {
