@@ -273,4 +273,113 @@ describe("runHeadless", () => {
     expect(await run).toBe(143)
     release()
   })
+
+  const events = (): Array<Record<string, unknown>> =>
+    out
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+
+  test("stream-json emits an init line, an assistant line, and a success result", async () => {
+    seedAuth()
+    const code = await runHeadless(options("summarize", { outputFormat: "stream-json" }), {
+      llmLayer: scripted([textTurn("the summary")]).layer,
+    })
+    expect(code).toBe(0)
+    const lines = events()
+    expect(lines[0]).toMatchObject({ type: "init", permissionMode: "auto", cwd })
+    expect(
+      lines.some(
+        (e) =>
+          e.type === "assistant" &&
+          (e.content as Array<{ type: string; text?: string }>).some(
+            (c) => c.type === "text" && c.text === "the summary",
+          ),
+      ),
+    ).toBe(true)
+    expect(lines.at(-1)).toEqual({
+      type: "result",
+      subtype: "success",
+      isError: false,
+      result: "the summary",
+    })
+    expect(err).toBe("")
+  })
+
+  test("stream-json surfaces a tool-call and a tool-result before the result", async () => {
+    seedAuth()
+    const llm = scripted([toolCallTurn("Read", { path: "x" }), textTurn("done")])
+    const code = await runHeadless(options("read then answer", { outputFormat: "stream-json" }), {
+      llmLayer: llm.layer,
+    })
+    expect(code).toBe(0)
+    const lines = events()
+    expect(
+      lines.some(
+        (e) =>
+          e.type === "assistant" &&
+          (e.content as Array<{ type: string }>).some((c) => c.type === "tool-call"),
+      ),
+    ).toBe(true)
+    expect(
+      lines.some(
+        (e) =>
+          e.type === "user" &&
+          (e.content as Array<{ type: string }>).some((c) => c.type === "tool-result"),
+      ),
+    ).toBe(true)
+    expect(lines.at(-1)).toMatchObject({ type: "result", subtype: "success", result: "done" })
+  })
+
+  test("stream-json ends with an error result on a fatal failure and exits 1", async () => {
+    seedAuth()
+    const layer = Layer.succeed(LLMClient.Service, {
+      request: LLMClient.request,
+      streamTurn: () =>
+        Stream.fail(
+          new LLMError({ reason: "server-error", message: "upstream boom", retryable: false }),
+        ),
+      generateTurn: () =>
+        Effect.fail(
+          new LLMError({ reason: "server-error", message: "upstream boom", retryable: false }),
+        ),
+    })
+    const code = await runHeadless(options("go", { outputFormat: "stream-json" }), {
+      llmLayer: layer,
+    })
+    expect(code).toBe(1)
+    const lines = events()
+    expect(lines[0]).toMatchObject({ type: "init" })
+    expect(lines.at(-1)).toEqual({
+      type: "result",
+      subtype: "error_during_execution",
+      isError: true,
+      result: "upstream boom",
+    })
+    expect(err).toContain("upstream boom")
+  })
+
+  test("stream-json emits an interrupted result when SIGINT fires", async () => {
+    seedAuth()
+    let release = (): void => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const layer = Layer.succeed(LLMClient.Service, {
+      request: LLMClient.request,
+      streamTurn: () =>
+        Stream.unwrap(
+          Effect.promise(() => gate).pipe(Effect.as(Stream.fromIterable(textTurn("late")))),
+        ),
+      generateTurn: () => Effect.succeed({ events: [] }),
+    })
+    const before = process.listeners("SIGINT").length
+    const run = runHeadless(options("go", { outputFormat: "stream-json" }), { llmLayer: layer })
+    await waitFor(() => process.listeners("SIGINT").length > before)
+    ;(process.listeners("SIGINT").at(-1) as () => void)()
+    expect(await run).toBe(130)
+    expect(events().at(-1)).toEqual({ type: "result", subtype: "interrupted", isError: true })
+    release()
+  })
 })

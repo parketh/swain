@@ -8,6 +8,7 @@ import { Effect, type Layer } from "effect"
 import type { HeadlessOptions } from "./cli"
 import { type TuiConfig } from "./config"
 import { makeController } from "./controller"
+import { initEvent, messageEvent, resultEvent, serialize } from "./exec-events"
 import { routerSettings } from "./router"
 import type { LLMClientService } from "./runtime"
 import { loadStartup, resolveHeadlessModel } from "./startup"
@@ -98,15 +99,48 @@ export const runHeadless = async (
   // Fatal (non-recoverable) errors suppress stdout and exit 1; recoverable
   // diagnostics go to stderr as they arrive without changing a successful exit.
   let fatal = false
+  let fatalMessage: string | undefined
   controller.onEvent((event) => {
     if (event.type !== "agent-error") return
     if (event.recoverable === true) {
       stderr(`${event.message}\n`)
     } else if (!fatal) {
       fatal = true
+      fatalMessage = event.message
       stderr(`${event.message}\n`)
     }
   })
+
+  // Stream mode: emit an init line, then flush each committed message as it
+  // lands (a cursor over session.messages, so retries never re-emit). Recoverable
+  // diagnostics still go to stderr, keeping stdout pure NDJSON.
+  const streamJson = options.outputFormat === "stream-json"
+  const modelRef =
+    active.variant !== undefined
+      ? `${active.provider}:${active.modelId}:${active.variant}`
+      : `${active.provider}:${active.modelId}`
+  let cursor = 0
+  const flush = (): void => {
+    const messages = session.messages
+    for (; cursor < messages.length; cursor += 1) {
+      const event = messageEvent(messages[cursor]!)
+      if (event !== null) stdout(serialize(event))
+    }
+  }
+  let unsubscribe: (() => void) | undefined
+  if (streamJson) {
+    stdout(
+      serialize(
+        initEvent({
+          model: modelRef,
+          permissionMode: options.permissionMode,
+          cwd,
+          router: options.router,
+        }),
+      ),
+    )
+    unsubscribe = controller.subscribe(flush)
+  }
 
   // Signals: resolve the run with the POSIX code and let `finally` interrupt the
   // controller and remove the temporary directory.
@@ -130,16 +164,33 @@ export const runHeadless = async (
     await controller.submitPrompt(options.prompt)
     await controller.waitUntilIdle()
     if (signalCode !== undefined) return signalCode
+    if (streamJson) {
+      flush()
+      stdout(
+        serialize(
+          fatal
+            ? resultEvent("error_during_execution", fatalMessage ?? "")
+            : resultEvent("success", finalAssistantText(session)),
+        ),
+      )
+      return fatal ? 1 : 0
+    }
     if (fatal) return 1
     stdout(`${finalAssistantText(session)}\n`)
     return 0
   })().catch(() => 1)
 
   try {
-    return await Promise.race([work, signalled])
+    const code = await Promise.race([work, signalled])
+    if (streamJson && (code === 130 || code === 143)) {
+      flush()
+      stdout(serialize(resultEvent("interrupted")))
+    }
+    return code
   } finally {
     process.removeListener("SIGINT", onSigint)
     process.removeListener("SIGTERM", onSigterm)
+    unsubscribe?.()
     await controller.shutdown().catch(() => {})
     await rm(storageRoot, { recursive: true, force: true }).catch(() => {})
   }
