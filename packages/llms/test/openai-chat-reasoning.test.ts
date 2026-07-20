@@ -83,7 +83,12 @@ describe("OpenAIChat Kimi reasoning-history lowering", () => {
   test("a tool-call assistant message with no reasoning omits reasoning_content", () => {
     const messages = assistantWith([
       { type: "text", text: "no reasoning here" },
-      { type: "tool-call", toolCallId: ToolCallId.make("call_2"), name: "Read", input: { path: "/y" } },
+      {
+        type: "tool-call",
+        toolCallId: ToolCallId.make("call_2"),
+        name: "Read",
+        input: { path: "/y" },
+      },
     ])
     expect(messages[1]).toEqual({
       role: "assistant",
