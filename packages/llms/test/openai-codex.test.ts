@@ -20,6 +20,7 @@ import {
   quotaErrorChunks,
   textReasoningTurnChunks,
 } from "./fixtures/openai-codex-events"
+import { timingTurn } from "./fixtures/timing"
 
 const config = { accessToken: "tok_123", accountId: "acct_456" }
 
@@ -33,34 +34,13 @@ const decodeFailure = (chunks: Array<unknown>) =>
     OpenAICodexResponses.decode(Stream.fromIterable(chunks)).pipe(Stream.runCollect, Effect.flip),
   )
 
-const bunTurn = (timed: boolean) => {
-  const callId = ToolCallId.make("call_1|fc_1")
-  return [
-    Message.user("What is bun?", false, timed ? { createdAt: "2026-07-17T10:00:00.000Z" } : {}),
-    Message.assistant(
-      [
-        { type: "text", text: "Let me check." },
-        { type: "tool-call", toolCallId: callId, name: "lookup", input: { query: "bun" } },
-      ],
-      timed
-        ? { createdAt: "2026-07-17T10:00:01.000Z", responseDurationMs: 1000, turnDurationMs: 3000 }
-        : {},
-    ),
-    Message.user(
-      [
-        {
-          type: "tool-result",
-          toolCallId: callId,
-          name: "lookup",
-          result: { type: "json", value: { answer: "a fast js runtime" } },
-          ...(timed && { durationMs: 420 }),
-        },
-      ],
-      false,
-      timed ? { createdAt: "2026-07-17T10:00:01.420Z" } : {},
-    ),
-  ]
-}
+const bunTurn = (timed: boolean) =>
+  timingTurn({
+    callId: "call_1|fc_1",
+    assistantText: "Let me check.",
+    result: { type: "json", value: { answer: "a fast js runtime" } },
+    timed,
+  })
 
 describe("OpenAICodexResponses.prepare", () => {
   test("timing metadata never reaches the request body", () => {

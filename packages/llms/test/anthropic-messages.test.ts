@@ -20,6 +20,7 @@ import {
   thinkingTurnChunks,
   toolUseTurnChunks,
 } from "./fixtures/anthropic-message-events"
+import { timingTurn } from "./fixtures/timing"
 
 const prepareSync = (
   ...args: Parameters<typeof AnthropicMessages.prepare>
@@ -39,30 +40,12 @@ const decodeFailure = (chunks: Array<unknown>) =>
     AnthropicMessages.decode(Stream.fromIterable(chunks)).pipe(Stream.runCollect, Effect.flip),
   )
 
-const toolCallId = ToolCallId.make("toolu_01")
-
-const bunTurn = (timed: boolean) => [
-  Message.user("What is bun?", false, timed ? { createdAt: "2026-07-17T10:00:00.000Z" } : {}),
-  Message.assistant(
-    [{ type: "tool-call", toolCallId, name: "lookup", input: { query: "bun" } }],
-    timed
-      ? { createdAt: "2026-07-17T10:00:01.000Z", responseDurationMs: 1000, turnDurationMs: 3000 }
-      : {},
-  ),
-  Message.user(
-    [
-      {
-        type: "tool-result",
-        toolCallId,
-        name: "lookup",
-        result: { type: "json", value: { answer: "a fast js runtime" } },
-        ...(timed && { durationMs: 420 }),
-      },
-    ],
-    false,
-    timed ? { createdAt: "2026-07-17T10:00:01.420Z" } : {},
-  ),
-]
+const bunTurn = (timed: boolean) =>
+  timingTurn({
+    callId: "toolu_01",
+    result: { type: "json", value: { answer: "a fast js runtime" } },
+    timed,
+  })
 
 describe("AnthropicMessages.prepare", () => {
   test("timing metadata never reaches the request body", () => {

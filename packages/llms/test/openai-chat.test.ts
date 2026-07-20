@@ -18,6 +18,7 @@ import {
   textTurnChunks,
   toolCallTurnChunks,
 } from "./fixtures/openai-chat-events"
+import { timingTurn } from "./fixtures/timing"
 
 const decodeAll = (chunks: Array<unknown>) =>
   Effect.runPromise(OpenAIChat.decode(Stream.fromIterable(chunks)).pipe(Stream.runCollect)).then(
@@ -29,31 +30,8 @@ const decodeFailure = (chunks: Array<unknown>) =>
     OpenAIChat.decode(Stream.fromIterable(chunks)).pipe(Stream.runCollect, Effect.flip),
   )
 
-const bunTurn = (timed: boolean) => {
-  const callId = ToolCallId.make("call_1")
-  return [
-    Message.user("What is bun?", false, timed ? { createdAt: "2026-07-17T10:00:00.000Z" } : {}),
-    Message.assistant(
-      [{ type: "tool-call", toolCallId: callId, name: "lookup", input: { query: "bun" } }],
-      timed
-        ? { createdAt: "2026-07-17T10:00:01.000Z", responseDurationMs: 1000, turnDurationMs: 3000 }
-        : {},
-    ),
-    Message.user(
-      [
-        {
-          type: "tool-result",
-          toolCallId: callId,
-          name: "lookup",
-          result: { type: "text", value: "a fast js runtime" },
-          ...(timed && { durationMs: 420 }),
-        },
-      ],
-      false,
-      timed ? { createdAt: "2026-07-17T10:00:01.420Z" } : {},
-    ),
-  ]
-}
+const bunTurn = (timed: boolean) =>
+  timingTurn({ callId: "call_1", result: { type: "text", value: "a fast js runtime" }, timed })
 
 describe("OpenAIChat.prepare", () => {
   test("timing metadata never reaches the request body", () => {
