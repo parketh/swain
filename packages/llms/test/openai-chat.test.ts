@@ -18,6 +18,7 @@ import {
   textTurnChunks,
   toolCallTurnChunks,
 } from "./fixtures/openai-chat-events"
+import { timingTurn } from "./fixtures/timing"
 
 const decodeAll = (chunks: Array<unknown>) =>
   Effect.runPromise(OpenAIChat.decode(Stream.fromIterable(chunks)).pipe(Stream.runCollect)).then(
@@ -29,7 +30,20 @@ const decodeFailure = (chunks: Array<unknown>) =>
     OpenAIChat.decode(Stream.fromIterable(chunks)).pipe(Stream.runCollect, Effect.flip),
   )
 
+const bunTurn = (timed: boolean) =>
+  timingTurn({ callId: "call_1", result: { type: "text", value: "a fast js runtime" }, timed })
+
 describe("OpenAIChat.prepare", () => {
+  test("timing metadata never reaches the request body", () => {
+    const timed = OpenAIChat.prepare({ modelId: "gpt-4.1-mini", messages: bunTurn(true) })
+    const untimed = OpenAIChat.prepare({ modelId: "gpt-4.1-mini", messages: bunTurn(false) })
+    expect(timed.body).toEqual(untimed.body)
+    const serialized = JSON.stringify(timed.body)
+    for (const key of ["createdAt", "responseDurationMs", "turnDurationMs", "durationMs"]) {
+      expect(serialized).not.toContain(key)
+    }
+  })
+
   test("builds the expected request body for text + tool definitions", () => {
     const lookup = Tool.define({
       name: "lookup",
@@ -140,6 +154,19 @@ describe("OpenAIChat.prepare", () => {
       toolChoice: { type: "tool", name: "lookup" },
     })
     expect(body.tool_choice).toEqual({ type: "function", function: { name: "lookup" } })
+  })
+
+  test("a max_completion_tokens profile maps maxTokens without sending max_tokens", () => {
+    const { body } = OpenAIChat.prepare(
+      {
+        modelId: "kimi-k3",
+        messages: [Message.user("hi")],
+        generation: GenerationOptions.make({ maxTokens: 4096 }),
+      },
+      { optionsKey: "kimi", maxTokensField: "max_completion_tokens" },
+    )
+    expect(body.max_completion_tokens).toBe(4096)
+    expect(body.max_tokens).toBeUndefined()
   })
 
   test("prompt_cache_key is sent only when the option is set", () => {

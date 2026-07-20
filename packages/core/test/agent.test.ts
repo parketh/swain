@@ -16,7 +16,7 @@ import {
 } from "@swain/llms"
 import { Effect, Layer, Schema, Stream } from "effect"
 import { type AgentEvent, runTurn, submitPrompt } from "../src/agent"
-import { AgentError } from "../src/errors"
+import { AgentError, ToolError } from "../src/errors"
 import type { Permissions } from "../src/permission"
 import { assembleSystemPrompt } from "../src/prompt"
 import { createSessionState, loadSession, type SessionState, saveSession } from "../src/state"
@@ -170,7 +170,7 @@ describe("createSessionState", () => {
       model,
       permissionMode: "plan",
       currentDate: "2026-07-04",
-      messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      messages: [Message.user("hi")],
     })
     expect(state.sessionId).toBe("s-1")
     expect(state.systemContext.permissionMode).toBe("plan")
@@ -306,6 +306,29 @@ describe("runTurn", () => {
     call: (input) => Effect.succeed({ echoed: input.msg }),
   })
 
+  const timedEcho = defineTool({
+    name: "TimedEcho",
+    description: "echoes with timing",
+    inputSchema: Schema.Struct({ msg: Schema.String }),
+    outputSchema: Schema.Struct({ echoed: Schema.String }),
+    readOnly: true,
+    recordDuration: true,
+    call: (input) => Effect.succeed({ echoed: input.msg }),
+  })
+
+  const timedBoom = defineTool({
+    name: "TimedBoom",
+    description: "fails with timing",
+    inputSchema: Schema.Struct({}),
+    outputSchema: Schema.Struct({ ok: Schema.Boolean }),
+    readOnly: true,
+    recordDuration: true,
+    call: () =>
+      Effect.fail(
+        new ToolError({ tool: "TimedBoom", reason: "execution-failed", message: "boom" }),
+      ),
+  })
+
   const drive = (
     turns: Parameters<typeof scriptedLLMClient>[0],
     tools: ReadonlyArray<Parameters<typeof toolRegistryLayer>[0][number]>,
@@ -329,7 +352,7 @@ describe("runTurn", () => {
     const { state, run } = drive([textTurn("hello there")], [])
     await run
     expect(state.messages).toHaveLength(2)
-    expect(state.messages[1]).toEqual({
+    expect(state.messages[1]).toMatchObject({
       role: "assistant",
       content: [{ type: "text", text: "hello there" }],
     })
@@ -337,6 +360,11 @@ describe("runTurn", () => {
     expect(state.counters.outputTokens).toBe(1)
     // Provider usage is recorded as the context snapshot, anchored at the end.
     expect(state.contextUsage).toEqual({ activeContextTokens: 2, measuredAtMessageIndex: 2 })
+    // The lone assistant response carries both provider-response and turn latency.
+    const final = state.messages[1]
+    expect(final?.responseDurationMs).toBeTypeOf("number")
+    expect(final?.responseDurationMs).toBeGreaterThanOrEqual(0)
+    expect(final?.turnDurationMs).toBeGreaterThanOrEqual(0)
   })
 
   const captureSystem = async (options: { nonInteractive?: boolean }): Promise<string> => {
@@ -377,10 +405,55 @@ describe("runTurn", () => {
       type: "tool-result",
       result: { type: "json", value: { echoed: "hi" } },
     })
-    expect(state.messages[3]).toEqual({
+    expect(state.messages[3]).toMatchObject({
       role: "assistant",
       content: [{ type: "text", text: "done" }],
     })
+    // Every provider response is timed; only the final assistant gets turn latency.
+    expect(state.messages[1]?.responseDurationMs).toBeTypeOf("number")
+    expect(state.messages[1]?.turnDurationMs).toBeUndefined()
+    expect(state.messages[3]?.responseDurationMs).toBeTypeOf("number")
+    expect(state.messages[3]?.turnDurationMs).toBeGreaterThanOrEqual(0)
+  })
+
+  const durationOf = (state: SessionState, index: number): number | undefined => {
+    const block = state.messages[index]?.content[0]
+    return block?.type === "tool-result" ? block.durationMs : undefined
+  }
+
+  test("an opted-in tool result carries durationMs on success", async () => {
+    const { state, run } = drive(
+      [toolCallTurn("TimedEcho", { msg: "hi" }), textTurn("done")],
+      [timedEcho],
+    )
+    await run
+    expect(durationOf(state, 2)).toBeTypeOf("number")
+    expect(durationOf(state, 2)).toBeGreaterThanOrEqual(0)
+  })
+
+  test("an opted-in tool result carries durationMs even when the tool errors", async () => {
+    const { state, run } = drive([toolCallTurn("TimedBoom", {}), textTurn("done")], [timedBoom])
+    await run
+    expect(state.messages[2]?.content[0]).toMatchObject({ type: "tool-result", isError: true })
+    expect(durationOf(state, 2)).toBeTypeOf("number")
+  })
+
+  test("an unflagged tool result has no durationMs", async () => {
+    const { state, run } = drive([toolCallTurn("Echo", { msg: "hi" }), textTurn("done")], [echo])
+    await run
+    expect(state.messages[2]?.content[0]).toMatchObject({ type: "tool-result" })
+    expect(durationOf(state, 2)).toBeUndefined()
+  })
+
+  test("every core-committed message carries a valid createdAt", async () => {
+    const isoRe = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
+    const { state, run } = drive([toolCallTurn("Echo", { msg: "hi" }), textTurn("done")], [echo])
+    await run
+    // user prompt, assistant(tool-call), user(tool-result), assistant(done)
+    expect(state.messages).toHaveLength(4)
+    for (const message of state.messages) {
+      expect(message.createdAt).toMatch(isoRe)
+    }
   })
 
   // LLM client whose stream fails `failures` times (with a retryable or
@@ -421,10 +494,12 @@ describe("runTurn", () => {
     submitPrompt(state, "hi")
     await Effect.runPromise(runFlaky(flaky, state))
     expect(flaky.calls()).toBe(2) // one stall + one success
-    expect(state.messages.at(-1)).toEqual({
+    expect(state.messages.at(-1)).toMatchObject({
       role: "assistant",
       content: [{ type: "text", text: "recovered" }],
     })
+    // Response duration spans the failed attempt and the retry backoff (~1s).
+    expect(state.messages.at(-1)?.responseDurationMs).toBeGreaterThan(900)
   })
 
   test("gives up after the retry budget and fails the turn", async () => {
@@ -434,6 +509,9 @@ describe("runTurn", () => {
     const exit = await Effect.runPromiseExit(runFlaky(flaky, state))
     expect(exit._tag).toBe("Failure")
     expect(flaky.calls()).toBe(3) // initial + 2 retries (MAX_STREAM_RETRIES)
+    // A failed turn commits no response and fabricates no turn duration.
+    expect(state.messages.every((m) => m.turnDurationMs === undefined)).toBe(true)
+    expect(state.messages.every((m) => m.responseDurationMs === undefined)).toBe(true)
   })
 
   test("does not retry a non-retryable error", async () => {
@@ -565,7 +643,7 @@ describe("runTurn", () => {
       ),
     )
     // No max-iterations failure: the turn ends with the model's final text.
-    expect(state.messages.at(-1)).toEqual({
+    expect(state.messages.at(-1)).toMatchObject({
       role: "assistant",
       content: [{ type: "text", text: "final answer" }],
     })
@@ -644,7 +722,7 @@ describe("session persistence", () => {
       currentDate: "2026-07-04",
     })
     submitPrompt(original, "remember this")
-    original.messages.push({ role: "assistant", content: [{ type: "text", text: "noted" }] })
+    original.messages.push(Message.assistant([{ type: "text", text: "noted" }]))
     original.counters.turns = 2
     original.counters.inputTokens = 11
     original.counters.outputTokens = 7
@@ -742,7 +820,7 @@ describe("runTurn compaction", () => {
     expect(state.compaction.autoEnabled).toBe(false)
     expect(state.compaction.failureReason).toBeDefined()
     // The turn still completed on the original transcript.
-    expect(state.messages.at(-1)).toEqual({
+    expect(state.messages.at(-1)).toMatchObject({
       role: "assistant",
       content: [{ type: "text", text: "answer" }],
     })
@@ -770,7 +848,7 @@ describe("runTurn compaction", () => {
       ),
     )
     expect(state.compaction.summary).toBe(summaryText)
-    expect(state.messages.at(-1)).toEqual({
+    expect(state.messages.at(-1)).toMatchObject({
       role: "assistant",
       content: [{ type: "text", text: "recovered" }],
     })
@@ -794,5 +872,72 @@ describe("runTurn compaction", () => {
     )
     expect(error).toBeInstanceOf(LLMError)
     if (error instanceof LLMError) expect(error.reason).toBe("context-length-exceeded")
+  })
+
+  const warnModel: Model = {
+    id: ModelId.make("kimi-k3"),
+    provider: ProviderId.make("kimi"),
+    limits: { contextWindow: 10_000, maxOutputTokens: 1_000 },
+    warnOnReasoningLoss: true,
+    streamTurn: () => Stream.empty,
+  }
+
+  const warnSession = (): SessionState =>
+    createSessionState({
+      workingDirectory: "/work",
+      model: warnModel,
+      currentDate: "2026-07-04",
+      messages: conversation(),
+    })
+
+  const collectEvents = (state: SessionState, layer: ReturnType<typeof scriptedLLMClient>) => {
+    const events: Array<AgentEvent> = []
+    return Effect.runPromise(
+      runTurn(state, { onEvent: (event) => Effect.sync(() => events.push(event)) }).pipe(
+        Effect.provide(layer),
+        Effect.provide(toolContextLayer(state)),
+        Effect.provide(toolRegistryLayer([])),
+      ),
+    ).then(() => events)
+  }
+
+  test("auto compaction on a warnOnReasoningLoss model runs and emits a compaction-warning", async () => {
+    const state = warnSession()
+    state.contextUsage = { activeContextTokens: 8_500, measuredAtMessageIndex: 4 }
+    submitPrompt(state, "third")
+    const events = await collectEvents(state, scriptedLLMClient([summaryTurn, textTurn("answer")]))
+    // Compaction ran on K3 exactly as on any model — no K3-specific bypass.
+    expect(compactionBlocks(state)).toHaveLength(1)
+    const warnings = events.filter((event) => event.type === "compaction-warning")
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toMatchObject({ type: "compaction-warning" })
+  })
+
+  test("overflow compaction on a warnOnReasoningLoss model emits a compaction-warning", async () => {
+    const state = warnSession()
+    submitPrompt(state, "third")
+    let streamCount = 0
+    const layer = Layer.succeed(LLMClient.Service, {
+      request: LLMClient.request,
+      streamTurn: () => {
+        streamCount += 1
+        return streamCount === 1
+          ? Stream.fail(overflow)
+          : Stream.fromIterable(textTurn("recovered"))
+      },
+      generateTurn: () => Effect.succeed({ events: [...summaryTurn] }),
+    })
+    const events = await collectEvents(state, layer)
+    expect(state.compaction.summary).toBe(summaryText)
+    expect(events.filter((event) => event.type === "compaction-warning")).toHaveLength(1)
+  })
+
+  test("compaction on an ordinary model emits no compaction-warning", async () => {
+    const state = limitedSession()
+    state.contextUsage = { activeContextTokens: 8_500, measuredAtMessageIndex: 4 }
+    submitPrompt(state, "third")
+    const events = await collectEvents(state, scriptedLLMClient([summaryTurn, textTurn("answer")]))
+    expect(compactionBlocks(state)).toHaveLength(1)
+    expect(events.filter((event) => event.type === "compaction-warning")).toHaveLength(0)
   })
 })

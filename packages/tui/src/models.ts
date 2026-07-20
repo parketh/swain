@@ -9,6 +9,10 @@ import {
   DeepSeekModelDefaultVariant,
   DeepSeekModelVariants,
   DeepSeekVariant,
+  KimiModel,
+  KimiModelDefaultVariant,
+  KimiModelVariants,
+  KimiVariant,
   OpenAIModel,
   OpenAIModelDefaultVariant,
   OpenAIModelVariants,
@@ -21,6 +25,7 @@ import {
 import {
   Anthropic as AnthropicProvider,
   DeepSeek as DeepSeekProvider,
+  Kimi as KimiProvider,
   OpenAI as OpenAIProvider,
   Pollinations,
   ZAI as ZAIProvider,
@@ -44,10 +49,12 @@ export const environmentCredentialSources: ReadonlyArray<{
 }> = [
   { provider: Provider.Anthropic, field: "apiKey", envVar: "ANTHROPIC_API_KEY" },
   { provider: Provider.OpenAI, field: "apiKey", envVar: "OPENAI_API_KEY" },
-  { provider: Provider.OpenAICodex, field: "accessToken", envVar: "OPENAI_CODEX_ACCESS_TOKEN" },
   { provider: Provider.DeepSeek, field: "apiKey", envVar: "DEEPSEEK_API_KEY" },
   { provider: Provider.ZAI, field: "apiKey", envVar: "ZAI_API_KEY" },
 ]
+
+/** How a provider is connected: a pasted API key, or a browser OAuth login. */
+export type ProviderAuthKind = "api-key" | "oauth"
 
 /** Router comparison signals for a single model variant. */
 export interface RoutingProfile {
@@ -121,6 +128,10 @@ const ROUTING: Record<string, Record<string, RoutingProfile>> = {
     [ZAIVariant.High]: p(),
     [ZAIVariant.Max]: { capability: 51, avgCostPerTask: 0.37 },
   },
+  // AA data retrieved 2026-07-17; K3 is newly published, so revisit as benchmarks settle.
+  [KimiModel.K3]: {
+    [KimiVariant.Max]: { capability: 57, avgCostPerTask: 0.95 },
+  },
 }
 
 /** Routing signals for a model variant, or `undefined` when none are recorded. */
@@ -139,6 +150,8 @@ const PRICES: Record<string, { readonly input: number; readonly output: number }
   [DeepSeekModel.V4_Flash]: { input: 0.14, output: 0.28 },
   [DeepSeekModel.V4_Pro]: { input: 0.44, output: 0.87 },
   [ZAIModel.GLM_5_2]: { input: 1.4, output: 4.4 },
+  // Kimi publishes a cache-hit input price too; the catalog models cache-miss only.
+  [KimiModel.K3]: { input: 3, output: 15 },
 }
 
 interface VariantSpec {
@@ -175,6 +188,8 @@ const LIMITS: Record<string, ModelLimits> = {
   [DeepSeekModel.V4_Flash]: { contextWindow: 1_000_000, maxOutputTokens: 384_000 },
   [DeepSeekModel.V4_Pro]: { contextWindow: 1_000_000, maxOutputTokens: 384_000 },
   [ZAIModel.GLM_5_2]: { contextWindow: 1_000_000, maxOutputTokens: 128_000 },
+  // maxOutputTokens is an output-reserve/accounting value, not a forced cap.
+  [KimiModel.K3]: { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
 }
 
 // The Codex surface serves OpenAI models with a smaller context window than
@@ -196,6 +211,8 @@ interface ProviderSpec {
   readonly id: string
   readonly label: string
   readonly popular: boolean
+  /** Connection method; defaults to `"api-key"` when omitted. */
+  readonly auth?: ProviderAuthKind
   readonly requiredFields: ReadonlyArray<CredentialField>
   readonly models: ReadonlyArray<ModelSpec>
   readonly build: (modelId: string, creds: ProviderConfig | undefined) => Model
@@ -259,6 +276,17 @@ const gradedVariants = <E extends readonly string[]>(
     }),
   )
 
+// Kimi K3 exposes a single fixed reasoning effort (`max`); no graded ladder.
+const kimiVariants = (model: KimiModel): ReadonlyArray<VariantSpec> =>
+  KimiModelVariants[model].map((effort) =>
+    withRouting(model, effort, {
+      id: effort,
+      label: effort,
+      providerOptions: { kimi: { reasoningEffort: effort } },
+      ...(effort === KimiModelDefaultVariant[model] && { default: true }),
+    }),
+  )
+
 const CATALOG: ReadonlyArray<ProviderSpec> = [
   {
     id: Provider.Anthropic,
@@ -318,6 +346,25 @@ const CATALOG: ReadonlyArray<ProviderSpec> = [
     ],
     build: (modelId, creds) =>
       OpenAIProvider.configure({
+        ...(creds?.apiKey !== undefined && { apiKey: creds.apiKey }),
+        ...(creds?.baseURL !== undefined && { baseURL: creds.baseURL }),
+      }).chat(modelId),
+  },
+  {
+    id: Provider.Kimi,
+    label: "Kimi",
+    popular: false,
+    requiredFields: ["apiKey"],
+    models: [
+      {
+        id: KimiModel.K3,
+        lab: Lab.Kimi,
+        label: "Kimi K3",
+        variants: kimiVariants(KimiModel.K3),
+      },
+    ],
+    build: (modelId, creds) =>
+      KimiProvider.configure({
         ...(creds?.apiKey !== undefined && { apiKey: creds.apiKey }),
         ...(creds?.baseURL !== undefined && { baseURL: creds.baseURL }),
       }).chat(modelId),
@@ -387,7 +434,8 @@ const CATALOG: ReadonlyArray<ProviderSpec> = [
     id: Provider.OpenAICodex,
     label: "OpenAI Codex",
     popular: false,
-    requiredFields: ["accessToken"],
+    auth: "oauth",
+    requiredFields: [],
     models: [
       {
         id: OpenAIModel.GPT_5_5,
@@ -424,6 +472,11 @@ const specById = (id: string): ProviderSpec | undefined => CATALOG.find((p) => p
 const isConfigured = (spec: ProviderSpec, config: TuiConfig): boolean => {
   const stored = config.providers[spec.id]
   if (stored === undefined) return false
+  // OAuth providers own their tokens: a stored refresh token is what makes the
+  // provider durable (an access token alone expires and can't be renewed).
+  if (spec.auth === "oauth") {
+    return typeof stored.refreshToken === "string" && stored.refreshToken.length > 0
+  }
   return spec.requiredFields.every((field) => {
     const value = stored[field]
     return typeof value === "string" && value.length > 0
@@ -435,6 +488,7 @@ export interface ProviderOption {
   readonly label: string
   readonly popular: boolean
   readonly configured: boolean
+  readonly auth: ProviderAuthKind
   readonly requiredFields: ReadonlyArray<CredentialField>
   readonly redactedKey?: string
 }
@@ -464,6 +518,7 @@ const toProviderOption = (spec: ProviderSpec, config: TuiConfig): ProviderOption
     label: spec.label,
     popular: spec.popular,
     configured: isConfigured(spec, config),
+    auth: spec.auth ?? "api-key",
     requiredFields: spec.requiredFields,
     ...(stored?.apiKey !== undefined && { redactedKey: redactKey(stored.apiKey) }),
   }

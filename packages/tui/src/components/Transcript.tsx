@@ -21,9 +21,16 @@ export interface DraftState {
   readonly reasoning: string
   readonly tools: ReadonlyArray<ToolRow>
   readonly errors: ReadonlyArray<string>
+  readonly notices?: ReadonlyArray<string>
 }
 
-export const emptyDraft: DraftState = { assistant: "", reasoning: "", tools: [], errors: [] }
+export const emptyDraft: DraftState = {
+  assistant: "",
+  reasoning: "",
+  tools: [],
+  errors: [],
+  notices: [],
+}
 
 /**
  * Folds one `AgentEvent` into live draft state: streamed assistant/reasoning
@@ -105,6 +112,10 @@ export const foldEvent = (state: DraftState, event: AgentEvent): DraftState => {
       }
     case "agent-error":
       return { ...state, errors: [...state.errors, event.message] }
+    // A non-fatal notice (e.g. compacting a Kimi K3 session); surfaced on its
+    // own channel so it reads as a warning, not a red error.
+    case "compaction-warning":
+      return { ...state, notices: [...(state.notices ?? []), event.message] }
     default:
       return state
   }
@@ -212,6 +223,10 @@ interface ErrorItem {
   readonly kind: "error"
   readonly text: string
 }
+interface NoticeItem {
+  readonly kind: "notice"
+  readonly text: string
+}
 interface SwitchItem {
   readonly kind: "switch"
   readonly from: string
@@ -223,7 +238,7 @@ interface CompactionItem {
   readonly kind: "compaction"
   readonly compactedMessages: number
 }
-type Item = TextItem | ToolItem | ErrorItem | SwitchItem | CompactionItem
+type Item = TextItem | ToolItem | ErrorItem | NoticeItem | SwitchItem | CompactionItem
 
 const switchRefKey = (ref: { provider: string; modelId: string; variant?: string }): string =>
   ref.variant !== undefined && ref.variant !== ""
@@ -357,6 +372,7 @@ export const buildItems = (
   }
   if (draft.assistant !== "") items.push({ kind: "text", role: "assistant", text: draft.assistant })
   for (const error of draft.errors) items.push({ kind: "error", text: error })
+  for (const notice of draft.notices ?? []) items.push({ kind: "notice", text: notice })
   return items
 }
 
@@ -415,6 +431,7 @@ const NodeRow = ({ node, width }: { node: Node; width?: number }) => {
     )
   }
   if (node.kind === "error") return <Text color="red">⚠ {node.text}</Text>
+  if (node.kind === "notice") return <Text color="yellow">⚠ {node.text}</Text>
   if (node.kind === "switch") {
     const verb = node.requestedBy === "user" ? "Switched" : "Routed"
     return (

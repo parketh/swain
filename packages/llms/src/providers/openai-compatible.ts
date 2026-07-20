@@ -16,6 +16,12 @@ export interface OpenAICompatibleConfig {
   /** Auth scheme. `"none"` skips credentials entirely for keyless free
    *  endpoints; defaults to bearer-token auth. */
   readonly auth?: "bearer" | "none"
+  /** Opt-in assistant reasoning replay; passed through to the protocol profile. */
+  readonly reasoningHistory?: "reasoning_content"
+  /** Wire field for the output-token limit; passed through to the protocol profile. */
+  readonly maxTokensField?: "max_tokens" | "max_completion_tokens"
+  /** Mark returned models as requiring reasoning replay (Kimi K3). */
+  readonly warnOnReasoningLoss?: boolean
 }
 
 export interface OpenAICompatibleFacade {
@@ -50,6 +56,7 @@ const configure = (config: OpenAICompatibleConfig): OpenAICompatibleFacade => {
     chat: (modelId) => ({
       id: ModelId.make(modelId),
       provider,
+      ...(config.warnOnReasoningLoss ? { warnOnReasoningLoss: true } : {}),
       streamTurn: (request) =>
         Stream.unwrap(
           Effect.gen(function* () {
@@ -66,6 +73,12 @@ const configure = (config: OpenAICompatibleConfig): OpenAICompatibleFacade => {
             const { path, body } = OpenAIChat.prepare(toProtocolRequest(modelId, request), {
               optionsKey: config.providerId,
               ...(config.includeUsage !== undefined ? { includeUsage: config.includeUsage } : {}),
+              ...(config.reasoningHistory !== undefined
+                ? { reasoningHistory: config.reasoningHistory }
+                : {}),
+              ...(config.maxTokensField !== undefined
+                ? { maxTokensField: config.maxTokensField }
+                : {}),
             })
             const httpRequest = Http.prepareJson({
               url: `${baseURL}${path}`,

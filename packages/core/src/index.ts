@@ -22,6 +22,7 @@ export {
   isValidlyPaired,
   OUTPUT_RESERVE_CAP,
   outputReserve,
+  REASONING_LOSS_COMPACTION_WARNING,
   type RequestShape,
   recordContextUsage,
   selectCut,
@@ -32,6 +33,7 @@ export {
   type ToolResultStore,
   ToolResultStoreService,
   toolResultStoreLayer,
+  warnsOnReasoningLoss,
 } from "./context"
 export { AgentError, ToolError, type ToolErrorReason } from "./errors"
 export {

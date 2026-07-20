@@ -27,6 +27,9 @@ export interface Task {
   readonly parentNotifiedAt?: string
   readonly createdAt: string
   readonly updatedAt: string
+  /** Child-run duration in milliseconds. Present only on terminal delegated
+   * tasks timed by the orchestrator; unset for main-loop-only tasks. */
+  readonly durationMs?: number
 }
 
 export type TaskErrorReason = "not-found" | "blocked" | "already-owned" | "bad-transition"
@@ -52,6 +55,7 @@ export const TaskSchema = Schema.Struct({
   parentNotifiedAt: Schema.optional(Schema.String),
   createdAt: Schema.String,
   updatedAt: Schema.String,
+  durationMs: Schema.optional(Schema.Number),
 })
 const TasksFile = Schema.Array(TaskSchema)
 
@@ -290,6 +294,9 @@ export const claimTask = (
 export interface FinishTaskInput {
   readonly worktreePath?: string
   readonly worktreeBranch?: string
+  /** Measured child-run duration in milliseconds; written only on terminal
+   * delegated tasks. Kept out of general `UpdateTaskInput`. */
+  readonly durationMs?: number
 }
 
 export const completeTask = (
@@ -333,6 +340,7 @@ const finish = (
       ...patch,
       worktreePath: worktree.worktreePath,
       worktreeBranch: worktree.worktreeBranch,
+      ...(worktree.durationMs !== undefined && { durationMs: worktree.durationMs }),
       updatedAt: now(),
     }
     yield* Ref.update(store.ref, (m) => new Map(m).set(taskId, updated))

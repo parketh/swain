@@ -5,6 +5,7 @@ export const Provider = {
   ZAI: "zai",
   OpenAICodex: "openai-codex",
   Pollinations: "pollinations",
+  Kimi: "kimi",
 } as const
 
 export type Provider = (typeof Provider)[keyof typeof Provider]

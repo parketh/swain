@@ -29,10 +29,14 @@ describe("recordInterruption", () => {
     state.messages.push(Message.user("do the thing"))
     recordInterruption(state, "I was partway through")
     expect(state.messages).toHaveLength(2)
-    expect(state.messages[1]).toEqual({
+    expect(state.messages[1]).toMatchObject({
       role: "assistant",
       content: [{ type: "text", text: `I was partway through\n\n${INTERRUPT_MESSAGE}` }],
     })
+    expect(state.messages[1]?.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
+    // An interruption marker is stamped but fabricates no response/turn duration.
+    expect(state.messages[1]?.responseDurationMs).toBeUndefined()
+    expect(state.messages[1]?.turnDurationMs).toBeUndefined()
     expect(rolesAlternate(state)).toBe(true)
   })
 
@@ -40,7 +44,7 @@ describe("recordInterruption", () => {
     const state = session()
     state.messages.push(Message.user("do the thing"))
     recordInterruption(state)
-    expect(state.messages[1]).toEqual({
+    expect(state.messages[1]).toMatchObject({
       role: "assistant",
       content: [{ type: "text", text: INTERRUPT_MESSAGE }],
     })
@@ -62,7 +66,7 @@ describe("recordInterruption", () => {
     recordInterruption(state)
     // user, assistant(tool_use), user(tool-result), assistant(marker)
     expect(state.messages).toHaveLength(4)
-    expect(state.messages[2]).toEqual({
+    expect(state.messages[2]).toMatchObject({
       role: "user",
       content: [
         {
@@ -74,10 +78,13 @@ describe("recordInterruption", () => {
         },
       ],
     })
-    expect(state.messages[3]).toEqual({
+    expect(state.messages[3]).toMatchObject({
       role: "assistant",
       content: [{ type: "text", text: INTERRUPT_MESSAGE }],
     })
+    const isoRe = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
+    expect(state.messages[2]?.createdAt).toMatch(isoRe)
+    expect(state.messages[3]?.createdAt).toMatch(isoRe)
     expect(rolesAlternate(state)).toBe(true)
   })
 

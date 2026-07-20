@@ -3,6 +3,7 @@ export const Lab = {
   OpenAI: "openai",
   DeepSeek: "deepseek",
   ZAI: "zai",
+  Kimi: "kimi",
 } as const
 
 export type Lab = (typeof Lab)[keyof typeof Lab]

@@ -3,12 +3,14 @@ import {
   ContentId,
   LLMClient,
   type LLMEvent,
+  Message,
   type Model,
   ModelId,
   ProviderId,
   type ToolCall,
   ToolCallId,
 } from "@swain/llms"
+import { OpenAIChat } from "@swain/llms/protocols"
 import { Effect, Layer, Stream } from "effect"
 import { type AgentEvent, runTurn, submitPrompt } from "../src/agent"
 import {
@@ -30,6 +32,7 @@ const makeModel = (id: string, provider: string): Model => ({
 
 const anthropic = makeModel("claude-sonnet-5", "anthropic")
 const deepseek = makeModel("deepseek-v4-pro", "deepseek")
+const kimi: Model = { ...makeModel("kimi-k3", "kimi"), warnOnReasoningLoss: true }
 
 const allow: Permissions = { check: () => Effect.succeed({ type: "allow" }) }
 
@@ -64,6 +67,14 @@ const resolverLayer = (
         }
         return Effect.succeed(resolved)
       }
+      if (targetId === "kimi:kimi-k3:max") {
+        const resolved: ResolvedModel = {
+          model: kimi,
+          requestOptions: { providerOptions: { kimi: { reasoningEffort: "max" } } },
+          modelRef: { provider: "kimi", modelId: "kimi-k3", variant: "max" },
+        }
+        return Effect.succeed(resolved)
+      }
       return Effect.fail(
         new ModelResolveError({ reason: "unknown-target", targetId, message: `no ${targetId}` }),
       )
@@ -93,6 +104,47 @@ const switchTurn = (
   ...siblings.flatMap(toEvents),
   { type: "finish", reason: "tool-call", usage: { inputTokens: 1, outputTokens: 1 } },
 ]
+
+const reasoningSwitchTurn = (
+  siblings: ReadonlyArray<ToolCall> = [],
+  target = "deepseek:deepseek-v4-pro:max",
+): ReadonlyArray<LLMEvent> => {
+  const r = ContentId.make("r")
+  const c = ContentId.make("c")
+  return [
+    { type: "reasoning-start", contentId: r },
+    { type: "reasoning-delta", contentId: r, text: "weigh the options" },
+    { type: "reasoning-end", contentId: r },
+    { type: "text-start", contentId: c },
+    { type: "text-delta", contentId: c, text: "escalating now" },
+    { type: "text-end", contentId: c },
+    ...toEvents({
+      type: "tool-call",
+      toolCallId: ToolCallId.make("sw-1"),
+      name: "SwitchModel",
+      input: { model: target, reason: "escalate" },
+    }),
+    ...siblings.flatMap(toEvents),
+    { type: "finish", reason: "tool-call", usage: { inputTokens: 1, outputTokens: 1 } },
+  ]
+}
+
+// Scripted layer that also records the request each turn receives, so a test can
+// assert the actual outbound history (e.g. what K3 is sent after a switch).
+const capturingScriptedLayer = (
+  turns: ReadonlyArray<ReadonlyArray<LLMEvent>>,
+  sink: Array<{ messages: ReadonlyArray<Message> }>,
+) => {
+  let i = 0
+  return Layer.succeed(LLMClient.Service, {
+    request: LLMClient.request,
+    streamTurn: (request) => {
+      sink.push(request)
+      return Stream.fromIterable(turns[Math.min(i++, turns.length - 1)] ?? [])
+    },
+    generateTurn: () => Effect.succeed({ events: [] }),
+  })
+}
 
 const textTurn = (text: string): ReadonlyArray<LLMEvent> => {
   const c = ContentId.make("c")
@@ -171,6 +223,14 @@ describe("SwitchModel control flow", () => {
     expect(hasBlock(state, "user", (b) => b.type === "model-switch")).toBe(true)
     // No orphan SwitchModel tool_use survives into history.
     expect(hasBlock(state, "assistant", (b) => b.name === "SwitchModel")).toBe(false)
+    // The meta replaces the switching response, retaining its response duration
+    // but never the whole-turn duration (that belongs to the final assistant).
+    const meta = state.messages.find((m) => m.content.some((b) => b.type === "model-switch"))
+    expect(meta?.responseDurationMs).toBeTypeOf("number")
+    expect(meta?.turnDurationMs).toBeUndefined()
+    const last = state.messages.at(-1)
+    expect(last?.role).toBe("assistant")
+    expect(last?.turnDurationMs).toBeGreaterThanOrEqual(0)
   })
 
   test("a valid switch emits a model-switch event with the new target", async () => {
@@ -245,6 +305,146 @@ describe("SwitchModel control flow", () => {
       textTurn("done"),
     ])
     expect(hasBlock(state, "user", (b) => b.toolCallId === "read-1")).toBe(false)
+  })
+
+  test("a successful switch retains the assistant reasoning/text and drops all tool calls", async () => {
+    const state = session()
+    submitPrompt(state, "hi")
+    const read: ToolCall = {
+      type: "tool-call",
+      toolCallId: ToolCallId.make("read-1"),
+      name: "Read",
+      input: { path: "/etc/hosts" },
+    }
+    await drive(state, [reasoningSwitchTurn([read]), textTurn("done")])
+
+    const switching = state.messages.find(
+      (m) =>
+        m.role === "assistant" &&
+        m.content.some((b) => (b as Record<string, unknown>).type === "reasoning"),
+    )
+    expect(switching).toBeDefined()
+    expect(switching!.content.map((b) => (b as Record<string, unknown>).type)).toEqual([
+      "reasoning",
+      "text",
+    ])
+    // No tool_use survives the switch (neither the SwitchModel call nor siblings).
+    expect(hasBlock(state, "assistant", (b) => b.type === "tool-call")).toBe(false)
+    // The message immediately after the switching assistant is the switch marker.
+    const next = state.messages[state.messages.indexOf(switching!) + 1]
+    expect(next?.role).toBe("user")
+    expect(next?.content.some((b) => (b as Record<string, unknown>).type === "model-switch")).toBe(
+      true,
+    )
+    // No tool_result is owed for the removed calls.
+    expect(hasBlock(state, "user", (b) => b.type === "tool-result")).toBe(false)
+    // The turn continues on the target.
+    expect(state.systemContext.modelRef.provider).toBe("deepseek")
+  })
+
+  test("a tool-only switching step leaves only the marker, no empty assistant message", async () => {
+    const state = session()
+    submitPrompt(state, "hi")
+    await drive(state, [switchTurn("deepseek:deepseek-v4-pro:max", "escalate"), textTurn("done")])
+    expect(state.messages.some((m) => m.role === "assistant" && m.content.length === 0)).toBe(false)
+    const markerIndex = state.messages.findIndex(
+      (m) =>
+        m.role === "user" &&
+        m.content.some((b) => (b as Record<string, unknown>).type === "model-switch"),
+    )
+    expect(markerIndex).toBeGreaterThanOrEqual(0)
+    // The switching assistant message was tool-only, so it is replaced by the
+    // marker outright rather than leaving an empty assistant message before it.
+    expect(state.messages[markerIndex - 1]?.role).toBe("user")
+  })
+
+  test("switching a reasoning model into K3 sends its prior reasoning as reasoning_content", async () => {
+    const state = session()
+    submitPrompt(state, "hi")
+    const requests: Array<{ messages: ReadonlyArray<Message> }> = []
+    await Effect.runPromise(
+      runTurn(state, { router: { targets: [] } }).pipe(
+        Effect.provide(
+          capturingScriptedLayer(
+            [reasoningSwitchTurn([], "kimi:kimi-k3:max"), textTurn("done")],
+            requests,
+          ),
+        ),
+        Effect.provide(ctxLayer(state)),
+        Effect.provide(toolRegistryLayer(builtinTools)),
+        Effect.provide(resolverLayer()),
+      ),
+    )
+    expect(state.systemContext.modelRef.provider).toBe("kimi")
+    // The post-switch request runs on K3; lower its history through the Kimi
+    // profile and confirm the pre-switch reasoning replays as reasoning_content.
+    const k3Request = requests[requests.length - 1]!
+    const wire = OpenAIChat.prepare(
+      { modelId: "kimi-k3", messages: k3Request.messages },
+      { optionsKey: "kimi", reasoningHistory: "reasoning_content" },
+    ).body.messages as Array<Record<string, unknown>>
+    const assistant = wire.find((m) => m.reasoning_content !== undefined)
+    expect(assistant?.reasoning_content).toBe("weigh the options")
+    // Reasoning is never converted to visible assistant text.
+    expect(String(assistant?.content ?? "")).not.toContain("weigh the options")
+  })
+
+  test("switching into K3 omits reasoning_content on a prior non-reasoning tool-call turn", async () => {
+    const state = createSessionState({
+      workingDirectory: "/w",
+      model: anthropic,
+      modelRef: { provider: "anthropic", modelId: "claude-sonnet-5" },
+      currentDate: "2026-07-10",
+      messages: [
+        Message.user("earlier"),
+        Message.assistant([
+          { type: "text", text: "reading" },
+          {
+            type: "tool-call",
+            toolCallId: ToolCallId.make("c0"),
+            name: "Read",
+            input: { path: "/x" },
+          },
+        ]),
+        Message.user([
+          {
+            type: "tool-result",
+            toolCallId: ToolCallId.make("c0"),
+            name: "Read",
+            result: { type: "text", value: "contents" },
+          },
+        ]),
+      ],
+    })
+    submitPrompt(state, "hi")
+    const requests: Array<{ messages: ReadonlyArray<Message> }> = []
+    await Effect.runPromise(
+      runTurn(state, { router: { targets: [] } }).pipe(
+        Effect.provide(
+          capturingScriptedLayer(
+            [reasoningSwitchTurn([], "kimi:kimi-k3:max"), textTurn("done")],
+            requests,
+          ),
+        ),
+        Effect.provide(ctxLayer(state)),
+        Effect.provide(toolRegistryLayer(builtinTools)),
+        Effect.provide(resolverLayer()),
+      ),
+    )
+    expect(state.systemContext.modelRef.provider).toBe("kimi")
+    const k3Request = requests[requests.length - 1]!
+    const wire = OpenAIChat.prepare(
+      { modelId: "kimi-k3", messages: k3Request.messages },
+      { optionsKey: "kimi", reasoningHistory: "reasoning_content" },
+    ).body.messages as Array<Record<string, unknown>>
+    // The pre-switch tool-call turn produced no reasoning: it keeps its
+    // tool_calls but must omit reasoning_content rather than send an empty one.
+    const priorToolCall = wire.find((m) => m.role === "assistant" && m.tool_calls !== undefined)
+    expect(priorToolCall).toBeDefined()
+    expect(priorToolCall).not.toHaveProperty("reasoning_content")
+    // The switching turn's own reasoning still replays.
+    const switching = wire.find((m) => m.reasoning_content !== undefined)
+    expect(switching?.reasoning_content).toBe("weigh the options")
   })
 
   test("plan permission mode does not deny a switch", async () => {

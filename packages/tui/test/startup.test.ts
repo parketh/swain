@@ -50,7 +50,6 @@ describe("loadStartup credential policy", () => {
     ["OPENAI_API_KEY", "openai", "apiKey"],
     ["DEEPSEEK_API_KEY", "deepseek", "apiKey"],
     ["ZAI_API_KEY", "zai", "apiKey"],
-    ["OPENAI_CODEX_ACCESS_TOKEN", "openai-codex", "accessToken"],
   ]
 
   test.each(

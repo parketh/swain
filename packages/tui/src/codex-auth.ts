@@ -5,7 +5,7 @@ import { BunContext } from "@effect/platform-bun"
 import type { Model } from "@swain/llms"
 import { OPENAI_CODEX_PROVIDER_ID, OpenAICodex as OpenAICodexProvider } from "@swain/llms/providers"
 import { Effect, Schema } from "effect"
-import { type AuthStore, authPath, loadAuth, saveAuth } from "./auth"
+import { type AuthStore, authPath, loadAuth, loadAuthStrict, saveAuth } from "./auth"
 import { type ConfigError, defaultConfigPath, type ProviderConfig } from "./config"
 
 type Env = Record<string, string | undefined>
@@ -16,7 +16,21 @@ export interface CodexCredentials {
   readonly accountId?: string
 }
 
-/** Path to the Codex CLI's own credential store (`~/.codex/auth.json`). */
+/** Reads swain's persisted Codex credentials from `auth.json`, or `undefined` when none are stored. */
+export const loadStoredCodexCredentials = (
+  configPath: string,
+): Effect.Effect<CodexCredentials | undefined, ConfigError, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const store = yield* loadAuthStrict(authPath(configPath))
+    const stored = store[OPENAI_CODEX_PROVIDER_ID]
+    if (stored?.accessToken === undefined && stored?.refreshToken === undefined) return undefined
+    return {
+      accessToken: stored.accessToken ?? "",
+      ...(stored.refreshToken !== undefined && { refreshToken: stored.refreshToken }),
+      ...(stored.accountId !== undefined && { accountId: stored.accountId }),
+    }
+  })
+
 export const codexCliAuthPath = (env: Env = process.env): string =>
   NodePath.join(env.HOME ?? NodeOS.homedir(), ".codex", "auth.json")
 
@@ -110,9 +124,13 @@ export const persistCodexCredentials = (
   })
 
 /**
- * Builds the Codex `Model` with automatic OAuth refresh: the resolver seeds from
- * stored credentials and is updated in place on each refresh, while the rotated
- * tokens are persisted to swain's `auth.json`. Falls back to the provider's env
+ * Builds the Codex `Model` with automatic OAuth refresh. The resolver re-reads
+ * the persisted credentials from `auth.json` on every turn — the single source
+ * of truth that refreshes are written back to — so a refresh token rotated by an
+ * earlier turn is never replayed (which fails with `refresh_token_reused`). The
+ * config-supplied `creds` only seed the first turn, until `auth.json` holds a
+ * codex entry; a read/parse failure of an existing `auth.json` rejects the turn
+ * rather than reverting to that stale seed. Falls back to the provider's env
  * credentials when nothing is stored.
  */
 export const buildCodexModel = (
@@ -126,33 +144,29 @@ export const buildCodexModel = (
       ...(creds?.baseURL !== undefined && { baseURL: creds.baseURL }),
     }).model(modelId)
   }
-  const state: { accessToken?: string; refreshToken?: string; accountId?: string } = {
-    accessToken: creds?.accessToken,
-    refreshToken: creds?.refreshToken,
-    accountId: creds?.accountId,
+  const seed: CodexCredentials = {
+    accessToken: creds?.accessToken ?? "",
+    ...(creds?.refreshToken !== undefined && { refreshToken: creds.refreshToken }),
+    ...(creds?.accountId !== undefined && { accountId: creds.accountId }),
   }
   const configPath = defaultConfigPath(env)
   return OpenAICodexProvider.configure({
-    credentialResolver: () => ({
-      accessToken: state.accessToken ?? "",
-      ...(state.refreshToken !== undefined && { refreshToken: state.refreshToken }),
-      ...(state.accountId !== undefined && { accountId: state.accountId }),
-    }),
-    onCredentialsRefreshed: (next) => {
-      state.accessToken = next.accessToken
-      state.refreshToken = next.refreshToken
-      if (next.accountId !== undefined) state.accountId = next.accountId
-      return Effect.runPromise(
+    credentialResolver: () =>
+      Effect.runPromise(
+        loadStoredCodexCredentials(configPath).pipe(Effect.provide(BunContext.layer)),
+      ).then((stored) => stored ?? seed),
+    onCredentialsRefreshed: (next) =>
+      // Let a persist failure reject so the provider fails the turn loudly rather
+      // than silently dropping the rotated token and replaying it next turn.
+      Effect.runPromise(
         persistCodexCredentials(configPath, {
           accessToken: next.accessToken,
           refreshToken: next.refreshToken,
-          ...(state.accountId !== undefined && { accountId: state.accountId }),
+          ...((next.accountId ?? seed.accountId) !== undefined && {
+            accountId: next.accountId ?? seed.accountId,
+          }),
         }).pipe(Effect.provide(BunContext.layer)),
-      ).then(
-        () => undefined,
-        () => undefined,
-      )
-    },
+      ),
     ...(creds?.baseURL !== undefined && { baseURL: creds.baseURL }),
   }).model(modelId)
 }

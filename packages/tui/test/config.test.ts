@@ -99,9 +99,17 @@ describe("provider catalog", () => {
     const providers = connectableProviders({ providers: {} })
     const ids = providers.map((p) => p.id)
     expect(ids).toEqual(
-      expect.arrayContaining(["anthropic", "openai", "deepseek", "zai", "openai-codex"]),
+      expect.arrayContaining(["anthropic", "openai", "kimi", "deepseek", "zai", "openai-codex"]),
     )
     expect(providers.every((p) => p.configured === false)).toBe(true)
+  })
+
+  test("storing a Kimi key makes Kimi K3 available with a default max variant", () => {
+    const models = availableModels({ providers: { kimi: { apiKey: "sk-kimi" } } })
+    const k3 = models.find((m) => m.modelId === "kimi-k3")
+    expect(k3).toBeDefined()
+    expect(k3?.label).toBe("Kimi K3")
+    expect(k3?.variants.find((v) => v.default)?.id).toBe("max")
   })
 
   test("availableModels excludes providers without stored creds", () => {
@@ -132,7 +140,7 @@ describe("resolveModelSelection", () => {
     providers: {
       anthropic: { apiKey: "sk-anthropic" },
       openai: { apiKey: "sk-openai" },
-      "openai-codex": { accessToken: "tok", accountId: "acct" },
+      "openai-codex": { accessToken: "tok", refreshToken: "rt", accountId: "acct" },
     },
   }
 
@@ -183,6 +191,22 @@ describe("resolveModelSelection", () => {
     expect(result.type).toBe("ok")
     if (result.type === "ok") {
       expect(result.selection.requestOptions.providerOptions).toBeUndefined()
+    }
+  })
+
+  test("resolves Kimi K3 max with reasoning options, 1M limits, and the reasoning-loss flag", () => {
+    const kimiConfig: TuiConfig = { providers: { kimi: { apiKey: "sk-kimi" } } }
+    const result = resolveModelSelection("kimi", "kimi-k3", "max", kimiConfig)
+    expect(result.type).toBe("ok")
+    if (result.type === "ok") {
+      expect(result.selection.requestOptions.providerOptions).toEqual({
+        kimi: { reasoningEffort: "max" },
+      })
+      expect(result.selection.model.limits).toEqual({
+        contextWindow: 1_048_576,
+        maxOutputTokens: 131_072,
+      })
+      expect(result.selection.model.warnOnReasoningLoss).toBe(true)
     }
   })
 })

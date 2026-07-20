@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import type { TuiConfig } from "../src/config"
 import {
   availableModels,
+  configuredProviders,
   environmentCredentialSources,
   mergeModelsByProvider,
   resolveModelSelection,
@@ -11,7 +12,10 @@ describe("mergeModelsByProvider", () => {
   test("collapses a model served by multiple providers into one entry", () => {
     // OpenAI and OpenAI Codex both serve gpt-5.5 / gpt-5.6-sol / gpt-5.6-terra.
     const config: TuiConfig = {
-      providers: { openai: { apiKey: "x" }, "openai-codex": { accessToken: "t" } },
+      providers: {
+        openai: { apiKey: "x" },
+        "openai-codex": { accessToken: "t", refreshToken: "rt" },
+      },
     }
     const merged = mergeModelsByProvider(availableModels(config))
 
@@ -36,7 +40,10 @@ describe("mergeModelsByProvider", () => {
 
   test("preserves first-seen catalog order", () => {
     const config: TuiConfig = {
-      providers: { openai: { apiKey: "x" }, "openai-codex": { accessToken: "t" } },
+      providers: {
+        openai: { apiKey: "x" },
+        "openai-codex": { accessToken: "t", refreshToken: "rt" },
+      },
     }
     const source = availableModels(config)
     const merged = mergeModelsByProvider(source)
@@ -46,15 +53,29 @@ describe("mergeModelsByProvider", () => {
   })
 })
 
+describe("oauth provider configuration", () => {
+  test("oauth provider is configured when a refresh token is stored", () => {
+    const cfg: TuiConfig = {
+      providers: { "openai-codex": { refreshToken: "rt", accessToken: "at" } },
+    }
+    expect(configuredProviders(cfg).some((p) => p.id === "openai-codex")).toBe(true)
+  })
+  test("oauth provider without a refresh token is not configured", () => {
+    const cfg: TuiConfig = { providers: { "openai-codex": { accessToken: "at" } } }
+    expect(configuredProviders(cfg).some((p) => p.id === "openai-codex")).toBe(false)
+  })
+})
+
 describe("resolveModelSelection limits", () => {
   test("every configured catalog model resolves with context-window limits", () => {
     const config: TuiConfig = {
       providers: {
         anthropic: { apiKey: "x" },
         openai: { apiKey: "x" },
+        kimi: { apiKey: "x" },
         deepseek: { apiKey: "x" },
         zai: { apiKey: "x" },
-        "openai-codex": { accessToken: "t" },
+        "openai-codex": { accessToken: "t", refreshToken: "rt" },
       },
     }
     for (const model of availableModels(config)) {
@@ -69,7 +90,10 @@ describe("resolveModelSelection limits", () => {
 
   test("Codex caps the context window below the raw OpenAI API limit", () => {
     const config: TuiConfig = {
-      providers: { openai: { apiKey: "x" }, "openai-codex": { accessToken: "t" } },
+      providers: {
+        openai: { apiKey: "x" },
+        "openai-codex": { accessToken: "t", refreshToken: "rt" },
+      },
     }
     const viaOpenAI = resolveModelSelection("openai", "gpt-5.5", undefined, config)
     const viaCodex = resolveModelSelection("openai-codex", "gpt-5.5", undefined, config)
@@ -92,7 +116,6 @@ describe("environmentCredentialSources", () => {
       field: "apiKey",
       envVar: "ANTHROPIC_API_KEY",
     })
-    expect(byProvider.get("openai-codex")?.field).toBe("accessToken")
     // Filling each source's field configures its provider.
     for (const source of environmentCredentialSources) {
       const config: TuiConfig = { providers: { [source.provider]: { [source.field]: "value" } } }

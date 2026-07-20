@@ -9,24 +9,28 @@ import type {
   Usage,
 } from "@swain/llms"
 import { LLMClient, LLMTurnSummary, Message } from "@swain/llms"
-import { Context, Duration, Effect, Either, Option, Schedule, Schema, Stream } from "effect"
+import { Clock, Context, Duration, Effect, Either, Option, Schedule, Schema, Stream } from "effect"
 import {
   compactSession,
   defaultTokenCounter,
   deriveContext,
+  REASONING_LOSS_COMPACTION_WARNING,
   type RequestShape,
   recordContextUsage,
   shouldAutoCompact,
   ToolResultStoreService,
+  warnsOnReasoningLoss,
 } from "./context"
 import { AgentError } from "./errors"
 import { type ModelResolver, ModelResolverService } from "./model-resolver"
 import { assembleSystemPrompt, type RouterPromptTarget } from "./prompt"
 import {
+  assistantMessage,
   modelRefKey,
   recordModelTransition,
   type SessionModelRef,
   type SessionState,
+  userMessage,
 } from "./state"
 import type { AgentType, Task } from "./tasks"
 import type { ToolContext, ToolRegistry } from "./tools"
@@ -51,7 +55,7 @@ const MAX_STREAM_RETRIES = 2
 const STREAM_RETRY_DELAY = Duration.seconds(1)
 
 export const submitPrompt = (session: SessionState, prompt: string, isMeta = false): void => {
-  session.messages.push(Message.user(prompt, isMeta))
+  session.messages.push(userMessage(prompt, { isMeta }))
 }
 
 export const INTERRUPT_MESSAGE = "[Request interrupted by user]"
@@ -74,14 +78,14 @@ export const recordInterruption = (session: SessionState, partialText?: string):
       : []
   if (pendingCalls.length > 0) {
     messages.push(
-      Message.user(pendingCalls.map((call) => errorResult(call, INTERRUPT_MESSAGE_FOR_TOOL_USE))),
+      userMessage(pendingCalls.map((call) => errorResult(call, INTERRUPT_MESSAGE_FOR_TOOL_USE))),
     )
-    messages.push(Message.assistant([{ type: "text", text: INTERRUPT_MESSAGE }]))
+    messages.push(assistantMessage([{ type: "text", text: INTERRUPT_MESSAGE }]))
     return
   }
   const trimmed = partialText?.trim()
   const text = trimmed ? `${trimmed}\n\n${INTERRUPT_MESSAGE}` : INTERRUPT_MESSAGE
-  messages.push(Message.assistant([{ type: "text", text }]))
+  messages.push(assistantMessage([{ type: "text", text }]))
 }
 
 /**
@@ -121,6 +125,7 @@ export type AgentEvent =
       readonly message: string
       readonly recoverable?: boolean
     }
+  | { readonly type: "compaction-warning"; readonly message: string }
   | { readonly type: "task-updated"; readonly tasks: ReadonlyArray<Task> }
   | { readonly type: "model-switch"; readonly to: SessionModelRef }
   | {
@@ -176,6 +181,8 @@ interface LoopContext {
   readonly maxIterations: number
   readonly resolver: Option.Option<ModelResolver>
   readonly emit: (event: AgentEvent) => Effect.Effect<void>
+  /** Tool names whose `callTool` latency is persisted as `durationMs`. */
+  readonly timedTools: ReadonlySet<string>
 }
 
 type SwitchOutcome =
@@ -226,7 +233,11 @@ const resolveSwitch = (
         modelRef: target.modelRef,
         requestOptions: target.requestOptions,
       }) ?? from
-    const meta = Message.user(
+    // The meta replaces the just-committed assistant response, so it inherits
+    // that response's commit timestamp and provider-response duration rather than
+    // fabricating a later, unrelated one.
+    const replaced = session.messages[session.messages.length - 1]
+    const meta = userMessage(
       [
         {
           type: "model-switch" as const,
@@ -244,7 +255,13 @@ const resolveSwitch = (
           requestedBy: "router" as const,
         },
       ],
-      true,
+      {
+        isMeta: true,
+        ...(replaced?.createdAt !== undefined && { createdAt: replaced.createdAt }),
+        ...(replaced?.responseDurationMs !== undefined && {
+          responseDurationMs: replaced.responseDurationMs,
+        }),
+      },
     )
     return { kind: "switched", meta }
   })
@@ -259,26 +276,36 @@ const executeTools = (
   session: SessionState,
   toolCalls: ReadonlyArray<ToolCall>,
   emit: (event: AgentEvent) => Effect.Effect<void>,
+  timedTools: ReadonlySet<string>,
 ): Effect.Effect<Array<ToolResultContent>, never, ToolContext | ToolRegistry> =>
   Effect.gen(function* () {
     const store = yield* Effect.serviceOption(ToolResultStoreService)
-    return yield* Effect.forEach(toolCalls, (toolCall) =>
-      emit({
+    return yield* Effect.forEach(toolCalls, (toolCall) => {
+      const executed = callTool(toolCall, (text) =>
+        emit({
+          type: "tool-execution-delta",
+          name: toolCall.name,
+          toolCallId: toolCall.toolCallId,
+          text,
+        }),
+      )
+      // Time only opted-in tools, and only the `callTool` lifecycle — not the
+      // start/end observer work or later oversized-result offloading.
+      const measured = timedTools.has(toolCall.name)
+        ? Effect.timed(executed).pipe(
+            Effect.map(([elapsed, result]) => ({
+              ...result,
+              durationMs: Duration.toMillis(elapsed),
+            })),
+          )
+        : executed
+      return emit({
         type: "tool-execution-start",
         name: toolCall.name,
         toolCallId: toolCall.toolCallId,
         input: toolCall.input,
       }).pipe(
-        Effect.andThen(
-          callTool(toolCall, (text) =>
-            emit({
-              type: "tool-execution-delta",
-              name: toolCall.name,
-              toolCallId: toolCall.toolCallId,
-              text,
-            }),
-          ),
-        ),
+        Effect.andThen(measured),
         Effect.tap((result) =>
           emit({
             type: "tool-execution-end",
@@ -290,8 +317,8 @@ const executeTools = (
         Effect.flatMap((result) =>
           Option.isSome(store) ? store.value.persist(session, result) : Effect.succeed(result),
         ),
-      ),
-    )
+      )
+    })
   })
 
 /**
@@ -305,11 +332,28 @@ const executeTools = (
  * `Effect<void>` and its session mutations are unchanged for callers that omit
  * it.
  */
+/**
+ * Emits the reasoning-loss notice after compaction runs on a model that depends
+ * on full reasoning history (Kimi K3) — once per compaction, not once per
+ * session. Compaction itself is unchanged; this only surfaces Moonshot's
+ * cross-turn-loss warning to the user.
+ */
+const warnCompactionReasoningLoss = (
+  session: SessionState,
+  emit: (event: AgentEvent) => Effect.Effect<void>,
+): Effect.Effect<void> =>
+  warnsOnReasoningLoss(session)
+    ? emit({ type: "compaction-warning", message: REASONING_LOSS_COMPACTION_WARNING })
+    : Effect.void
+
 export const runTurn = (
   session: SessionState,
   options: RunTurnOptions = {},
 ): Effect.Effect<void, AgentError | LLMError, LLMClientService | ToolRegistry | ToolContext> =>
   Effect.gen(function* () {
+    // Whole-turn timer starts at entry — before registry setup and preflight
+    // compaction — so user-visible latency includes every part of the turn.
+    const turnStart = yield* Clock.currentTimeNanos
     const registry = yield* ToolRegistryTag
     const routerActive = options.router !== undefined
     // SwitchModel is only offered to the model when routing is active; it stays
@@ -318,6 +362,7 @@ export const runTurn = (
       (tool) => tool.name !== SWITCH_MODEL_NAME || routerActive,
     )
     const llmTools = tools.map(toLLMTool)
+    const timedTools = new Set(tools.filter((tool) => tool.recordDuration).map((tool) => tool.name))
     const toolDescriptors = tools.map((tool) => ({
       name: tool.name,
       description: tool.description,
@@ -348,6 +393,7 @@ export const runTurn = (
       maxIterations: options.maxIterations ?? DEFAULT_MAX_ITERATIONS,
       resolver,
       emit,
+      timedTools,
     }
 
     // Preflight: compact once before the turn if estimated pressure is high.
@@ -356,6 +402,7 @@ export const runTurn = (
     const shape: RequestShape = { system: buildSystem(), tools: llmTools }
     if (shouldAutoCompact(session, shape, defaultTokenCounter)) {
       yield* compactSession(session, { reason: "auto" }).pipe(
+        Effect.tap(() => warnCompactionReasoningLoss(session, emit)),
         Effect.catchAll((error) =>
           Effect.sync(() => {
             Object.assign(session.compaction, {
@@ -377,6 +424,17 @@ export const runTurn = (
     }
 
     yield* runWithOverflowRetry(session, ctx)
+
+    // Attach whole-turn latency to the final assistant response only. Guard that
+    // the last message is actually an assistant message so a trailing meta user
+    // message (a same-turn model switch or compaction) never receives it.
+    const turnEnd = yield* Clock.currentTimeNanos
+    const turnDurationMs = Duration.toMillis(Duration.nanos(turnEnd - turnStart))
+    const lastIndex = session.messages.length - 1
+    const last = session.messages[lastIndex]
+    if (last?.role === "assistant") {
+      session.messages[lastIndex] = { ...last, turnDurationMs }
+    }
   })
 
 const isContextOverflowError = (error: AgentError | LLMError): error is LLMError =>
@@ -395,6 +453,7 @@ const runWithOverflowRetry = (
   loop(session, ctx, 0, false).pipe(
     Effect.catchIf(isContextOverflowError, (overflow) =>
       compactSession(session, { reason: "overflow" }).pipe(
+        Effect.tap(() => warnCompactionReasoningLoss(session, ctx.emit)),
         Effect.catchAll(() => Effect.fail(overflow)),
         Effect.andThen(loop(session, ctx, 0, false)),
       ),
@@ -455,7 +514,10 @@ const loop = (
     // healthy turn; prior iterations' tool-use is already committed to
     // session.messages and untouched. Non-retryable errors (auth, invalid
     // request, context overflow) fail immediately.
-    const collected = yield* streamOnce.pipe(
+    // Time the whole provider-response cycle: stream collection plus any
+    // retryable failed attempts and their backoff. The monotonic clock stops
+    // once the final event is collected; summary decoding is excluded.
+    const [responseElapsed, collected] = yield* streamOnce.pipe(
       Effect.retry(
         Schedule.recurs(MAX_STREAM_RETRIES).pipe(
           Schedule.whileInput((error: LLMError) => error.retryable),
@@ -467,7 +529,9 @@ const loop = (
           .emit({ type: "agent-error", source: "llm", message: error.message, recoverable: false })
           .pipe(Effect.andThen(Effect.fail(error))),
       ),
+      Effect.timed,
     )
+    const responseDurationMs = Duration.toMillis(responseElapsed)
 
     const summary = yield* LLMTurnSummary.fromEvents(collected).pipe(
       Effect.catchAll((error) =>
@@ -477,7 +541,7 @@ const loop = (
       ),
     )
 
-    session.messages.push(Message.assistant(summary.assistantContent))
+    session.messages.push(assistantMessage(summary.assistantContent, { responseDurationMs }))
     session.counters.turns += 1
     if (summary.usage !== undefined) {
       session.counters.inputTokens += summary.usage.inputTokens
@@ -503,10 +567,23 @@ const loop = (
     if (firstSwitch !== undefined) {
       const outcome = yield* resolveSwitch(session, firstSwitch, switched, ctx.resolver)
       if (outcome.kind === "switched") {
-        // Replace the whole switching assistant message with the meta switch
-        // message: no orphan tool_use (switch or sibling) survives, so no
-        // tool_result is owed. Any siblings are dropped and reissued next turn.
-        session.messages[session.messages.length - 1] = outcome.meta
+        // Sanitize the switching assistant message: keep its reasoning/text so
+        // the switch's rationale survives (K3 needs the reasoning history), but
+        // drop every tool_use block (the switch call and any siblings) so no
+        // orphan tool_result is owed. Siblings are reissued next turn. A
+        // tool-only step leaves nothing to retain, so the marker stands alone.
+        const lastIndex = session.messages.length - 1
+        const switching = session.messages[lastIndex]
+        const retained =
+          switching?.role === "assistant"
+            ? switching.content.filter((block) => block.type !== "tool-call")
+            : []
+        if (retained.length > 0) {
+          session.messages[lastIndex] = Message.assistant(retained)
+          session.messages.push(outcome.meta)
+        } else {
+          session.messages[lastIndex] = outcome.meta
+        }
         // Signal the switch so the UI can reflect the new current model mid-turn
         // (the turn continues on the target); session state is already updated.
         yield* ctx.emit({ type: "model-switch", to: session.systemContext.modelRef })
@@ -524,15 +601,15 @@ const loop = (
         ]),
       )
       const siblings = summary.toolCalls.filter((call) => call.name !== SWITCH_MODEL_NAME)
-      const siblingResults = yield* executeTools(session, siblings, ctx.emit)
+      const siblingResults = yield* executeTools(session, siblings, ctx.emit, ctx.timedTools)
       siblings.forEach((call, index) => resultById.set(call.toolCallId, siblingResults[index]!))
       // Preserve the assistant's original tool_call order in the results.
       const results = summary.toolCalls.map((call) => resultById.get(call.toolCallId)!)
-      session.messages.push(Message.user(results))
+      session.messages.push(userMessage(results))
       return yield* loop(session, ctx, iteration + 1, switched)
     }
 
-    const results = yield* executeTools(session, summary.toolCalls, ctx.emit)
-    session.messages.push(Message.user(results))
+    const results = yield* executeTools(session, summary.toolCalls, ctx.emit, ctx.timedTools)
+    session.messages.push(userMessage(results))
     return yield* loop(session, ctx, iteration + 1, switched)
   })
