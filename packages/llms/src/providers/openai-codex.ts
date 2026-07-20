@@ -193,6 +193,11 @@ interface ResolvedCredentials {
 const normalizeCredentials = (
   credentials: OpenAICodexCredentials,
 ): Effect.Effect<ResolvedCredentials, LLMError> => {
+  if (credentials.accessToken === "") {
+    return Effect.fail(
+      authFailed("Empty access token and no refresh token available to mint a replacement"),
+    )
+  }
   const accountId = credentials.accountId ?? accountIdFromToken(credentials.accessToken)
   if (accountId === undefined) {
     return Effect.fail(
