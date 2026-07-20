@@ -347,10 +347,14 @@ packages/tui/test/startup.test.ts
 
 ## Post-Implementation Changes
 
-Implemented across four commits (`feat(tui): add exec command grammar`, `refactor(tui): share startup resolution`, `feat(tui): support headless controller lifecycle`, `feat(tui): run prompts headlessly`). Notable specifics beyond the plan:
+### Streamed output (`--output-format text|stream-json`)
 
-- **CLI dispatch** keys off `argv[0]`: `exec` → headless, `--help`/`-h` → help, `--version`/`-v` → version, anything else → interactive. `runCli` injects argv/stdin/stdout/stderr/env/cwd plus the interactive/headless frontends for unit tests; only `bin/swain.tsx` assigns `process.exitCode`.
-- **Startup extraction** lives in `startup.ts` as `loadStartup(env, policy)` (returns `{ configPath, config, needsMigration }`), `migrateLegacyAuth`, `resolveInteractiveModel`, and `resolveHeadlessModel`. The Codex CLI bootstrap moved to `codex-auth.ts` as `mergeCodexCliCredentials`. Env→provider credential mapping is `environmentCredentialSources` in `models.ts`.
-- **`waitUntilIdle`** uses a `signalProgress`/`nextProgress` condvar (register-before-observe to avoid lost wake-ups) rather than polling; it proactively drives one `maybeDrainCompletions` pass per iteration, relying on the synchronous drain guard to serialize against the background completion listener.
-- **`runHeadless`** takes an optional second argument `HeadlessTestDeps` (`{ llmLayer? }`) so tests inject a mock LLM; the CLI passes nothing. Signal handlers are registered with `process.on` and invoked directly in tests via `process.listeners`.
-- `@swain/tui/package.json` gained a `version` field for semantic-release; source runs still report `dev` via the `__SWAIN_VERSION__` define in `version.ts`.
+Added after the initial four tasks so an eval harness can observe a run's progress, not just its final answer. Default (`text`) is unchanged — only the final assistant text plus a newline.
+
+- **Motivation.** A programmatic consumer (e.g. autoir2, which spawns `claude --output-format stream-json --verbose` and parses its JSONL) needs incremental, structured events, not a human stream. `text` stays the default because plain-answer callers want a clean single value on stdout; streaming is opt-in.
+- **Schema.** `stream-json` writes newline-delimited JSON to stdout — an `init` line, one line per committed assistant/tool message, then a terminal `result` line. Structure loosely mirrors Claude Code's stream (init/assistant/result) so a Claude-shaped consumer adapts easily, but it is deliberately not a field-for-field copy: swain-native block names, camelCase fields, only the data swain actually has (no session id, cost, cache tokens, or hook events).
+  - `{"type":"init","model":"provider:model[:variant]","permissionMode":"auto|plan","cwd":...,"router":bool}`
+  - `{"type":"assistant","content":[…]}` per committed assistant message. Blocks: `text`, `reasoning`, and `tool-call` (`toolCallId`→`id`, plus `name`/`input`).
+  - `{"type":"user","content":[…]}` only when a committed user message carries tool results; each `tool-result` block is `{id,name?,isError,result}` with the tool value unwrapped. The initial prompt echo and meta rows (model-switch, compaction) are skipped.
+  - `{"type":"result","subtype":"success|error_during_execution|interrupted","isError":bool,"result"?:string}`. `success` carries the final text (exit 0); `error_during_execution` carries the fatal message (exit 1); `interrupted` fires on SIGINT/SIGTERM (exit 130/143) with no `result`.
+- **Granularity is committed-part, never token deltas.** Events derive from `session.messages` via a cursor advanced on each `controller.subscribe` notification, so retries never re-emit — the same dedup guarantee the `text` path relies on. Recoverable diagnostics still go to stderr, keeping stdout pure NDJSON.
