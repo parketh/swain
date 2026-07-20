@@ -36,7 +36,8 @@ export const saveAuth = (
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
     const body = JSON.stringify(store, null, 2)
-    const failWrite = (e: unknown) => new ConfigError({ reason: "write-failed", message: String(e) })
+    const failWrite = (e: unknown) =>
+      new ConfigError({ reason: "write-failed", message: String(e) })
     yield* fs
       .makeDirectory(NodePath.dirname(path), { recursive: true, mode: DIR_MODE })
       .pipe(Effect.mapError(failWrite))

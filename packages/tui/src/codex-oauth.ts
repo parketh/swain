@@ -61,7 +61,12 @@ export type CodexLoginResult =
   | { readonly ok: true; readonly accountId?: string }
   | {
       readonly ok: false
-      readonly reason: "port-busy" | "timeout" | "invalid-callback" | "exchange-failed" | "cancelled"
+      readonly reason:
+        | "port-busy"
+        | "timeout"
+        | "invalid-callback"
+        | "exchange-failed"
+        | "cancelled"
       readonly message?: string
     }
 

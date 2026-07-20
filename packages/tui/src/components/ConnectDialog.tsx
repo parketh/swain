@@ -87,9 +87,7 @@ const OAuthPanel = ({
       ) : phase === "running" ? (
         <Box flexDirection="column">
           <Text color="cyan">Opening browser… waiting for sign-in ({remaining}s)</Text>
-          {url !== undefined && (
-            <Text color={theme.muted}>Or open this URL manually: {url}</Text>
-          )}
+          {url !== undefined && <Text color={theme.muted}>Or open this URL manually: {url}</Text>}
         </Box>
       ) : phase === "success" ? (
         <Text color="green">
