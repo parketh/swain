@@ -985,10 +985,17 @@ export const makeController = (deps: ControllerDeps): Controller => {
       }
       // loginCodex persists the minted tokens straight to auth.json; here we only
       // mirror them into live config so the provider is configured immediately.
-      const result = await loginCodex(deps.configPath, {
-        ...(onUrl !== undefined && { onUrl }),
-        ...(signal !== undefined && { signal }),
-      })
+      // A throwing onUrl callback escapes loginCodex's own handling, so catch it
+      // and return the documented failure result rather than rejecting.
+      let result: Awaited<ReturnType<typeof loginCodex>>
+      try {
+        result = await loginCodex(deps.configPath, {
+          ...(onUrl !== undefined && { onUrl }),
+          ...(signal !== undefined && { signal }),
+        })
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) }
+      }
       if (!result.ok) {
         return {
           ok: false,
