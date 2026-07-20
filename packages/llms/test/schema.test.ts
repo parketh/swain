@@ -130,6 +130,25 @@ describe("message constructors", () => {
     expect(Either.isLeft(decoded)).toBe(true)
   })
 
+  test("a non-ISO createdAt fails to decode", () => {
+    const decoded = Schema.decodeUnknownEither(Message)({
+      role: "user",
+      content: [{ type: "text", text: "hi" }],
+      createdAt: "yesterday",
+    })
+    expect(Either.isLeft(decoded)).toBe(true)
+  })
+
+  test("a negative duration fails to decode", () => {
+    const decoded = Schema.decodeUnknownEither(Message)({
+      role: "assistant",
+      content: [{ type: "text", text: "hi" }],
+      createdAt: "2026-07-17T10:00:00.000Z",
+      responseDurationMs: -1,
+    })
+    expect(Either.isLeft(decoded)).toBe(true)
+  })
+
   test("no constructor permits a system role in messages", () => {
     const decoded = Schema.decodeUnknownEither(Message)({
       role: "system",

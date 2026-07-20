@@ -36,6 +36,14 @@ export const ToolResultValue = Schema.Union(
 )
 export type ToolResultValue = typeof ToolResultValue.Type
 
+/** ISO-8601 UTC timestamp string (e.g. `2026-07-17T10:00:00.000Z`); fractional
+ * seconds optional. Validated at decode so malformed persisted rows are rejected. */
+const UtcTimestamp = Schema.String.pipe(
+  Schema.pattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/),
+)
+/** Non-negative elapsed milliseconds; rejects negative persisted durations. */
+const DurationMs = Schema.Number.pipe(Schema.nonNegative())
+
 export const ToolResultContent = Schema.Struct({
   type: Schema.Literal("tool-result"),
   toolCallId: ToolCallId,
@@ -44,7 +52,7 @@ export const ToolResultContent = Schema.Struct({
   isError: Schema.optional(Schema.Boolean),
   /** Local-only tool execution latency in milliseconds. Present only for tools
    * whose core definition opts into timing; never sent to a provider. */
-  durationMs: Schema.optional(Schema.Number),
+  durationMs: Schema.optional(DurationMs),
 })
 export type ToolResultContent = typeof ToolResultContent.Type
 
@@ -119,9 +127,9 @@ export type AssistantContent = typeof AssistantContent.Type
  * these are ever lowered into a provider request.
  */
 const timingFields = {
-  createdAt: Schema.String,
-  responseDurationMs: Schema.optional(Schema.Number),
-  turnDurationMs: Schema.optional(Schema.Number),
+  createdAt: UtcTimestamp,
+  responseDurationMs: Schema.optional(DurationMs),
+  turnDurationMs: Schema.optional(DurationMs),
 }
 
 export const UserMessage = Schema.Struct({
