@@ -1,6 +1,7 @@
 export * from "./anthropic"
 export * from "./codex-oauth"
 export * from "./deepseek"
+export * from "./kimi"
 export * from "./openai"
 export * from "./openai-codex"
 export * from "./openai-compatible"

@@ -20,6 +20,7 @@ import {
   type PermissionDecision,
   type PermissionMode,
   pendingParentNotifications,
+  REASONING_LOSS_COMPACTION_WARNING,
   readPersistedModelRef,
   recordInterruption,
   recordModelTransition,
@@ -34,6 +35,7 @@ import {
   TaskStore,
   type TaskStoreService,
   toolResultStoreLayer,
+  warnsOnReasoningLoss,
 } from "@swain/core"
 import type { AskHandler, AskInput, AskResult } from "@swain/core/tools"
 import type { GenerationOptions, ProviderOptions } from "@swain/llms"
@@ -758,6 +760,9 @@ export const makeController = (deps: ControllerDeps): Controller => {
     notify()
     try {
       const result = await runtime.runPromise(compactSession(session, { reason }))
+      if (warnsOnReasoningLoss(session)) {
+        emitEvent({ type: "compaction-warning", message: REASONING_LOSS_COMPACTION_WARNING })
+      }
       if (persist) await runtime.runPromise(saveSession(session, sessionsDirFor(session)))
       return result
     } catch (error) {

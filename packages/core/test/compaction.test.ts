@@ -8,6 +8,7 @@ import {
   deriveContext,
   isValidlyPaired,
   selectCut,
+  warnsOnReasoningLoss,
 } from "../src/context"
 import { createSessionState, type SessionState } from "../src/state"
 import { scriptedLLMClient } from "./utils/harness"
@@ -164,6 +165,52 @@ describe("compaction", () => {
     )
     expect(error._tag).toBe("CompactionError")
     if (error._tag === "CompactionError") expect(error.reason).toBe("empty-summary")
+  })
+
+  test("compaction runs on a warnOnReasoningLoss model and keeps retained reasoning paired", async () => {
+    const warnModel: Model = {
+      id: ModelId.make("kimi-k3"),
+      provider: ProviderId.make("kimi"),
+      warnOnReasoningLoss: true,
+      streamTurn: () => {
+        throw new Error("unused")
+      },
+    }
+    const history: Array<Message> = [
+      Msg.user("first prompt"),
+      Msg.assistant([
+        { type: "reasoning", text: "early thoughts" },
+        { type: "text", text: "working" },
+      ]),
+      Msg.user("second prompt"),
+      Msg.assistant([
+        { type: "reasoning", text: "late thoughts" },
+        { type: "text", text: "final answer" },
+      ]),
+    ]
+    const state = createSessionState({
+      workingDirectory: "/work",
+      model: warnModel,
+      currentDate: "2026-07-13",
+      messages: history,
+    })
+    expect(warnsOnReasoningLoss(state)).toBe(true)
+
+    // Compaction runs on K3 exactly like any model — no CompactionError.
+    const result = await run(state, { reason: "manual", tailBudget: 20 })
+    expect(result.compactedMessages).toBeGreaterThan(0)
+
+    // The retained tail still carries its canonical reasoning, validly paired.
+    const { messages: context } = deriveContext(state.messages)
+    expect(isValidlyPaired(context)).toBe(true)
+    const retainsReasoning = context.some(
+      (m) => m.role === "assistant" && m.content.some((b) => b.type === "reasoning"),
+    )
+    expect(retainsReasoning).toBe(true)
+  })
+
+  test("warnsOnReasoningLoss is false for models without the flag", () => {
+    expect(warnsOnReasoningLoss(session(transcript()))).toBe(false)
   })
 
   test("a tool call in the summary response is a compaction failure", async () => {

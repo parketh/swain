@@ -14,7 +14,9 @@ import {
 import type { LLMEvent, LLMRequest, Model } from "@swain/llms"
 import { ContentId, LLMError, Message, ModelId, ProviderId, ToolCallId } from "@swain/llms"
 import { LLMClient } from "@swain/llms/client"
+import { OpenAIChat } from "@swain/llms/protocols"
 import { Effect, Layer, Stream } from "effect"
+import { buildItems, emptyDraft } from "../src/components/Transcript"
 import { sessionsDir, type TuiConfig } from "../src/config"
 import { type Controller, makeController } from "../src/controller"
 
@@ -103,6 +105,59 @@ describe("controller", () => {
     })
     return controller
   }
+
+  test("a K3 session persists reasoning, replays it as reasoning_content, and keeps it hidden", async () => {
+    const r = ContentId.make("r-k3")
+    const t = ContentId.make("t-k3")
+    const reasoningTurn: ReadonlyArray<LLMEvent> = [
+      { type: "reasoning-start", contentId: r },
+      { type: "reasoning-delta", contentId: r, text: "k3 chain of thought" },
+      { type: "reasoning-end", contentId: r },
+      { type: "text-start", contentId: t },
+      { type: "text-delta", contentId: t, text: "the answer" },
+      { type: "text-end", contentId: t },
+      { type: "finish", reason: "stop", usage: { inputTokens: 1, outputTokens: 1 } },
+    ]
+    const llm = scripted([reasoningTurn, textTurn("follow up")])
+    const session = createSessionState({
+      workingDirectory: dir,
+      model: testModel,
+      permissionMode: "auto",
+      currentDate: "2026-07-05",
+    })
+    const c = makeController({
+      session,
+      activeModel: { provider: "kimi", modelId: "kimi-k3", variant: "max" },
+      config: { providers: { kimi: { apiKey: "sk-kimi" } } },
+      configPath: join(dir, "config.json"),
+      llmLayer: llm.layer,
+      persist: false,
+    })
+    controller = c
+    await c.submitPrompt("first")
+    await c.submitPrompt("second")
+
+    // Reasoning is persisted in canonical history…
+    const assistant = c.getState().session.messages.find((m) => m.role === "assistant")
+    expect(assistant?.content.some((b) => (b as { type: string }).type === "reasoning")).toBe(true)
+
+    // …replayed to K3 on the follow-up request as reasoning_content…
+    const secondRequest = llm.requests[llm.requests.length - 1]!
+    const wire = OpenAIChat.prepare(
+      { modelId: "kimi-k3", messages: secondRequest.messages },
+      { optionsKey: "kimi", reasoningHistory: "reasoning_content" },
+    ).body.messages as Array<Record<string, unknown>>
+    expect(wire.find((m) => m.reasoning_content !== undefined)?.reasoning_content).toBe(
+      "k3 chain of thought",
+    )
+
+    // …and never rendered as a transcript item.
+    const items = buildItems(c.getState().session.messages, emptyDraft)
+    expect(items.some((i) => (i as { kind: string }).kind === "reasoning")).toBe(false)
+    expect(items.some((i) => i.kind === "text" && i.text.includes("k3 chain of thought"))).toBe(
+      false,
+    )
+  })
 
   test("submitting a prompt appends a user message", async () => {
     const c = build(scripted([textTurn("ok")]))

@@ -9,6 +9,10 @@ import {
   DeepSeekModelDefaultVariant,
   DeepSeekModelVariants,
   DeepSeekVariant,
+  KimiModel,
+  KimiModelDefaultVariant,
+  KimiModelVariants,
+  KimiVariant,
   OpenAIModel,
   OpenAIModelDefaultVariant,
   OpenAIModelVariants,
@@ -21,6 +25,7 @@ import {
 import {
   Anthropic as AnthropicProvider,
   DeepSeek as DeepSeekProvider,
+  Kimi as KimiProvider,
   OpenAI as OpenAIProvider,
   Pollinations,
   ZAI as ZAIProvider,
@@ -107,6 +112,10 @@ const ROUTING: Record<string, Record<string, RoutingProfile>> = {
     [ZAIVariant.High]: p(),
     [ZAIVariant.Max]: { capability: 51, avgCostPerTask: 0.37 },
   },
+  // AA data retrieved 2026-07-17; K3 is newly published, so revisit as benchmarks settle.
+  [KimiModel.K3]: {
+    [KimiVariant.Max]: { capability: 57, avgCostPerTask: 0.95 },
+  },
 }
 
 /** Routing signals for a model variant, or `undefined` when none are recorded. */
@@ -125,6 +134,8 @@ const PRICES: Record<string, { readonly input: number; readonly output: number }
   [DeepSeekModel.V4_Flash]: { input: 0.14, output: 0.28 },
   [DeepSeekModel.V4_Pro]: { input: 0.44, output: 0.87 },
   [ZAIModel.GLM_5_2]: { input: 1.4, output: 4.4 },
+  // Kimi publishes a cache-hit input price too; the catalog models cache-miss only.
+  [KimiModel.K3]: { input: 3, output: 15 },
 }
 
 interface VariantSpec {
@@ -161,6 +172,8 @@ const LIMITS: Record<string, ModelLimits> = {
   [DeepSeekModel.V4_Flash]: { contextWindow: 1_000_000, maxOutputTokens: 384_000 },
   [DeepSeekModel.V4_Pro]: { contextWindow: 1_000_000, maxOutputTokens: 384_000 },
   [ZAIModel.GLM_5_2]: { contextWindow: 1_000_000, maxOutputTokens: 128_000 },
+  // maxOutputTokens is an output-reserve/accounting value, not a forced cap.
+  [KimiModel.K3]: { contextWindow: 1_048_576, maxOutputTokens: 131_072 },
 }
 
 // The Codex surface serves OpenAI models with a smaller context window than
@@ -247,6 +260,17 @@ const gradedVariants = <E extends readonly string[]>(
     }),
   )
 
+// Kimi K3 exposes a single fixed reasoning effort (`max`); no graded ladder.
+const kimiVariants = (model: KimiModel): ReadonlyArray<VariantSpec> =>
+  KimiModelVariants[model].map((effort) =>
+    withRouting(model, effort, {
+      id: effort,
+      label: effort,
+      providerOptions: { kimi: { reasoningEffort: effort } },
+      ...(effort === KimiModelDefaultVariant[model] && { default: true }),
+    }),
+  )
+
 const CATALOG: ReadonlyArray<ProviderSpec> = [
   {
     id: Provider.Anthropic,
@@ -306,6 +330,25 @@ const CATALOG: ReadonlyArray<ProviderSpec> = [
     ],
     build: (modelId, creds) =>
       OpenAIProvider.configure({
+        ...(creds?.apiKey !== undefined && { apiKey: creds.apiKey }),
+        ...(creds?.baseURL !== undefined && { baseURL: creds.baseURL }),
+      }).chat(modelId),
+  },
+  {
+    id: Provider.Kimi,
+    label: "Kimi",
+    popular: false,
+    requiredFields: ["apiKey"],
+    models: [
+      {
+        id: KimiModel.K3,
+        lab: Lab.Kimi,
+        label: "Kimi K3",
+        variants: kimiVariants(KimiModel.K3),
+      },
+    ],
+    build: (modelId, creds) =>
+      KimiProvider.configure({
         ...(creds?.apiKey !== undefined && { apiKey: creds.apiKey }),
         ...(creds?.baseURL !== undefined && { baseURL: creds.baseURL }),
       }).chat(modelId),

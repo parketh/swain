@@ -60,6 +60,18 @@ Rules:
 - If an earlier summary is present, update it: keep still-true facts, drop stale facts, merge new facts.
 - Do not mention the compaction process itself.`
 
+/**
+ * Notice surfaced when compaction runs on a model that depends on full reasoning
+ * history (Kimi K3). Moonshot flags dropping cross-turn reasoning as risky, but
+ * compaction still runs — the same lossy tradeoff every model makes.
+ */
+export const REASONING_LOSS_COMPACTION_WARNING =
+  "Compacted a session on a model that relies on full reasoning history (Kimi K3). Moonshot flags cross-turn reasoning loss as risky; reasoning in the compacted turns will not be replayed."
+
+/** Whether compacting this session risks reasoning loss the model depends on. */
+export const warnsOnReasoningLoss = (session: SessionState): boolean =>
+  session.systemContext.model.warnOnReasoningLoss === true
+
 const compactionBlock = (message: Message): CompactionContent | undefined =>
   message.role === "user"
     ? (message.content.find((b) => b.type === "compaction") as CompactionContent | undefined)

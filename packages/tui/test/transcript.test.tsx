@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Message } from "@swain/llms"
-import { buildItems, emptyDraft, type ToolRow } from "../src/components/Transcript"
+import { buildItems, emptyDraft, foldEvent, type ToolRow } from "../src/components/Transcript"
 
 const diffText = "@@ -1,1 +1,1 @@\n-const b = 2\n+const b = 3\n"
 
@@ -51,6 +51,39 @@ describe("Transcript compaction rendering", () => {
     expect(item.kind).toBe("compaction")
     if (item.kind === "compaction") expect(item.compactedMessages).toBe(12)
     expect(items.some((i) => i.kind === "text" && i.role === "user")).toBe(false)
+  })
+})
+
+describe("Transcript reasoning hiding", () => {
+  test("assistant reasoning blocks never become transcript items while text stays visible", () => {
+    const messages = [
+      {
+        role: "assistant",
+        content: [
+          { type: "reasoning", text: "secret chain of thought" },
+          { type: "text", text: "the visible answer" },
+        ],
+      },
+      // biome-ignore lint/suspicious/noExplicitAny: opaque persisted content blocks
+    ] as any as ReadonlyArray<Message>
+    const items = buildItems(messages, emptyDraft)
+    const texts = items.flatMap((i) => (i.kind === "text" ? [i.text] : []))
+    expect(texts).toContain("the visible answer")
+    expect(texts.join("\n")).not.toContain("secret chain of thought")
+    // There is no reasoning item kind at all.
+    expect(items.some((i) => (i as { kind: string }).kind === "reasoning")).toBe(false)
+  })
+})
+
+describe("Transcript compaction-warning channel", () => {
+  test("a compaction-warning folds into a notice item, not a red error", () => {
+    const draft = foldEvent(emptyDraft, {
+      type: "compaction-warning",
+      message: "reasoning may be lost",
+    })
+    const items = buildItems([], draft)
+    expect(items.some((i) => i.kind === "notice" && i.text === "reasoning may be lost")).toBe(true)
+    expect(items.some((i) => i.kind === "error")).toBe(false)
   })
 })
 

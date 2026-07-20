@@ -17,7 +17,9 @@ export {
   compactSession,
   deriveContext,
   isValidlyPaired,
+  REASONING_LOSS_COMPACTION_WARNING,
   selectCut,
+  warnsOnReasoningLoss,
 } from "./compaction"
 export { defaultTokenCounter, type TokenCounter } from "./token-counter"
 export {

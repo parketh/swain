@@ -611,6 +611,90 @@ describe("App", () => {
     expect(clean(lastFrame() ?? "")).toContain("boom-visible")
   })
 
+  test("streamed reasoning is hidden while assistant text stays visible", async () => {
+    const r = ContentId.make("r-1")
+    const turn: ReadonlyArray<LLMEvent> = [
+      { type: "reasoning-start", contentId: r },
+      { type: "reasoning-delta", contentId: r, text: "hidden-chain-of-thought" },
+      { type: "reasoning-end", contentId: r },
+      { type: "text-start", contentId },
+      { type: "text-delta", contentId, text: "visible-assistant-text" },
+      { type: "text-end", contentId },
+      { type: "finish", reason: "stop", usage: { inputTokens: 1, outputTokens: 1 } },
+    ]
+    const { stdin, lastFrame } = render(<App controller={makeCtrl([turn])} />)
+    await flush()
+    stdin.write("go")
+    await flush()
+    stdin.write("\r")
+    await flush()
+    await flush()
+    const frame = clean(lastFrame() ?? "")
+    expect(frame).toContain("visible-assistant-text")
+    expect(frame).not.toContain("hidden-chain-of-thought")
+  })
+
+  test("streamed reasoning stays hidden mid-turn, before finish clears it", async () => {
+    const r = ContentId.make("r-2")
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    // Reasoning and the visible text have both streamed, but the turn is paused
+    // before text-end/finish — the exact window where reasoning transiently
+    // rendered during streaming would still be on screen if it weren't hidden.
+    const streamed: ReadonlyArray<LLMEvent> = [
+      { type: "reasoning-start", contentId: r },
+      { type: "reasoning-delta", contentId: r, text: "hidden-chain-of-thought" },
+      { type: "reasoning-end", contentId: r },
+      { type: "text-start", contentId },
+      { type: "text-delta", contentId, text: "visible-assistant-text" },
+    ]
+    const tail: ReadonlyArray<LLMEvent> = [
+      { type: "text-end", contentId },
+      { type: "finish", reason: "stop", usage: { inputTokens: 1, outputTokens: 1 } },
+    ]
+    const gatedLayer = Layer.succeed(LLMClient.Service, {
+      request: LLMClient.request,
+      streamTurn: () =>
+        Stream.fromIterable(streamed).pipe(
+          Stream.concat(Stream.fromEffect(Effect.promise(() => gate)).pipe(Stream.drain)),
+          Stream.concat(Stream.fromIterable(tail)),
+        ),
+      generateTurn: () => Effect.succeed({ events: [] }),
+    })
+    const session = createSessionState({
+      workingDirectory: dir,
+      model: testModel,
+      permissionMode: "ask",
+      currentDate: "2026-07-05",
+    })
+    const c = makeController({
+      session,
+      activeModel: { provider: "anthropic", modelId: "claude-opus-4-8" },
+      config,
+      configPath: join(dir, "config.json"),
+      llmLayer: gatedLayer,
+      persist: false,
+    })
+    built.push(c)
+    const { stdin, lastFrame } = render(<App controller={c} />)
+    await flush()
+    stdin.write("go")
+    await flush()
+    stdin.write("\r")
+    await flush()
+    const paused = clean(lastFrame() ?? "")
+    expect(paused).toContain("visible-assistant-text")
+    expect(paused).not.toContain("hidden-chain-of-thought")
+    release()
+    await flush()
+    await flush()
+    const final = clean(lastFrame() ?? "")
+    expect(final).toContain("visible-assistant-text")
+    expect(final).not.toContain("hidden-chain-of-thought")
+  })
+
   test("typing /he shows /help and highlights the command token", async () => {
     const { stdin, lastFrame } = render(<App controller={makeCtrl()} />)
     stdin.write("/he")
@@ -820,6 +904,44 @@ describe("App", () => {
     await flush()
     expect(lastFrame()).toContain("Select a model")
     expect(lastFrame()).toContain("claude-opus-4-8")
+  })
+
+  test("/model lists Kimi K3 and its single max variant", async () => {
+    const session = createSessionState({
+      workingDirectory: dir,
+      model: testModel,
+      permissionMode: "ask",
+      currentDate: "2026-07-05",
+    })
+    const c = makeController({
+      session,
+      activeModel: { provider: "kimi", modelId: "kimi-k3", variant: "max" },
+      config: { providers: { kimi: { apiKey: "sk-kimi" } } },
+      configPath: join(dir, "config.json"),
+      llmLayer: scripted([[]]),
+      persist: false,
+    })
+    built.push(c)
+    const { stdin, lastFrame } = render(<App controller={c} />)
+    stdin.write("/model ")
+    await flush()
+    stdin.write("\r")
+    await flush()
+    expect(lastFrame()).toContain("Select a model")
+    expect(lastFrame()).toContain("kimi-k3")
+    stdin.write("kimi") // filter to the Kimi K3 row
+    await flush()
+    stdin.write("\r") // single provider → straight to the variant step
+    await flush()
+    expect(lastFrame()).toContain("Select a variant for kimi-k3")
+    expect(lastFrame()).toContain("max")
+    stdin.write("\r") // pick the default max variant → commit
+    await flush()
+    expect(c.getState().activeModel).toMatchObject({
+      provider: "kimi",
+      modelId: "kimi-k3",
+      variant: "max",
+    })
   })
 
   const makeMultiProviderCtrl = (): Controller => {

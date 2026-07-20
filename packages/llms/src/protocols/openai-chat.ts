@@ -62,6 +62,15 @@ export interface OpenAIChatProfile {
   readonly optionsKey?: string
   /** Set false for deployments that reject `stream_options`. */
   readonly includeUsage?: boolean
+  /**
+   * Opt-in replay of assistant reasoning history. When `"reasoning_content"`,
+   * each assistant message's reasoning blocks are concatenated (no separators)
+   * into a message-level `reasoning_content` field, as Kimi's thinking models
+   * require. Default profiles keep reasoning local and never send it.
+   */
+  readonly reasoningHistory?: "reasoning_content"
+  /** Wire field for the output-token limit. Defaults to `"max_tokens"`. */
+  readonly maxTokensField?: "max_tokens" | "max_completion_tokens"
 }
 
 const lowerToolResult = (result: ToolResultValue): string =>
@@ -82,6 +91,7 @@ const lowerToolChoice = (choice: ToolChoice) =>
 const lowerMessages = (
   system: SystemContent | undefined,
   messages: ReadonlyArray<Message>,
+  profile: OpenAIChatProfile,
 ): Array<Record<string, unknown>> => {
   const wire: Array<Record<string, unknown>> = []
   if (system !== undefined) {
@@ -110,10 +120,13 @@ const lowerMessages = (
       }
     } else {
       const texts: Array<string> = []
+      const reasoning: Array<string> = []
       const toolCalls: Array<Record<string, unknown>> = []
       for (const block of message.content) {
         if (block.type === "text") {
           texts.push(block.text)
+        } else if (block.type === "reasoning") {
+          reasoning.push(block.text)
         } else if (block.type === "tool-call") {
           toolCalls.push({
             id: block.toolCallId,
@@ -121,10 +134,20 @@ const lowerMessages = (
             function: { name: block.name, arguments: JSON.stringify(block.input) },
           })
         }
-        // Reasoning blocks have no OpenAI Chat wire form; they stay local.
+      }
+      // Reasoning replays only for opted-in profiles, and only when it carries
+      // real text — an empty reasoning block (e.g. reasoning-start with no
+      // deltas) must not force `reasoning_content: ""` onto the wire.
+      const reasoningText = reasoning.join("")
+      const replayReasoning =
+        profile.reasoningHistory === "reasoning_content" && reasoningText !== ""
+      // Skip an assistant message with nothing to send on the wire.
+      if (texts.length === 0 && toolCalls.length === 0 && !replayReasoning) {
+        continue
       }
       wire.push({
         role: "assistant",
+        ...(replayReasoning ? { reasoning_content: reasoningText } : {}),
         content: texts.length > 0 ? texts.join("\n\n") : null,
         ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
       })
@@ -145,7 +168,7 @@ const prepare = (
     {}) as OpenAIChatOptions
   const body: Record<string, unknown> = {
     model: request.modelId,
-    messages: lowerMessages(request.system, request.messages),
+    messages: lowerMessages(request.system, request.messages, profile),
     stream: true,
     ...(profile.includeUsage === false ? {} : { stream_options: { include_usage: true } }),
     ...(request.tools !== undefined && request.tools.length > 0
@@ -155,7 +178,7 @@ const prepare = (
       ? { tool_choice: lowerToolChoice(request.toolChoice) }
       : {}),
     ...(request.generation?.maxTokens !== undefined
-      ? { max_tokens: request.generation.maxTokens }
+      ? { [profile.maxTokensField ?? "max_tokens"]: request.generation.maxTokens }
       : {}),
     ...(request.generation?.stop !== undefined ? { stop: [...request.generation.stop] } : {}),
     ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),

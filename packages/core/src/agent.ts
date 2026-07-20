@@ -14,10 +14,12 @@ import {
   compactSession,
   defaultTokenCounter,
   deriveContext,
+  REASONING_LOSS_COMPACTION_WARNING,
   type RequestShape,
   recordContextUsage,
   shouldAutoCompact,
   ToolResultStoreService,
+  warnsOnReasoningLoss,
 } from "./context"
 import { AgentError } from "./errors"
 import { type ModelResolver, ModelResolverService } from "./model-resolver"
@@ -123,6 +125,7 @@ export type AgentEvent =
       readonly message: string
       readonly recoverable?: boolean
     }
+  | { readonly type: "compaction-warning"; readonly message: string }
   | { readonly type: "task-updated"; readonly tasks: ReadonlyArray<Task> }
   | { readonly type: "model-switch"; readonly to: SessionModelRef }
   | {
@@ -324,6 +327,20 @@ const executeTools = (
  * `Effect<void>` and its session mutations are unchanged for callers that omit
  * it.
  */
+/**
+ * Emits the reasoning-loss notice after compaction runs on a model that depends
+ * on full reasoning history (Kimi K3) — once per compaction, not once per
+ * session. Compaction itself is unchanged; this only surfaces Moonshot's
+ * cross-turn-loss warning to the user.
+ */
+const warnCompactionReasoningLoss = (
+  session: SessionState,
+  emit: (event: AgentEvent) => Effect.Effect<void>,
+): Effect.Effect<void> =>
+  warnsOnReasoningLoss(session)
+    ? emit({ type: "compaction-warning", message: REASONING_LOSS_COMPACTION_WARNING })
+    : Effect.void
+
 export const runTurn = (
   session: SessionState,
   options: RunTurnOptions = {},
@@ -379,6 +396,7 @@ export const runTurn = (
     const shape: RequestShape = { system: buildSystem(), tools: llmTools }
     if (shouldAutoCompact(session, shape, defaultTokenCounter)) {
       yield* compactSession(session, { reason: "auto" }).pipe(
+        Effect.tap(() => warnCompactionReasoningLoss(session, emit)),
         Effect.catchAll((error) =>
           Effect.sync(() => {
             Object.assign(session.compaction, {
@@ -429,6 +447,7 @@ const runWithOverflowRetry = (
   loop(session, ctx, 0, false).pipe(
     Effect.catchIf(isContextOverflowError, (overflow) =>
       compactSession(session, { reason: "overflow" }).pipe(
+        Effect.tap(() => warnCompactionReasoningLoss(session, ctx.emit)),
         Effect.catchAll(() => Effect.fail(overflow)),
         Effect.andThen(loop(session, ctx, 0, false)),
       ),
@@ -542,10 +561,23 @@ const loop = (
     if (firstSwitch !== undefined) {
       const outcome = yield* resolveSwitch(session, firstSwitch, switched, ctx.resolver)
       if (outcome.kind === "switched") {
-        // Replace the whole switching assistant message with the meta switch
-        // message: no orphan tool_use (switch or sibling) survives, so no
-        // tool_result is owed. Any siblings are dropped and reissued next turn.
-        session.messages[session.messages.length - 1] = outcome.meta
+        // Sanitize the switching assistant message: keep its reasoning/text so
+        // the switch's rationale survives (K3 needs the reasoning history), but
+        // drop every tool_use block (the switch call and any siblings) so no
+        // orphan tool_result is owed. Siblings are reissued next turn. A
+        // tool-only step leaves nothing to retain, so the marker stands alone.
+        const lastIndex = session.messages.length - 1
+        const switching = session.messages[lastIndex]
+        const retained =
+          switching?.role === "assistant"
+            ? switching.content.filter((block) => block.type !== "tool-call")
+            : []
+        if (retained.length > 0) {
+          session.messages[lastIndex] = Message.assistant(retained)
+          session.messages.push(outcome.meta)
+        } else {
+          session.messages[lastIndex] = outcome.meta
+        }
         // Signal the switch so the UI can reflect the new current model mid-turn
         // (the turn continues on the target); session state is already updated.
         yield* ctx.emit({ type: "model-switch", to: session.systemContext.modelRef })
