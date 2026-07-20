@@ -404,3 +404,13 @@ test("oauth provider without a refresh token is not configured", () => {
 
 1. **Tier 2 cross-process durability ("retry-on-reuse"):** on a `401 refresh_token_reused`, re-read `auth.json` and, if the stored refresh token differs from the one just tried, retry the refresh once with the stored token before surfacing an error. Closes the two-simultaneous-swain-instances race that Task 1's per-turn re-read and the provider's in-process single-flight gate don't cover. ~20 lines in the `llms` refresh path + a test. Deferred: the race needs two swain processes inside the same ~1-min expiry window (rare).
 2. **Device-code / headless flow:** `requestDeviceCode()` / `pollDeviceToken()` in `llms` + a tui fallback when no browser can be opened (SSH/containers). The `llms` and `tui` modules are structured to accept it without refactor.
+
+---
+
+## Post-Implementation Changes
+
+- **PKCE challenge is synchronous.** `generatePkce` uses `node:crypto`'s `createHash("sha256")` rather than the async `crypto.subtle.digest`, so it returns `{ verifier, challenge }` directly (the Task 4 tests call it synchronously).
+- **Code exchange gets its HttpClient from `FetchHttpClient.layer`.** `loginCodex` provides `FetchHttpClient.layer` (the layer the runtime already uses) for `exchangeCode`, and `BunContext.layer` for `persistCodexCredentials`.
+- **Shared `tokensToCredentials` fails closed on a missing refresh token.** The extracted helper takes an optional `fallbackRefresh` (the refresh path passes the token it just spent); with no rotated token and no fallback it fails with `auth-failed`, so the initial-login path never returns a credential without a refresh token.
+- **`ConnectResult` carries an optional `accountId`**, populated by `loginProvider` so the OAuth panel can show "Signed in as …".
+- Task 9's manual browser run is left to the operator; it cannot be exercised in CI (no real OpenAI login / port bind).
