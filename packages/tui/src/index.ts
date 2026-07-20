@@ -2,11 +2,9 @@ import { BunContext } from "@effect/platform-bun"
 import { createSessionState, type PermissionMode } from "@swain/core"
 import type { Model } from "@swain/llms"
 import { ModelId, ProviderId } from "@swain/llms"
-import { OPENAI_CODEX_PROVIDER_ID } from "@swain/llms/providers"
 import { Effect, Stream } from "effect"
 import { startApp } from "./app"
 import { authPath, loadAuth, saveAuth } from "./auth"
-import { loadCodexCliCredentials } from "./codex-auth"
 import {
   type ActiveModel,
   defaultConfigPath,
@@ -85,27 +83,6 @@ export const run = async (options: RunOptions = {}): Promise<void> => {
   // Credentials live in auth.json; auth.json wins over any legacy plaintext keys
   // still sitting in config.json.
   const providers = { ...stored.providers, ...auth }
-  // Bootstrap Codex credentials from the Codex CLI's own store
-  // (~/.codex/auth.json) when swain has no refresh token of its own, so users who
-  // logged in with `codex` never paste a token and swain can refresh expired
-  // access tokens automatically. Adopt the CLI pair when it carries a refresh
-  // token, or when swain has no Codex access token at all.
-  if (providers[OPENAI_CODEX_PROVIDER_ID]?.refreshToken === undefined) {
-    const cli = await Effect.runPromise(
-      loadCodexCliCredentials(env).pipe(Effect.provide(BunContext.layer)),
-    ).catch(() => undefined)
-    if (
-      cli !== undefined &&
-      (cli.refreshToken !== undefined ||
-        providers[OPENAI_CODEX_PROVIDER_ID]?.accessToken === undefined)
-    ) {
-      providers[OPENAI_CODEX_PROVIDER_ID] = {
-        accessToken: cli.accessToken,
-        ...(cli.refreshToken !== undefined && { refreshToken: cli.refreshToken }),
-        ...(cli.accountId !== undefined && { accountId: cli.accountId }),
-      }
-    }
-  }
   const config: TuiConfig = { ...stored, providers }
   // One-time migration: move legacy plaintext keys out of config.json and into
   // auth.json (saveConfig strips providers, so this also cleans config.json).

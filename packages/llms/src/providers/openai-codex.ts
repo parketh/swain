@@ -103,6 +103,40 @@ interface TokenResponse {
   readonly id_token?: unknown
 }
 
+/**
+ * Normalizes an OpenAI OAuth token response into rotated credentials, shared by
+ * both the refresh and initial-login paths so they interpret the response
+ * consistently. `fallbackRefresh` (the refresh token just spent) is kept when the
+ * endpoint omits a rotated one, as OpenAI does on some refreshes.
+ */
+export const tokensToCredentials = (
+  json: unknown,
+  fallbackRefresh?: string,
+): Effect.Effect<RefreshedCodexCredentials, LLMError> => {
+  if (typeof json !== "object" || json === null) {
+    return Effect.fail(authFailed("token response is not an object"))
+  }
+  const tokens = json as TokenResponse
+  const accessToken = tokens.access_token
+  if (typeof accessToken !== "string" || accessToken === "") {
+    return Effect.fail(authFailed("token response is missing access_token"))
+  }
+  const nextRefresh =
+    typeof tokens.refresh_token === "string" && tokens.refresh_token !== ""
+      ? tokens.refresh_token
+      : fallbackRefresh
+  if (nextRefresh === undefined || nextRefresh === "") {
+    return Effect.fail(authFailed("token response is missing refresh_token"))
+  }
+  const idToken = typeof tokens.id_token === "string" ? tokens.id_token : accessToken
+  const accountId = accountIdFromToken(idToken) ?? accountIdFromToken(accessToken)
+  return Effect.succeed({
+    accessToken,
+    refreshToken: nextRefresh,
+    ...(accountId !== undefined && { accountId }),
+  })
+}
+
 /** Exchanges a refresh token for a fresh access token via the OpenAI OAuth endpoint. */
 const refreshAccessToken = (
   refreshToken: string,
@@ -114,26 +148,7 @@ const refreshAccessToken = (
       refresh_token: refreshToken,
       client_id: OPENAI_CODEX_CLIENT_ID,
     },
-  }).pipe(
-    Effect.flatMap((json) => {
-      const tokens = json as TokenResponse
-      const accessToken = tokens.access_token
-      if (typeof accessToken !== "string" || accessToken === "") {
-        return Effect.fail(authFailed("token refresh response is missing access_token"))
-      }
-      const nextRefresh =
-        typeof tokens.refresh_token === "string" && tokens.refresh_token !== ""
-          ? tokens.refresh_token
-          : refreshToken
-      const idToken = typeof tokens.id_token === "string" ? tokens.id_token : accessToken
-      const accountId = accountIdFromToken(idToken) ?? accountIdFromToken(accessToken)
-      return Effect.succeed({
-        accessToken,
-        refreshToken: nextRefresh,
-        ...(accountId !== undefined && { accountId }),
-      })
-    }),
-  )
+  }).pipe(Effect.flatMap((json) => tokensToCredentials(json, refreshToken)))
 
 /**
  * In-flight refreshes keyed by refresh token. Concurrent turns (e.g. parallel
@@ -178,6 +193,11 @@ interface ResolvedCredentials {
 const normalizeCredentials = (
   credentials: OpenAICodexCredentials,
 ): Effect.Effect<ResolvedCredentials, LLMError> => {
+  if (credentials.accessToken === "") {
+    return Effect.fail(
+      authFailed("Empty access token and no refresh token available to mint a replacement"),
+    )
+  }
   const accountId = credentials.accountId ?? accountIdFromToken(credentials.accessToken)
   if (accountId === undefined) {
     return Effect.fail(
@@ -225,19 +245,21 @@ const resolveCredentials = (
   Effect.gen(function* () {
     const raw = yield* rawCredentials(config.credentialResolver)
     const expiry = expiryMsFromToken(raw.accessToken)
-    const stale = expiry !== undefined && expiry <= Date.now() + REFRESH_SKEW_MS
+    // An empty access token has no expiry to parse; treat it as stale so a stored
+    // refresh token still mints one instead of sending an empty bearer.
+    const stale =
+      raw.accessToken === "" || (expiry !== undefined && expiry <= Date.now() + REFRESH_SKEW_MS)
     if (raw.refreshToken === undefined || !stale) {
       return yield* normalizeCredentials(raw)
     }
     const refreshed = yield* sharedRefresh(raw.refreshToken)
     if (config.onCredentialsRefreshed !== undefined) {
       const persist = config.onCredentialsRefreshed
-      yield* Effect.promise(async () => {
-        try {
-          await persist(refreshed)
-        } catch {
-          // Persistence is best-effort; a write failure must not fail the turn.
-        }
+      // Fail the turn if the rotated token can't be persisted: proceeding would
+      // let the next turn replay the now-spent refresh token (refresh_token_reused).
+      yield* Effect.tryPromise({
+        try: () => Promise.resolve(persist(refreshed)),
+        catch: (cause) => authFailed(`failed to persist refreshed credentials: ${String(cause)}`),
       })
     }
     return yield* normalizeCredentials(refreshed)

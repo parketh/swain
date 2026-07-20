@@ -3,7 +3,7 @@ import { Box, type DOMElement, measureElement, Text, useApp, useInput, usePaste 
 import { useCallback, useEffect, useReducer, useRef, useState } from "react"
 import { parseCommand } from "../commands"
 import type { ProviderConfig } from "../config"
-import type { Controller, PendingApproval, PendingQuestion } from "../controller"
+import type { ConnectResult, Controller, PendingApproval, PendingQuestion } from "../controller"
 import { detectFileToken, type FileMatch, replaceToken, searchFiles } from "../fs"
 import { wheelScroll } from "../mouse"
 import { theme } from "../theme"
@@ -352,6 +352,20 @@ export const App = ({ controller }: AppProps) => {
     setDialog(undefined)
   }
 
+  const oauthLogin = (
+    provider: string,
+    onUrl: (url: string) => void,
+    signal: AbortSignal,
+  ): Promise<ConnectResult> => controller.loginProvider(provider, onUrl, signal)
+
+  // After a successful browser login, mirror the post-connect flow: continue into
+  // model selection when nothing was configured yet, otherwise just close.
+  const oauthComplete = (): void => {
+    const wasUnconfigured = controller.getState().activeModel.provider === "none"
+    setNotice("Connected openai-codex.")
+    setDialog(wasUnconfigured ? { kind: "model" } : undefined)
+  }
+
   // Ctrl+C lives in its own always-active handler because the main input handler
   // is disabled while a picker dialog owns input (isActive below). That keeps
   // Ctrl+C working everywhere: interrupt a running turn, dismiss an open picker,
@@ -575,6 +589,8 @@ export const App = ({ controller }: AppProps) => {
       providers={state.connectableProviders}
       {...(dialog.provider !== undefined && { initialProvider: dialog.provider })}
       onSubmit={connect}
+      onOAuthLogin={oauthLogin}
+      onOAuthComplete={oauthComplete}
       onCancel={() => setDialog(undefined)}
     />
   ) : dialog?.kind === "router" ? (
