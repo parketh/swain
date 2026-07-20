@@ -1,10 +1,8 @@
-import * as NodeOS from "node:os"
-import * as NodePath from "node:path"
-import { FileSystem } from "@effect/platform"
+import type { FileSystem } from "@effect/platform"
 import { BunContext } from "@effect/platform-bun"
 import type { Model } from "@swain/llms"
 import { OPENAI_CODEX_PROVIDER_ID, OpenAICodex as OpenAICodexProvider } from "@swain/llms/providers"
-import { Effect, Schema } from "effect"
+import { Effect } from "effect"
 import { type AuthStore, authPath, loadAuth, saveAuth } from "./auth"
 import { type ConfigError, defaultConfigPath, type ProviderConfig } from "./config"
 
@@ -15,47 +13,6 @@ export interface CodexCredentials {
   readonly refreshToken?: string
   readonly accountId?: string
 }
-
-/** Path to the Codex CLI's own credential store (`~/.codex/auth.json`). */
-export const codexCliAuthPath = (env: Env = process.env): string =>
-  NodePath.join(env.HOME ?? NodeOS.homedir(), ".codex", "auth.json")
-
-// Only the fields we bootstrap from; the Codex CLI writes many more.
-const CodexCliAuth = Schema.Struct({
-  tokens: Schema.optional(
-    Schema.Struct({
-      access_token: Schema.optional(Schema.String),
-      refresh_token: Schema.optional(Schema.String),
-      account_id: Schema.optional(Schema.String),
-    }),
-  ),
-})
-
-/**
- * Reads the Codex CLI's credentials as a fallback source, so a user who logged
- * in with `codex` never has to paste a token into swain. Missing/unreadable
- * files (and files without an access token) resolve to `undefined`.
- */
-export const loadCodexCliCredentials = (
-  env: Env = process.env,
-): Effect.Effect<CodexCredentials | undefined, never, FileSystem.FileSystem> =>
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem
-    const path = codexCliAuthPath(env)
-    const exists = yield* fs.exists(path).pipe(Effect.orElseSucceed(() => false))
-    if (!exists) return undefined
-    const parsed = yield* fs.readFileString(path).pipe(
-      Effect.flatMap(Schema.decode(Schema.parseJson(CodexCliAuth))),
-      Effect.orElseSucceed(() => ({}) as typeof CodexCliAuth.Type),
-    )
-    const tokens = parsed.tokens
-    if (tokens?.access_token === undefined || tokens.access_token === "") return undefined
-    return {
-      accessToken: tokens.access_token,
-      ...(tokens.refresh_token !== undefined && { refreshToken: tokens.refresh_token }),
-      ...(tokens.account_id !== undefined && { accountId: tokens.account_id }),
-    }
-  })
 
 /** Reads swain's persisted Codex credentials from `auth.json`, or `undefined` when none are stored. */
 export const loadStoredCodexCredentials = (
