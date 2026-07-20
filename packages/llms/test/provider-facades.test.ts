@@ -401,6 +401,44 @@ describe("provider facades", () => {
     expect(assistants[1]?.tool_calls).toBeDefined()
   })
 
+  test("K3 omits reasoning_content on a tool-call turn from a non-reasoning model", async () => {
+    setEnv("MOONSHOT_API_KEY", "moonshot-key")
+    // A tool call replayed from a prior non-reasoning model carries no reasoning
+    // block. Moonshot only requires preserving reasoning it returned, so the
+    // wire message must omit reasoning_content rather than send an empty one.
+    const history = [
+      Message.user("start"),
+      Message.assistant([
+        { type: "text", text: "no reasoning here" },
+        {
+          type: "tool-call",
+          toolCallId: ToolCallId.make("c1"),
+          name: "Read",
+          input: { path: "/y" },
+        },
+      ]),
+      Message.user([
+        {
+          type: "tool-result",
+          toolCallId: ToolCallId.make("c1"),
+          name: "Read",
+          result: { type: "text", value: "contents" },
+        },
+      ]),
+    ]
+    const captured: Captured = {}
+    await Effect.runPromise(
+      LLM.streamTurn(LLM.request({ model: Kimi.model("kimi-k3"), messages: history })).pipe(
+        Stream.runCollect,
+        Effect.provide(capturingLayer(captured)),
+      ),
+    )
+    const messages = captured.body?.messages as Array<Record<string, unknown>>
+    const assistant = messages.find((m) => m.role === "assistant")
+    expect(assistant?.tool_calls).toBeDefined()
+    expect(assistant).not.toHaveProperty("reasoning_content")
+  })
+
   test("K3 replays reasoning for every retained message of a compacted projection", async () => {
     setEnv("MOONSHOT_API_KEY", "moonshot-key")
     // Simulates the post-compaction projection deriveContext produces: a summary

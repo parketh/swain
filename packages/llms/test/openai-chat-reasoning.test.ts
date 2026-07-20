@@ -80,6 +80,27 @@ describe("OpenAIChat Kimi reasoning-history lowering", () => {
     })
   })
 
+  test("a tool-call assistant message with no reasoning omits reasoning_content", () => {
+    const messages = assistantWith([
+      { type: "text", text: "no reasoning here" },
+      { type: "tool-call", toolCallId: ToolCallId.make("call_2"), name: "Read", input: { path: "/y" } },
+    ])
+    expect(messages[1]).toEqual({
+      role: "assistant",
+      content: "no reasoning here",
+      tool_calls: [
+        { id: "call_2", type: "function", function: { name: "Read", arguments: '{"path":"/y"}' } },
+      ],
+    })
+    expect(messages[1]?.reasoning_content).toBeUndefined()
+  })
+
+  test("an empty-text reasoning block neither replays nor forces a wire message", () => {
+    const messages = assistantWith([{ type: "reasoning", text: "" }])
+    expect(messages).toHaveLength(1)
+    expect(messages[0]).toEqual({ role: "user", content: "hi" })
+  })
+
   test("default profile omits reasoning and emits no empty assistant message", () => {
     const messages = OpenAIChat.prepare({
       modelId: "gpt",

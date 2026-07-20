@@ -135,16 +135,19 @@ const lowerMessages = (
           })
         }
       }
-      // Reasoning replays only for opted-in profiles; otherwise it stays local.
+      // Reasoning replays only for opted-in profiles, and only when it carries
+      // real text — an empty reasoning block (e.g. reasoning-start with no
+      // deltas) must not force `reasoning_content: ""` onto the wire.
+      const reasoningText = reasoning.join("")
       const replayReasoning =
-        profile.reasoningHistory === "reasoning_content" && reasoning.length > 0
+        profile.reasoningHistory === "reasoning_content" && reasoningText !== ""
       // Skip an assistant message with nothing to send on the wire.
       if (texts.length === 0 && toolCalls.length === 0 && !replayReasoning) {
         continue
       }
       wire.push({
         role: "assistant",
-        ...(replayReasoning ? { reasoning_content: reasoning.join("") } : {}),
+        ...(replayReasoning ? { reasoning_content: reasoningText } : {}),
         content: texts.length > 0 ? texts.join("\n\n") : null,
         ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
       })
