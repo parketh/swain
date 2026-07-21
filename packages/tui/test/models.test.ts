@@ -109,14 +109,23 @@ describe("resolveModelSelection limits", () => {
 })
 
 describe("environmentCredentialSources", () => {
-  test("maps each provider's env var to a required credential field", () => {
-    const byProvider = new Map(environmentCredentialSources.map((s) => [s.provider, s]))
-    expect(byProvider.get("anthropic")).toEqual({
-      provider: "anthropic",
-      field: "apiKey",
-      envVar: "ANTHROPIC_API_KEY",
-    })
-    // Filling each source's field configures its provider.
+  // Fixed expectation, independent of the array under test, so a wrong or missing
+  // provider/field/env-var mapping fails rather than passing a self-derived loop.
+  const expected = [
+    { provider: "anthropic", field: "apiKey", envVar: "ANTHROPIC_API_KEY" },
+    { provider: "openai", field: "apiKey", envVar: "OPENAI_API_KEY" },
+    { provider: "deepseek", field: "apiKey", envVar: "DEEPSEEK_API_KEY" },
+    { provider: "zai", field: "apiKey", envVar: "ZAI_API_KEY" },
+  ] as const
+
+  test("exposes exactly the expected provider/field/env-var mapping", () => {
+    expect(environmentCredentialSources).toHaveLength(expected.length)
+    expect(
+      [...environmentCredentialSources].sort((a, b) => a.provider.localeCompare(b.provider)),
+    ).toEqual([...expected].sort((a, b) => a.provider.localeCompare(b.provider)))
+  })
+
+  test("filling each source's field configures its provider", () => {
     for (const source of environmentCredentialSources) {
       const config: TuiConfig = { providers: { [source.provider]: { [source.field]: "value" } } }
       expect(availableModels(config).some((m) => m.provider === source.provider)).toBe(true)
