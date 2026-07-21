@@ -3,7 +3,7 @@
 > Use subagents to implement this plan task-by-task.
 >
 > Binary distribution (standalone release archives, curl install/uninstall, semantic-release)
-> is a deferred follow-on — see `specs/draft/binary-distribution.md`. It is not needed to
+> is a deferred follow-on — see `specs/draft/binary-release.md`. It is not needed to
 > build or validate headless exec, nor to run Harbor locally where the environment is under
 > your control (Harbor can invoke `bun run packages/tui/bin/swain.tsx exec ...` or a shell
 > alias). Promote it before running evals inside a clean container with no Bun present.
@@ -349,7 +349,9 @@ packages/tui/test/startup.test.ts
 
 ### Streamed output (`--output-format text|stream-json`)
 
-Added after the initial four tasks so an eval harness can observe a run's progress, not just its final answer. Default (`text`) is unchanged — only the final assistant text plus a newline.
+Added after the initial four tasks so an eval harness can observe a run's progress, not just its final answer. Default (`text`) is unchanged — only the final assistant text plus a newline. This supersedes the text-only command contract in the body above: `--output-format text|stream-json` is the normative flag, and the parser rejects any other value with a usage error (exit 2).
+
+- **Failure output differs by format.** In `text`, a fatal error writes one stderr line and **suppresses stdout entirely** (exit 1). In `stream-json`, stdout stays pure NDJSON: the fatal message is carried in a terminal `result` event (`error_during_execution`, exit 1) in addition to the stderr line, so a consumer parsing stdout still sees the failure.
 
 - **Motivation.** A programmatic consumer (e.g. autoir2, which spawns `claude --output-format stream-json --verbose` and parses its JSONL) needs incremental, structured events, not a human stream. `text` stays the default because plain-answer callers want a clean single value on stdout; streaming is opt-in.
 - **Schema.** `stream-json` writes newline-delimited JSON to stdout — an `init` line, one line per committed assistant/tool message, then a terminal `result` line. Structure loosely mirrors Claude Code's stream (init/assistant/result) so a Claude-shaped consumer adapts easily, but it is deliberately not a field-for-field copy: swain-native block names, camelCase fields, only the data swain actually has (no session id, cost, cache tokens, or hook events).
