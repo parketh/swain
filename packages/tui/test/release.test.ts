@@ -174,6 +174,42 @@ describe("semantic-release config", () => {
   })
 })
 
+describe("smoke harness", () => {
+  const script = readFileSync(
+    join(REPO_ROOT, "packages", "tui", "scripts", "smoke-release.sh"),
+    "utf8",
+  )
+
+  test("pins both clean-container base images by digest", () => {
+    expect(script).toMatch(/debian@sha256:[0-9a-f]{64}/)
+    expect(script).toMatch(/alpine@sha256:[0-9a-f]{64}/)
+  })
+
+  test("verifies the checksum index before any container extraction", () => {
+    expect(script).toContain("sha256sum -c checksums.txt")
+    // The verify_checksums call runs before the first container is launched.
+    const verifyCall = script.indexOf("\nverify_checksums\n")
+    const firstSmoke = script.indexOf('smoke_one "$')
+    expect(verifyCall).toBeGreaterThan(-1)
+    expect(firstSmoke).toBeGreaterThan(-1)
+    expect(verifyCall).toBeLessThan(firstSmoke)
+  })
+
+  test("asserts the executable, sidecar, and manifest target in-container", () => {
+    expect(script).toContain("./bin/swain --version")
+    expect(script).toContain("./bin/swain --help")
+    expect(script).toContain("./libexec/rg --version")
+    expect(script).toContain("ripgrep 15.1.0")
+    expect(script).toContain("manifest.json")
+    expect(script).toContain("$TARGET")
+  })
+
+  test("has a negative path that flags a glibc/musl target mismatch", () => {
+    expect(script).toContain("--mismatch")
+    expect(script).toMatch(/target mismatch went undetected/)
+  })
+})
+
 // The archive assembly test genuinely shells out to GNU tar; skip it (with a
 // note) on hosts that only have bsdtar, but run it fully on Linux CI.
 const gnuTar = findGnuTar()
