@@ -81,20 +81,31 @@ export const runHeadless = async (
     currentDate: new Date().toISOString().slice(0, 10),
   })
 
-  // Ephemeral task/tool-result storage removed on every exit path.
-  const storageRoot = await mkdtemp(pathJoin(tmpdir(), "swain-exec-"))
-  const controller = makeController({
-    session,
-    activeModel: active,
-    config,
-    configPath: loaded.configPath,
-    requestOptions: model.resolved.requestOptions,
-    persist: false,
-    sessionStorageRoot: storageRoot,
-    tools: builtinTools.filter((tool) => tool.name !== "Ask"),
-    nonInteractive: true,
-    ...(testDeps.llmLayer !== undefined && { llmLayer: testDeps.llmLayer }),
-  })
+  // Ephemeral task/tool-result storage removed on every exit path. Setup failures
+  // here (e.g. mkdtemp) still owe the caller the documented one-line-stderr, exit-1
+  // contract rather than an uncaught rejection escaping to the bun entrypoint.
+  let storageRoot: string | undefined
+  let controller: ReturnType<typeof makeController>
+  try {
+    storageRoot = await mkdtemp(pathJoin(tmpdir(), "swain-exec-"))
+    controller = makeController({
+      session,
+      activeModel: active,
+      config,
+      configPath: loaded.configPath,
+      requestOptions: model.resolved.requestOptions,
+      persist: false,
+      sessionStorageRoot: storageRoot,
+      tools: builtinTools.filter((tool) => tool.name !== "Ask"),
+      nonInteractive: true,
+      ...(testDeps.llmLayer !== undefined && { llmLayer: testDeps.llmLayer }),
+    })
+  } catch (error) {
+    stderr(`${describe(error)}\n`)
+    if (storageRoot !== undefined)
+      await rm(storageRoot, { recursive: true, force: true }).catch(() => {})
+    return 1
+  }
 
   // Stream mode: flush each committed message as it lands, keyed by a cursor
   // over session.messages so retries never re-emit. Driven by agent events
@@ -193,7 +204,8 @@ export const runHeadless = async (
     process.removeListener("SIGTERM", onSigterm)
     unsubscribe()
     await controller.shutdown().catch(() => {})
-    await rm(storageRoot, { recursive: true, force: true }).catch(() => {})
+    if (storageRoot !== undefined)
+      await rm(storageRoot, { recursive: true, force: true }).catch(() => {})
   }
 }
 
