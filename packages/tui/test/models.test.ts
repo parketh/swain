@@ -3,6 +3,7 @@ import type { TuiConfig } from "../src/config"
 import {
   availableModels,
   configuredProviders,
+  environmentCredentialSources,
   mergeModelsByProvider,
   resolveModelSelection,
 } from "../src/models"
@@ -103,6 +104,31 @@ describe("resolveModelSelection limits", () => {
       expect(viaCodex.selection.model.limits?.contextWindow).toBe(400_000)
       // The output cap is unaffected by the Codex surface.
       expect(viaCodex.selection.model.limits?.maxOutputTokens).toBe(128_000)
+    }
+  })
+})
+
+describe("environmentCredentialSources", () => {
+  // Fixed expectation, independent of the array under test, so a wrong or missing
+  // provider/field/env-var mapping fails rather than passing a self-derived loop.
+  const expected = [
+    { provider: "anthropic", field: "apiKey", envVar: "ANTHROPIC_API_KEY" },
+    { provider: "openai", field: "apiKey", envVar: "OPENAI_API_KEY" },
+    { provider: "deepseek", field: "apiKey", envVar: "DEEPSEEK_API_KEY" },
+    { provider: "zai", field: "apiKey", envVar: "ZAI_API_KEY" },
+  ] as const
+
+  test("exposes exactly the expected provider/field/env-var mapping", () => {
+    expect(environmentCredentialSources).toHaveLength(expected.length)
+    expect(
+      [...environmentCredentialSources].sort((a, b) => a.provider.localeCompare(b.provider)),
+    ).toEqual([...expected].sort((a, b) => a.provider.localeCompare(b.provider)))
+  })
+
+  test("filling each source's field configures its provider", () => {
+    for (const source of environmentCredentialSources) {
+      const config: TuiConfig = { providers: { [source.provider]: { [source.field]: "value" } } }
+      expect(availableModels(config).some((m) => m.provider === source.provider)).toBe(true)
     }
   })
 })

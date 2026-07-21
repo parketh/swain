@@ -37,7 +37,7 @@ import {
   toolResultStoreLayer,
   warnsOnReasoningLoss,
 } from "@swain/core"
-import type { AskHandler, AskInput, AskResult } from "@swain/core/tools"
+import type { AnyTool, AskHandler, AskInput, AskResult } from "@swain/core/tools"
 import type { GenerationOptions, ProviderOptions } from "@swain/llms"
 import { LLMClient } from "@swain/llms/client"
 import { OPENAI_CODEX_PROVIDER_ID } from "@swain/llms/providers"
@@ -162,6 +162,19 @@ export interface ControllerDeps {
   readonly httpLayer?: Layer.Layer<HttpClient.HttpClient>
   /** Persist session/config on mutations. Off in tests that don't assert I/O. */
   readonly persist?: boolean
+  /** Runtime tool set; defaults to the interactive `builtinTools`. Headless omits `Ask`. */
+  readonly tools?: ReadonlyArray<AnyTool>
+  /**
+   * Marks parent turns non-interactive (headless exec): the system prompt tells
+   * the model no user is available and to proceed on reasonable assumptions.
+   */
+  readonly nonInteractive?: boolean
+  /**
+   * Overrides the base directory for task and tool-result storage. Config/auth
+   * still come from `configPath`; only ephemeral session artifacts are routed
+   * here (headless exec points this at a temporary directory it later removes).
+   */
+  readonly sessionStorageRoot?: string
 }
 
 const NEXT_MODE: Record<PermissionMode, PermissionMode> = {
@@ -238,7 +251,23 @@ export interface Controller {
    * kept. No-op when nothing is running.
    */
   cancelTurn(partialText?: string): Promise<void>
+  /**
+   * Resolves once the whole parent/subagent graph has quiesced: no parent or
+   * follow-up turn is running, no completion drain is running or deferred, no
+   * subagents are active, and the durable task store reports zero pending parent
+   * notifications. A fixpoint loop — a drained follow-up turn can spawn new
+   * subagents, so quiescence is re-established until a full pass finds no work.
+   * Has no internal timeout; the caller bounds runtime via interrupt/shutdown.
+   */
+  waitUntilIdle(): Promise<void>
   dispose(): void
+  /**
+   * Awaitable teardown: interrupts the parent turn and subagents, stops the
+   * completion listener, cancels pending question/approval bridges, and disposes
+   * the managed runtime. Await this before removing any storage the controller
+   * used. Interactive callers may prefer `dispose()` (fire-and-forget).
+   */
+  shutdown(): Promise<void>
 }
 
 /**
@@ -322,12 +351,16 @@ export const makeController = (deps: ControllerDeps): Controller => {
 
   const runtime = makeRuntime({
     askHandler,
+    ...(deps.tools !== undefined && { tools: deps.tools }),
     ...(deps.llmLayer !== undefined && { llmLayer: deps.llmLayer }),
     ...(deps.httpLayer !== undefined && { httpLayer: deps.httpLayer }),
   })
 
+  // Task/tool-result storage: the override (headless temp root) routes ephemeral
+  // artifacts away from the real session directory; otherwise the config-derived,
+  // project-scoped sessions directory is authoritative.
   const sessionsDirFor = (s: SessionState): string =>
-    sessionsDir(deps.configPath, s.workingDirectory)
+    deps.sessionStorageRoot ?? sessionsDir(deps.configPath, s.workingDirectory)
 
   // --- Task store + subagent orchestration (per session) ------------------
 
@@ -346,6 +379,23 @@ export const makeController = (deps: ControllerDeps): Controller => {
   let draining = false
   let disposed = false
   let currentTasks: ReadonlyArray<Task> = []
+
+  // Idle-detection wake-ups for waitUntilIdle. Every transition that can move the
+  // parent/subagent graph toward quiescence (a turn ends, a drain ends, a
+  // subagent lifecycle edge) resolves the outstanding waiters so the fixpoint
+  // loop re-evaluates. Registering a waiter BEFORE observing state avoids a lost
+  // wake-up between the check and the wait.
+  let progressWaiters: Array<() => void> = []
+  const signalProgress = (): void => {
+    if (progressWaiters.length === 0) return
+    const waiters = progressWaiters
+    progressWaiters = []
+    for (const resolve of waiters) resolve()
+  }
+  const nextProgress = (): Promise<void> =>
+    new Promise<void>((resolve) => {
+      progressWaiters.push(resolve)
+    })
   const subagentMap = new Map<string, SubagentStatus>()
   let currentSubagents: ReadonlyArray<SubagentStatus> = []
 
@@ -376,6 +426,9 @@ export const makeController = (deps: ControllerDeps): Controller => {
     }
     currentSubagents = Array.from(subagentMap.values())
     notify()
+    // A subagent lifecycle edge (start/progress/complete/failed) can change
+    // activeCount or make a result durable; wake the idle waiters to re-check.
+    signalProgress()
   }
 
   const buildSessionEnv = async (s: SessionState): Promise<SessionEnv> => {
@@ -481,6 +534,8 @@ export const makeController = (deps: ControllerDeps): Controller => {
       draining = false
     }
     if (injected && !disposed) await runTurnNow()
+    // Drain settled (with or without a follow-up turn): re-check idle waiters.
+    signalProgress()
   }
 
   const refreshTasks = async (): Promise<void> => {
@@ -720,6 +775,7 @@ export const makeController = (deps: ControllerDeps): Controller => {
       ...(routerStatus(config) === "on" && {
         router: { targets: routerPromptTargets(config) },
       }),
+      ...(deps.nonInteractive === true && { nonInteractive: true }),
     }).pipe(
       Effect.provide(ctxLayer),
       Effect.provide(toolResultStoreLayer(pathJoin(sessionDirFor(session), "tool-results"))),
@@ -751,6 +807,8 @@ export const makeController = (deps: ControllerDeps): Controller => {
         drainPending = false
         void maybeDrainCompletions()
       }
+      // The parent/follow-up turn finished; wake idle waiters to re-check.
+      signalProgress()
     }
   }
 
@@ -918,6 +976,61 @@ export const makeController = (deps: ControllerDeps): Controller => {
       default:
         return
     }
+  }
+
+  // Terminal-state predicate. Reads activeCount to zero BEFORE pending: a
+  // subagent is removed from `active` only in `Effect.ensuring`, AFTER it has
+  // persisted its task and offered its completion (durable-before-visible,
+  // orchestrator.ts). So observing activeCount === 0 guarantees every finished
+  // result is already durable and enqueued — a pending read taken afterward
+  // cannot miss a completed-but-unnotified result.
+  const isIdle = async (env: SessionEnv): Promise<boolean> => {
+    if (running || draining || drainPending) return false
+    const active = await runtime.runPromise(env.orchestrator.activeCount)
+    if (active > 0) return false
+    const pending = await runtime.runPromise(
+      pendingParentNotifications().pipe(Effect.provide(env.layers)),
+    )
+    return pending.length === 0
+  }
+
+  const waitUntilIdle = async (): Promise<void> => {
+    const env = await ensureSessionEnv()
+    while (!disposed) {
+      // Register the wake-up before observing so a transition between the check
+      // and the wait is never lost.
+      const progressed = nextProgress()
+      // Drive one awaited drain pass when nothing is currently running: inject
+      // durable completion notifications and run the follow-up parent turn they
+      // cause. Clearing drainPending first hands this pass the deferred flag; the
+      // drain re-reads the durable store, so nothing is lost. maybeDrainCompletions
+      // sets `draining` synchronously, serializing against the background listener.
+      if (!running && !draining) {
+        drainPending = false
+        await maybeDrainCompletions()
+      }
+      if (await isIdle(env)) return
+      await progressed
+    }
+  }
+
+  const shutdown = async (): Promise<void> => {
+    disposed = true
+    // Interrupt the in-flight parent turn (and its fiber) before teardown.
+    currentAbort?.abort()
+    const fiber = currentFiber
+    if (fiber !== undefined) await runtime.runPromise(Fiber.interrupt(fiber)).catch(() => {})
+    // Cancel any pending interactive bridges so nothing awaits input forever.
+    for (const resolve of pendingQuestions.values()) resolve({ answers: [] })
+    pendingQuestions.clear()
+    for (const resolve of pendingApprovals.values())
+      resolve({ type: "deny", reason: "shutting down" })
+    pendingApprovals.clear()
+    // Release any idle waiter blocked in waitUntilIdle.
+    signalProgress()
+    // Interrupt subagents, stop the completion listener, dispose the runtime.
+    await teardownSessionEnv()
+    await runtime.dispose().catch(() => {})
   }
 
   const controller: Controller = {
@@ -1160,12 +1273,17 @@ export const makeController = (deps: ControllerDeps): Controller => {
       notify()
     },
 
+    waitUntilIdle,
+
     dispose: () => {
       disposed = true
+      signalProgress()
       void teardownSessionEnv().finally(() => {
         void runtime.dispose()
       })
     },
+
+    shutdown,
   }
 
   void startSession()

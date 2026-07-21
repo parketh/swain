@@ -11,6 +11,7 @@ import {
   type SessionState,
   saveSession,
 } from "@swain/core"
+import { builtinTools } from "@swain/core/tools"
 import type { LLMEvent, LLMRequest, Model } from "@swain/llms"
 import { ContentId, LLMError, Message, ModelId, ProviderId, ToolCallId } from "@swain/llms"
 import { LLMClient } from "@swain/llms/client"
@@ -758,5 +759,201 @@ describe("controller subagent drain", () => {
     await turn
     await waitFor(() => hasNotification(c))
     expect(hasNotification(c)).toBe(true)
+  })
+})
+
+const assistantText = (c: Controller): string =>
+  c
+    .getState()
+    .session.messages.filter((m) => m.role === "assistant")
+    .flatMap((m) => m.content)
+    .map((b) => (b.type === "text" ? b.text : ""))
+    .join(" ")
+
+const notificationCount = (c: Controller): number =>
+  c
+    .getState()
+    .session.messages.filter(
+      (m) =>
+        m.role === "user" &&
+        m.content.some((b) => b.type === "text" && b.text.includes("<task-notification>")),
+    ).length
+
+describe("controller headless lifecycle", () => {
+  let dir: string
+  let controller: Controller
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "swain-headless-"))
+  })
+  afterEach(() => {
+    controller?.dispose()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  const isChild = (req: LLMRequest): boolean =>
+    JSON.stringify(req.messages).includes("## Assignment:")
+
+  const spawnTurn = toolCallTurn("Agent", {
+    description: "probe",
+    prompt: "look",
+    subagentType: "Explore",
+  })
+
+  const build = (
+    llmLayer: ReturnType<typeof scripted>["layer"],
+    opts: { tools?: typeof builtinTools; nonInteractive?: boolean } = {},
+  ): Controller => {
+    const session = createSessionState({
+      workingDirectory: dir,
+      model: testModel,
+      permissionMode: "auto",
+      currentDate: "2026-07-17",
+    })
+    controller = makeController({
+      session,
+      activeModel: { provider: "anthropic", modelId: "claude-opus-4-8" },
+      config,
+      configPath: join(dir, "config.json"),
+      llmLayer,
+      persist: false,
+      ...(opts.tools !== undefined && { tools: opts.tools }),
+      ...(opts.nonInteractive !== undefined && { nonInteractive: opts.nonInteractive }),
+    })
+    return controller
+  }
+
+  // A subagent-driven parent LLM: turn 1 spawns, turn 2 concludes the initial
+  // turn ("waiting"); each later scripted call is a follow-up parent turn.
+  const subagentParent = (
+    reply: (parentCalls: number) => ReadonlyArray<LLMEvent>,
+  ): ReturnType<typeof scripted>["layer"] => {
+    let parentCalls = 0
+    return Layer.succeed(LLMClient.Service, {
+      request: LLMClient.request,
+      streamTurn: (req: LLMRequest) => {
+        if (isChild(req)) return Stream.fromIterable(textTurn("child findings"))
+        parentCalls += 1
+        return Stream.fromIterable(reply(parentCalls))
+      },
+      generateTurn: () => Effect.succeed({ events: [] }),
+    })
+  }
+
+  test("a headless registry without Ask omits it from the LLM request", async () => {
+    const llm = scripted([textTurn("ok")])
+    const c = build(llm.layer, { tools: builtinTools.filter((t) => t.name !== "Ask") })
+    await c.submitPrompt("hi")
+    const names = (llm.requests.at(-1)?.tools ?? []).map((t) => t.name)
+    expect(names).not.toContain("Ask")
+    expect(names).toContain("Read")
+  })
+
+  test("waitUntilIdle resolves after a simple parent turn", async () => {
+    const c = build(scripted([textTurn("done")]).layer)
+    await c.submitPrompt("hi")
+    await c.waitUntilIdle()
+    expect(assistantText(c)).toContain("done")
+  })
+
+  test("waitUntilIdle waits for a detached subagent, drains it, and runs the follow-up", async () => {
+    // 1: spawn, 2: end initial turn, 3: follow-up final answer after the drain.
+    const c = build(
+      subagentParent((n) =>
+        n === 1
+          ? spawnTurn
+          : n === 2
+            ? textTurn("waiting on subagent")
+            : textTurn("parent final answer"),
+      ),
+    )
+    await c.submitPrompt("spawn a subagent")
+    await c.waitUntilIdle()
+    expect(notificationCount(c)).toBe(1)
+    expect(assistantText(c)).toContain("parent final answer")
+  })
+
+  test("a follow-up turn that spawns a second subagent reaches idle only after the whole chain drains", async () => {
+    // 1: spawn A, 2: end turn, 3: spawn B (follow-up), 4: end follow-up, 5: final.
+    const c = build(
+      subagentParent((n) =>
+        n === 1 || n === 3
+          ? spawnTurn
+          : n === 5
+            ? textTurn("all children done")
+            : textTurn("waiting"),
+      ),
+    )
+    await c.submitPrompt("spawn a chain")
+    await c.waitUntilIdle()
+    expect(notificationCount(c)).toBe(2)
+    expect(assistantText(c)).toContain("all children done")
+  })
+
+  test("a completion racing the initial turn boundary is neither lost nor double-processed", async () => {
+    let release = (): void => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let parentCalls = 0
+    const layer = Layer.succeed(LLMClient.Service, {
+      request: LLMClient.request,
+      streamTurn: (req: LLMRequest) => {
+        if (isChild(req)) return Stream.fromIterable(textTurn("child findings"))
+        parentCalls += 1
+        if (parentCalls === 1) return Stream.fromIterable(spawnTurn)
+        // The second iteration of the initial turn blocks so the child can
+        // complete while the parent turn is still open (the race).
+        if (parentCalls === 2)
+          return Stream.unwrap(
+            Effect.promise(() => gate).pipe(
+              Effect.as(Stream.fromIterable(textTurn("initial done"))),
+            ),
+          )
+        return Stream.fromIterable(textTurn("parent final answer"))
+      },
+      generateTurn: () => Effect.succeed({ events: [] }),
+    })
+    const c = build(layer)
+    let childCompletions = 0
+    c.onEvent((e) => {
+      if (e.type === "subagent-complete") childCompletions += 1
+    })
+    const turn = c.submitPrompt("spawn a subagent")
+    // The child completes while the parent turn is gated open; its drain defers.
+    await waitFor(() => childCompletions > 0)
+    expect(hasNotification(c)).toBe(false)
+    release()
+    await turn
+    await c.waitUntilIdle()
+    // Exactly one child completion, one injected notification: neither lost nor
+    // processed twice.
+    expect(childCompletions).toBe(1)
+    expect(notificationCount(c)).toBe(1)
+    expect(assistantText(c)).toContain("parent final answer")
+  })
+
+  test("shutdown awaits teardown and interrupts an outstanding subagent", async () => {
+    let releaseChild = (): void => {}
+    const childGate = new Promise<void>((resolve) => {
+      releaseChild = resolve
+    })
+    const layer = Layer.succeed(LLMClient.Service, {
+      request: LLMClient.request,
+      streamTurn: (req: LLMRequest) => {
+        if (isChild(req))
+          return Stream.unwrap(
+            Effect.promise(() => childGate).pipe(Effect.as(Stream.fromIterable(textTurn("late")))),
+          )
+        return Stream.fromIterable(spawnTurn)
+      },
+      generateTurn: () => Effect.succeed({ events: [] }),
+    })
+    const c = build(layer)
+    await c.submitPrompt("spawn a blocking subagent")
+    await waitFor(() => c.getSubagents().length > 0)
+    await c.shutdown()
+    expect(c.getSubagents()).toHaveLength(0)
+    expect(notificationCount(c)).toBe(0)
+    releaseChild()
   })
 })

@@ -1,4 +1,4 @@
 #!/usr/bin/env bun
-import { run } from "../src/index"
+import { runCli } from "../src/cli"
 
-await run()
+process.exitCode = await runCli()

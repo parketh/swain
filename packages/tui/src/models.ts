@@ -37,6 +37,22 @@ import { redactKey } from "./config"
 
 export type CredentialField = "apiKey" | "baseURL" | "accountId" | "accessToken"
 
+/**
+ * Standard environment variables that supply a provider credential when no
+ * stored value exists. Consulted only under the headless `stored-then-environment`
+ * credential policy (see `startup.ts`); the interactive TUI ignores these.
+ */
+export const environmentCredentialSources: ReadonlyArray<{
+  readonly provider: string
+  readonly field: CredentialField
+  readonly envVar: string
+}> = [
+  { provider: Provider.Anthropic, field: "apiKey", envVar: "ANTHROPIC_API_KEY" },
+  { provider: Provider.OpenAI, field: "apiKey", envVar: "OPENAI_API_KEY" },
+  { provider: Provider.DeepSeek, field: "apiKey", envVar: "DEEPSEEK_API_KEY" },
+  { provider: Provider.ZAI, field: "apiKey", envVar: "ZAI_API_KEY" },
+]
+
 /** How a provider is connected: a pasted API key, or a browser OAuth login. */
 export type ProviderAuthKind = "api-key" | "oauth"
 

@@ -96,6 +96,13 @@ describe("assembleSystemPrompt", () => {
     expect(assembleSystemPrompt(baseInput)).toBe(assembleSystemPrompt(baseInput))
   })
 
+  test("includes the non-interactive instruction only when requested", () => {
+    expect(assembleSystemPrompt(baseInput)).not.toContain("running non-interactively")
+    const nonInteractive = assembleSystemPrompt({ ...baseInput, nonInteractive: true })
+    expect(nonInteractive).toContain("running non-interactively")
+    expect(nonInteractive).toContain("no user available")
+  })
+
   test("changes when permission mode changes", () => {
     expect(assembleSystemPrompt(baseInput)).not.toBe(
       assembleSystemPrompt({ ...baseInput, permissionMode: "plan" }),
@@ -358,6 +365,33 @@ describe("runTurn", () => {
     expect(final?.responseDurationMs).toBeTypeOf("number")
     expect(final?.responseDurationMs).toBeGreaterThanOrEqual(0)
     expect(final?.turnDurationMs).toBeGreaterThanOrEqual(0)
+  })
+
+  const captureSystem = async (options: { nonInteractive?: boolean }): Promise<string> => {
+    let system = ""
+    const layer = Layer.succeed(LLMClient.Service, {
+      request: LLMClient.request,
+      streamTurn: (request: Parameters<typeof LLMClient.streamTurn>[0]) => {
+        system = JSON.stringify(request.system)
+        return Stream.fromIterable(textTurn("ok"))
+      },
+      generateTurn: () => Effect.succeed({ events: [] }),
+    })
+    const state = session()
+    submitPrompt(state, "hi")
+    await Effect.runPromise(
+      runTurn(state, options).pipe(
+        Effect.provide(layer),
+        Effect.provide(toolContextLayer(state)),
+        Effect.provide(toolRegistryLayer([])),
+      ),
+    )
+    return system
+  }
+
+  test("passes the non-interactive instruction into the request system prompt only when requested", async () => {
+    expect(await captureSystem({ nonInteractive: true })).toContain("running non-interactively")
+    expect(await captureSystem({})).not.toContain("running non-interactively")
   })
 
   test("executes a tool call and submits the result to the next turn", async () => {

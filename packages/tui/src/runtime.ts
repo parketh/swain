@@ -2,6 +2,7 @@ import { FetchHttpClient, type HttpClient } from "@effect/platform"
 import { BunContext } from "@effect/platform-bun"
 import { type Approval, makePermissions, type SessionState } from "@swain/core"
 import {
+  type AnyTool,
   type AskHandler,
   AskService,
   builtinTools,
@@ -15,6 +16,8 @@ export type LLMClientService = Context.Tag.Identifier<typeof LLMClient.Service>
 
 export interface RuntimeDeps {
   readonly askHandler: AskHandler
+  /** Tool set registered for the runtime; defaults to the interactive `builtinTools`. */
+  readonly tools?: ReadonlyArray<AnyTool>
   /** Test override; defaults to the real streaming client over HTTP. */
   readonly llmLayer?: Layer.Layer<LLMClientService>
   readonly httpLayer?: Layer.Layer<HttpClient.HttpClient>
@@ -27,7 +30,7 @@ export const makeRuntime = (deps: RuntimeDeps) => {
     llm,
     http,
     BunContext.layer,
-    toolRegistryLayer(builtinTools),
+    toolRegistryLayer(deps.tools ?? builtinTools),
     Layer.succeed(AskService, deps.askHandler),
   )
   return ManagedRuntime.make(base)
