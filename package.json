@@ -9,6 +9,7 @@
     "format": "bun run --cwd packages/llms format && bun run --cwd packages/core format && bun run --cwd packages/tui format",
     "format:check": "bun run --cwd packages/llms format:check && bun run --cwd packages/core format:check && bun run --cwd packages/tui format:check",
     "test": "bun test packages/llms/test packages/core/test packages/tui/test --path-ignore-patterns='**/live/**'",
-    "test:live": "bun test packages/tui/test/live"
+    "test:live": "bun test packages/tui/test/live",
+    "build:release": "bun run packages/tui/scripts/build-release.ts"
   }
 }

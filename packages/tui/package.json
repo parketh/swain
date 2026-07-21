@@ -23,7 +23,8 @@
     "format": "biome check --write .",
     "format:check": "biome check .",
     "test": "bun test test --path-ignore-patterns='**/live/**'",
-    "test:live": "bun --env-file=../../.env test test/live"
+    "test:live": "bun --env-file=../../.env test test/live",
+    "build:release": "bun run scripts/build-release.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.3",
