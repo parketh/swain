@@ -55,9 +55,19 @@ export const runInteractive = async (options: RunOptions = {}): Promise<void> =>
   const env = options.env ?? process.env
   const cwd = options.cwd ?? process.cwd()
   const flags = parseFlags(options.argv ?? process.argv.slice(2))
-  const { configPath, config, needsMigration } = await Effect.runPromise(
-    loadStartup(env, "stored-only").pipe(Effect.provide(BunContext.layer)),
-  )
+  let configPath: string
+  let config: TuiConfig
+  let needsMigration: boolean
+  try {
+    ;({ configPath, config, needsMigration } = await Effect.runPromise(
+      loadStartup(env, "stored-only").pipe(Effect.provide(BunContext.layer)),
+    ))
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    process.stderr.write(`Failed to load configuration: ${message}\n`)
+    process.exitCode = 1
+    return
+  }
   if (needsMigration) {
     await Effect.runPromise(
       migrateLegacyAuth(configPath, config).pipe(Effect.provide(BunContext.layer)),
