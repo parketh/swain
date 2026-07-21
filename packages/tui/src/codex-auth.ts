@@ -96,6 +96,8 @@ export const mergeCodexCliCredentials = (
     return {
       ...providers,
       [OPENAI_CODEX_PROVIDER_ID]: {
+        // Preserve unrelated fields (e.g. a custom baseURL) when adopting CLI tokens.
+        ...providers[OPENAI_CODEX_PROVIDER_ID],
         accessToken: cli.accessToken,
         ...(cli.refreshToken !== undefined && { refreshToken: cli.refreshToken }),
         ...(cli.accountId !== undefined && { accountId: cli.accountId }),
