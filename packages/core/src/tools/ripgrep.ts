@@ -16,8 +16,12 @@ const MAX_STDOUT = 20_000_000
 export const runRipgrep = (tool: string, args: ReadonlyArray<string>, cwd: string) =>
   Effect.scoped(
     Effect.gen(function* () {
-      const command = Command.make("rg", ...args).pipe(Command.workingDirectory(cwd))
-      const process = yield* Command.start(command).pipe(
+      // A packaged Swain sets SWAIN_RG_PATH to its private sidecar; source runs
+      // leave it unset and fall back to `rg` on PATH.
+      const command = Command.make(process.env.SWAIN_RG_PATH ?? "rg", ...args).pipe(
+        Command.workingDirectory(cwd),
+      )
+      const rgProcess = yield* Command.start(command).pipe(
         Effect.mapError(
           (error) =>
             new ToolError({
@@ -29,9 +33,9 @@ export const runRipgrep = (tool: string, args: ReadonlyArray<string>, cwd: strin
       )
       const [exitCode, stdout, stderr] = yield* Effect.all(
         [
-          process.exitCode,
-          collectCapped(process.stdout, MAX_STDOUT),
-          collectCapped(process.stderr, MAX_STDOUT),
+          rgProcess.exitCode,
+          collectCapped(rgProcess.stdout, MAX_STDOUT),
+          collectCapped(rgProcess.stderr, MAX_STDOUT),
         ],
         { concurrency: "unbounded" },
       ).pipe(

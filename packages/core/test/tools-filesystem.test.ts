@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { BunContext } from "@effect/platform-bun"
@@ -222,5 +222,33 @@ describe("Glob and Grep", () => {
     ).value
     expect(value.matches).toHaveLength(1)
     expect(value.matches[0]?.line).toBe(1)
+  })
+})
+
+describe("SWAIN_RG_PATH override", () => {
+  afterEach(() => {
+    delete process.env.SWAIN_RG_PATH
+  })
+
+  test("Glob runs the configured rg instead of the system one", async () => {
+    // A fake `rg` that ignores its args and prints a sentinel the real rg
+    // could never emit, proving the override is honored.
+    const fakeRg = join(dir, "fake-rg")
+    writeFileSync(fakeRg, "#!/bin/sh\necho 'sentinel-from-fake.ts'\n")
+    chmodSync(fakeRg, 0o755)
+    process.env.SWAIN_RG_PATH = fakeRg
+
+    const result = await run(call("Glob", { pattern: "*.ts" }))
+    const value = (result.result as { value: { matches: ReadonlyArray<string> } }).value
+    expect(value.matches).toEqual(["sentinel-from-fake.ts"])
+  })
+
+  test("unset SWAIN_RG_PATH falls back to the system rg", async () => {
+    writeFileSync(join(dir, "a.ts"), "export const a = 1")
+    writeFileSync(join(dir, "b.js"), "const b = 2")
+    const result = await run(call("Glob", { pattern: "*.ts" }))
+    const value = (result.result as { value: { matches: ReadonlyArray<string> } }).value
+    expect(value.matches).toContain("a.ts")
+    expect(value.matches).not.toContain("b.js")
   })
 })
