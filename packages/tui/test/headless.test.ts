@@ -360,6 +360,46 @@ describe("runHeadless", () => {
     expect(err).toContain("upstream boom")
   })
 
+  test("stream-json flushes a turn's committed events before the run completes", async () => {
+    seedAuth()
+    let release = (): void => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let call = 0
+    const layer = Layer.succeed(LLMClient.Service, {
+      request: LLMClient.request,
+      streamTurn: () => {
+        call += 1
+        // First iteration calls a tool; the second (final) iteration is gated so
+        // we can observe the first iteration's committed events while the run is
+        // still in flight — i.e. that events stream, not batch at the end.
+        return call === 1
+          ? Stream.fromIterable(toolCallTurn("Read", { path: "x" }))
+          : Stream.unwrap(
+              Effect.promise(() => gate).pipe(Effect.as(Stream.fromIterable(textTurn("done")))),
+            )
+      },
+      generateTurn: () => Effect.succeed({ events: [] }),
+    })
+    const run = runHeadless(options("go", { outputFormat: "stream-json" }), { llmLayer: layer })
+    // The tool-call assistant and tool-result appear before the gated final turn.
+    await waitFor(() => out.includes('"tool-result"'))
+    const midRun = events()
+    expect(
+      midRun.some(
+        (e) =>
+          e.type === "assistant" &&
+          (e.content as Array<{ type: string }>).some((c) => c.type === "tool-call"),
+      ),
+    ).toBe(true)
+    expect(midRun.some((e) => e.type === "user")).toBe(true)
+    // The run has not finished, so no result line yet.
+    expect(midRun.some((e) => e.type === "result")).toBe(false)
+    release()
+    expect(await run).toBe(0)
+  })
+
   test("stream-json emits an interrupted result when SIGINT fires", async () => {
     seedAuth()
     let release = (): void => {}

@@ -96,24 +96,10 @@ export const runHeadless = async (
     ...(testDeps.llmLayer !== undefined && { llmLayer: testDeps.llmLayer }),
   })
 
-  // Fatal (non-recoverable) errors suppress stdout and exit 1; recoverable
-  // diagnostics go to stderr as they arrive without changing a successful exit.
-  let fatal = false
-  let fatalMessage: string | undefined
-  controller.onEvent((event) => {
-    if (event.type !== "agent-error") return
-    if (event.recoverable === true) {
-      stderr(`${event.message}\n`)
-    } else if (!fatal) {
-      fatal = true
-      fatalMessage = event.message
-      stderr(`${event.message}\n`)
-    }
-  })
-
-  // Stream mode: emit an init line, then flush each committed message as it
-  // lands (a cursor over session.messages, so retries never re-emit). Recoverable
-  // diagnostics still go to stderr, keeping stdout pure NDJSON.
+  // Stream mode: flush each committed message as it lands, keyed by a cursor
+  // over session.messages so retries never re-emit. Driven by agent events
+  // (which fire per iteration during the turn, unlike notify() which only fires
+  // at turn start/end) so committed messages stream out live, not all at the end.
   const streamJson = options.outputFormat === "stream-json"
   const modelRef =
     active.variant !== undefined
@@ -127,7 +113,23 @@ export const runHeadless = async (
       if (event !== null) stdout(serialize(event))
     }
   }
-  let unsubscribe: (() => void) | undefined
+
+  // Fatal (non-recoverable) errors suppress the final result and exit 1;
+  // recoverable diagnostics go to stderr as they arrive without changing a
+  // successful exit, keeping stdout pure NDJSON.
+  let fatal = false
+  let fatalMessage: string | undefined
+  const unsubscribe = controller.onEvent((event) => {
+    if (streamJson) flush()
+    if (event.type !== "agent-error") return
+    if (event.recoverable === true) {
+      stderr(`${event.message}\n`)
+    } else if (!fatal) {
+      fatal = true
+      fatalMessage = event.message
+      stderr(`${event.message}\n`)
+    }
+  })
   if (streamJson) {
     stdout(
       serialize(
@@ -139,7 +141,6 @@ export const runHeadless = async (
         }),
       ),
     )
-    unsubscribe = controller.subscribe(flush)
   }
 
   // Signals: resolve the run with the POSIX code and let `finally` interrupt the
@@ -190,7 +191,7 @@ export const runHeadless = async (
   } finally {
     process.removeListener("SIGINT", onSigint)
     process.removeListener("SIGTERM", onSigterm)
-    unsubscribe?.()
+    unsubscribe()
     await controller.shutdown().catch(() => {})
     await rm(storageRoot, { recursive: true, force: true }).catch(() => {})
   }
