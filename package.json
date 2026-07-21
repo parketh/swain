@@ -10,6 +10,16 @@
     "format:check": "bun run --cwd packages/llms format:check && bun run --cwd packages/core format:check && bun run --cwd packages/tui format:check",
     "test": "bun test packages/llms/test packages/core/test packages/tui/test --path-ignore-patterns='**/live/**'",
     "test:live": "bun test packages/tui/test/live",
-    "build:release": "bun run packages/tui/scripts/build-release.ts"
+    "build:release": "bun run packages/tui/scripts/build-release.ts",
+    "release": "semantic-release",
+    "release:dry-run": "semantic-release --dry-run"
+  },
+  "devDependencies": {
+    "@semantic-release/commit-analyzer": "13.0.1",
+    "@semantic-release/exec": "7.1.0",
+    "@semantic-release/github": "12.0.9",
+    "@semantic-release/release-notes-generator": "14.1.1",
+    "conventional-changelog-conventionalcommits": "10.2.1",
+    "semantic-release": "25.0.8"
   }
 }

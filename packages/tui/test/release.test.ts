@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import {
   ARCHIVE_MEMBERS,
   archiveName,
@@ -113,6 +113,64 @@ describe("checksum index", () => {
       { name: "swain-v1.2.3-linux-x64-glibc.tar.gz", sha256: "aaa" },
     ])
     expect(changed).not.toBe(index)
+  })
+})
+
+const REPO_ROOT = resolve(import.meta.dir, "..", "..", "..")
+const readJson = (path: string): unknown => JSON.parse(readFileSync(join(REPO_ROOT, path), "utf8"))
+
+describe("semantic-release config", () => {
+  // biome-ignore lint: config shape is validated field-by-field below.
+  const config = readJson(".releaserc.json") as any
+
+  test("publishes only from main", () => {
+    expect(config.branches).toEqual(["main"])
+  })
+
+  const plugin = (name: string): [string, Record<string, unknown>] =>
+    config.plugins.find((entry: unknown) => Array.isArray(entry) && entry[0] === name)
+
+  test("analyzer and notes use the conventionalcommits preset", () => {
+    expect(plugin("@semantic-release/commit-analyzer")[1].preset).toBe("conventionalcommits")
+    expect(plugin("@semantic-release/release-notes-generator")[1].preset).toBe(
+      "conventionalcommits",
+    )
+  })
+
+  test("prepare invokes the builder with the next version and checked-out SHA", () => {
+    const prepareCmd = plugin("@semantic-release/exec")[1].prepareCmd as string
+    expect(prepareCmd).toContain("bun run build:release")
+    expect(prepareCmd).toContain("--version ${nextRelease.version}")
+    expect(prepareCmd).toContain("--commit ${nextRelease.gitHead}")
+    expect(prepareCmd).toContain("--all")
+  })
+
+  test("uploads exactly the two archives plus checksums.txt", () => {
+    const assets = (plugin("@semantic-release/github")[1].assets as Array<{ path: string }>).map(
+      (asset) => asset.path,
+    )
+    expect(assets).toEqual([
+      "dist/swain-v${nextRelease.version}-linux-x64-glibc.tar.gz",
+      "dist/swain-v${nextRelease.version}-linux-x64-musl.tar.gz",
+      "dist/checksums.txt",
+    ])
+  })
+
+  test("pins every semantic-release dependency to an exact version", () => {
+    // biome-ignore lint: reading a raw manifest shape.
+    const pkg = readJson("package.json") as any
+    const deps = pkg.devDependencies as Record<string, string>
+    for (const name of [
+      "semantic-release",
+      "@semantic-release/commit-analyzer",
+      "@semantic-release/release-notes-generator",
+      "@semantic-release/exec",
+      "@semantic-release/github",
+      "conventional-changelog-conventionalcommits",
+    ]) {
+      expect(deps[name]).toBeDefined()
+      expect(deps[name]).toMatch(/^\d+\.\d+\.\d+$/)
+    }
   })
 })
 

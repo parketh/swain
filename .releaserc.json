@@ -1,0 +1,23 @@
+{
+  "branches": ["main"],
+  "plugins": [
+    ["@semantic-release/commit-analyzer", { "preset": "conventionalcommits" }],
+    ["@semantic-release/release-notes-generator", { "preset": "conventionalcommits" }],
+    [
+      "@semantic-release/exec",
+      {
+        "prepareCmd": "bun run build:release -- --version ${nextRelease.version} --commit ${nextRelease.gitHead} --all"
+      }
+    ],
+    [
+      "@semantic-release/github",
+      {
+        "assets": [
+          { "path": "dist/swain-v${nextRelease.version}-linux-x64-glibc.tar.gz" },
+          { "path": "dist/swain-v${nextRelease.version}-linux-x64-musl.tar.gz" },
+          { "path": "dist/checksums.txt" }
+        ]
+      }
+    ]
+  ]
+}
