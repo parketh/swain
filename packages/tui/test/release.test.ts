@@ -150,8 +150,8 @@ describe("semantic-release config", () => {
       (asset) => asset.path,
     )
     expect(assets).toEqual([
-      "dist/swain-v${nextRelease.version}-linux-x64-glibc.tar.gz",
-      "dist/swain-v${nextRelease.version}-linux-x64-musl.tar.gz",
+      "dist/swain-v*-linux-x64-glibc.tar.gz",
+      "dist/swain-v*-linux-x64-musl.tar.gz",
       "dist/checksums.txt",
     ])
   })
