@@ -31,8 +31,8 @@ jobs:
       - name: Run unit tests
         run: bun test packages/llms/test
 
-  artifact-smoke:
-    name: Smoke standalone Linux artifacts
+  verify-artifacts:
+    name: Verify standalone Linux artifacts
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
 
@@ -53,8 +53,8 @@ jobs:
       - name: Build test artifacts
         run: bun run build:release -- --version 0.0.0-test --commit "$(git rev-parse HEAD)" --all
 
-      - name: Smoke clean containers
-        run: bash packages/tui/scripts/smoke-release.sh dist 0.0.0-test
+      - name: Verify clean containers
+        run: bash packages/tui/scripts/verify-release.sh dist 0.0.0-test
 
       - name: Reject target mismatch
-        run: bash packages/tui/scripts/smoke-release.sh dist 0.0.0-test --mismatch
+        run: bash packages/tui/scripts/verify-release.sh dist 0.0.0-test --mismatch

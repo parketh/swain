@@ -174,9 +174,9 @@ describe("semantic-release config", () => {
   })
 })
 
-describe("smoke harness", () => {
+describe("verify harness", () => {
   const script = readFileSync(
-    join(REPO_ROOT, "packages", "tui", "scripts", "smoke-release.sh"),
+    join(REPO_ROOT, "packages", "tui", "scripts", "verify-release.sh"),
     "utf8",
   )
 
@@ -189,10 +189,10 @@ describe("smoke harness", () => {
     expect(script).toContain("sha256sum -c checksums.txt")
     // The verify_checksums call runs before the first container is launched.
     const verifyCall = script.indexOf("\nverify_checksums\n")
-    const firstSmoke = script.indexOf('smoke_one "$')
+    const firstCheck = script.indexOf('verify_one "$')
     expect(verifyCall).toBeGreaterThan(-1)
-    expect(firstSmoke).toBeGreaterThan(-1)
-    expect(verifyCall).toBeLessThan(firstSmoke)
+    expect(firstCheck).toBeGreaterThan(-1)
+    expect(verifyCall).toBeLessThan(firstCheck)
   })
 
   test("asserts the executable, sidecar, and manifest target in-container", () => {
