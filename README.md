@@ -84,26 +84,6 @@ pick the active model
 - `/resume` reopens a saved one
 - Shift-Tab cycles the permission mode (`ask → auto → plan`)
 
-## Release artifacts
-
-Pushing to `main` publishes a GitHub Release (versioned by conventional commits) with standalone Linux archives — machine-consumed artifacts for Harbor/Pier task containers, **not yet a public `curl | bash` installer**.
-
-Each release for version `X.Y.Z` attaches:
-
-```text
-swain-vX.Y.Z-linux-x64-glibc.tar.gz   # Debian, Ubuntu, glibc images
-swain-vX.Y.Z-linux-x64-musl.tar.gz    # Alpine, musl images
-checksums.txt                         # SHA-256, one line per archive
-```
-
-Each archive unpacks to a standalone `bin/swain` (no Bun required), its private `libexec/rg` sidecar, `manifest.json`, and ripgrep licenses. The `musl` binary is not fully static — on a bare Alpine image install its C++ runtime first: `apk add --no-cache libstdc++ libgcc`. glibc images (Debian, Ubuntu) already ship it. Pin the version and verify before extracting:
-
-```bash
-sha256sum -c checksums.txt
-tar -xzf swain-vX.Y.Z-linux-x64-glibc.tar.gz
-./bin/swain --version
-```
-
 ## Evals
 
 Supported evals:
