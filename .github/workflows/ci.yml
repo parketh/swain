@@ -33,9 +33,8 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
-      # Generous per-test timeout: TUI render tests are slower on CI runners.
       - name: Run tests
-        run: bun run test --timeout 20000
+        run: bun run test
 
   verify-artifacts:
     name: Verify standalone Linux artifacts

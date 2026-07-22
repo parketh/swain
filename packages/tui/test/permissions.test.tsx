@@ -26,7 +26,7 @@ const pressUntil = async (
   press: () => void,
   predicate: () => boolean,
   describe: () => string,
-  { timeoutMs = 15000, intervalMs = 150 }: { timeoutMs?: number; intervalMs?: number } = {},
+  { timeoutMs = 4000, intervalMs = 150 }: { timeoutMs?: number; intervalMs?: number } = {},
 ): Promise<void> => {
   const start = performance.now()
   while (!predicate()) {

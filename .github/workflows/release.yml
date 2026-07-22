@@ -51,9 +51,8 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
-      # Generous per-test timeout: TUI render tests are slower on CI runners.
       - name: Run tests
-        run: bun run test --timeout 20000
+        run: bun run test
 
       # semantic-release runs under Node; its `prepare` step calls
       # `bun run build:release` to cross-compile and package the matrix.

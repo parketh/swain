@@ -35,7 +35,7 @@ const waitFor = async (
   predicate: () => boolean,
   opts: { timeoutMs?: number; describe?: () => string } = {},
 ): Promise<void> => {
-  const { timeoutMs = 5000, describe } = opts
+  const { timeoutMs = 4000, describe } = opts
   const start = performance.now()
   while (!predicate()) {
     if (performance.now() - start > timeoutMs) {
@@ -54,7 +54,7 @@ const pressUntil = async (
   press: () => void,
   predicate: () => boolean,
   describe: () => string,
-  { timeoutMs = 15000, intervalMs = 150 }: { timeoutMs?: number; intervalMs?: number } = {},
+  { timeoutMs = 4000, intervalMs = 150 }: { timeoutMs?: number; intervalMs?: number } = {},
 ): Promise<void> => {
   const start = performance.now()
   while (!predicate()) {
@@ -1254,7 +1254,7 @@ describe("App", () => {
     await flush()
     stdin.write("\r") // save credentials → auto-advance to the model picker
     await waitFor(() => clean(lastFrame()).includes("Select a model"), {
-      timeoutMs: 15000,
+      timeoutMs: 4000,
       describe: () => clean(lastFrame()),
     })
     // select claude-opus-4-8 (offers variants) → variant picker
