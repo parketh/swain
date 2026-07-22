@@ -27,6 +27,15 @@ import { sessionsDir } from "../src/config"
 import { type Controller, makeController } from "../src/controller"
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 25))
+// Polls until `predicate` holds instead of racing a fixed sleep — an async
+// state transition can take longer than one `flush()` on a slow CI runner.
+const waitFor = async (predicate: () => boolean, timeoutMs = 5000): Promise<void> => {
+  const start = performance.now()
+  while (!predicate()) {
+    if (performance.now() - start > timeoutMs) throw new Error("waitFor: condition not met in time")
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+}
 // The prompt renders the cursor/command color as raw inline ANSI (so each line
 // is one Ink text atom); ink-testing-library keeps those codes in the frame.
 const clean = (frame: string | undefined): string => (frame ?? "").replace(/\[[0-9;]*m/g, "")
@@ -1213,11 +1222,9 @@ describe("App", () => {
     stdin.write("sk-test-key")
     await flush()
     stdin.write("\r") // save credentials → auto-advance to the model picker
-    await flush()
-    expect(clean(lastFrame())).toContain("Select a model")
+    await waitFor(() => clean(lastFrame()).includes("Select a model"))
     stdin.write("\r") // select claude-opus-4-8 (offers variants) → variant picker
-    await flush()
-    expect(clean(lastFrame())).toContain("Select a variant")
+    await waitFor(() => clean(lastFrame()).includes("Select a variant"))
     expect(clean(lastFrame())).toContain("extra")
   })
 
