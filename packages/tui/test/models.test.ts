@@ -114,6 +114,7 @@ describe("environmentCredentialSources", () => {
   const expected = [
     { provider: "anthropic", field: "apiKey", envVar: "ANTHROPIC_API_KEY" },
     { provider: "openai", field: "apiKey", envVar: "OPENAI_API_KEY" },
+    { provider: "kimi", field: "apiKey", envVar: "MOONSHOT_API_KEY" },
     { provider: "deepseek", field: "apiKey", envVar: "DEEPSEEK_API_KEY" },
     { provider: "zai", field: "apiKey", envVar: "ZAI_API_KEY" },
   ] as const

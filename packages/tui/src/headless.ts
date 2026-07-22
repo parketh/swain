@@ -2,16 +2,19 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join as pathJoin } from "node:path"
 import { BunContext } from "@effect/platform-bun"
-import { createSessionState, type SessionState } from "@swain/core"
+import { createSessionState, type SessionState, type TraceOutcome } from "@swain/core"
 import { builtinTools } from "@swain/core/tools"
 import { Effect, type Layer } from "effect"
 import type { HeadlessOptions } from "./cli"
 import { type TuiConfig } from "./config"
 import { makeController } from "./controller"
 import { initEvent, messageEvent, resultEvent, serialize } from "./exec-events"
+import { initTraceRecorder, type TraceRecorder } from "./exec-trace"
+import { collectSecrets, makeRedactor } from "./redaction"
 import { routerSettings } from "./router"
 import type { LLMClientService } from "./runtime"
 import { loadStartup, resolveHeadlessModel } from "./startup"
+import { version } from "./version"
 
 /** Test-only injection seam; production callers pass nothing. */
 export interface HeadlessTestDeps {
@@ -67,6 +70,9 @@ export const runHeadless = async (
 
   // Routing is off by default; --router leaves the saved configuration effective.
   const config = options.router ? loaded.config : withRoutingDisabled(loaded.config)
+  // Exact known-value redactor over stdout NDJSON and native trace writes. Built
+  // from the loaded provider credentials plus the supported env overlays.
+  const redact = makeRedactor(collectSecrets(loaded.config.providers, env))
   const active = model.resolved.activeModel
   const session = createSessionState({
     workingDirectory: cwd,
@@ -80,6 +86,31 @@ export const runHeadless = async (
     permissionMode: options.permissionMode,
     currentDate: new Date().toISOString().slice(0, 10),
   })
+
+  // Opt-in native trace bundle. Initialize the directory before any model request
+  // so an unwritable path fails the exec (exit 1) rather than silently claiming
+  // ATIF support after spending tokens.
+  const execTools = builtinTools.filter((tool) => tool.name !== "Ask")
+  // The traced root system prompt must match the loop's: SwitchModel is only
+  // offered when routing is active (it is off by default in exec).
+  const rootTraceTools = execTools
+    .filter((tool) => tool.name !== "SwitchModel" || options.router)
+    .map((tool) => ({ name: tool.name, description: tool.description }))
+  let recorder: TraceRecorder | undefined
+  if (options.traceDir !== undefined) {
+    try {
+      recorder = await initTraceRecorder({
+        dir: options.traceDir,
+        swainVersion: version(),
+        rootAgentId: session.sessionId,
+        nonInteractive: true,
+        redact,
+      })
+    } catch (error) {
+      stderr(`${describe(error)}\n`)
+      return 1
+    }
+  }
 
   // Ephemeral task/tool-result storage removed on every exit path. Setup failures
   // here (e.g. mkdtemp) still owe the caller the documented one-line-stderr, exit-1
@@ -96,8 +127,9 @@ export const runHeadless = async (
       requestOptions: model.resolved.requestOptions,
       persist: false,
       sessionStorageRoot: storageRoot,
-      tools: builtinTools.filter((tool) => tool.name !== "Ask"),
+      tools: execTools,
       nonInteractive: true,
+      ...(recorder !== undefined && { onChildTrace: recorder.recordChild }),
       ...(testDeps.llmLayer !== undefined && { llmLayer: testDeps.llmLayer }),
     })
   } catch (error) {
@@ -121,7 +153,7 @@ export const runHeadless = async (
     const messages = session.messages
     for (; cursor < messages.length; cursor += 1) {
       const event = messageEvent(messages[cursor]!)
-      if (event !== null) stdout(serialize(event))
+      if (event !== null) stdout(serialize(event, redact))
     }
   }
 
@@ -150,6 +182,7 @@ export const runHeadless = async (
           cwd,
           router: options.router,
         }),
+        redact,
       ),
     )
   }
@@ -183,12 +216,13 @@ export const runHeadless = async (
           fatal
             ? resultEvent("error_during_execution", fatalMessage ?? "")
             : resultEvent("success", finalAssistantText(session)),
+          redact,
         ),
       )
       return fatal ? 1 : 0
     }
     if (fatal) return 1
-    stdout(`${finalAssistantText(session)}\n`)
+    stdout(`${redact(finalAssistantText(session))}\n`)
     return 0
   })().catch(() => 1)
 
@@ -196,7 +230,24 @@ export const runHeadless = async (
     const code = await Promise.race([work, signalled])
     if (streamJson && (code === 130 || code === 143)) {
       flush()
-      stdout(serialize(resultEvent("interrupted")))
+      stdout(serialize(resultEvent("interrupted"), redact))
+    }
+    // Finalize the root snapshot after quiescence (success) or during bounded
+    // shutdown on failure/signal. A trace write error fails an otherwise-clean
+    // run so the caller never trusts an incomplete bundle.
+    if (recorder !== undefined) {
+      const outcome: TraceOutcome =
+        signalCode !== undefined
+          ? { status: "interrupted", signal: signalCode === 130 ? "SIGINT" : "SIGTERM" }
+          : fatal
+            ? { status: "failed", error: fatalMessage ?? "" }
+            : { status: "completed" }
+      await recorder.finalizeRoot({ session, tools: rootTraceTools, outcome })
+      const traceError = recorder.firstError()
+      if (traceError !== undefined) {
+        stderr(`Trace write failed: ${traceError.message}\n`)
+        return code === 0 ? 1 : code
+      }
     }
     return code
   } finally {

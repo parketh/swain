@@ -48,6 +48,7 @@ describe("loadStartup credential policy", () => {
   const providerEnv: Array<[string, string, string]> = [
     ["ANTHROPIC_API_KEY", "anthropic", "apiKey"],
     ["OPENAI_API_KEY", "openai", "apiKey"],
+    ["MOONSHOT_API_KEY", "kimi", "apiKey"],
     ["DEEPSEEK_API_KEY", "deepseek", "apiKey"],
     ["ZAI_API_KEY", "zai", "apiKey"],
   ]

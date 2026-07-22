@@ -119,4 +119,13 @@ describe("serialize", () => {
       result: "hi",
     })
   })
+
+  test("applies the redactor immediately before serialization", () => {
+    const secret = "sk-secret-0123456789abcdef"
+    const redact = <T>(value: T): T =>
+      JSON.parse(JSON.stringify(value).split(secret).join("[REDACTED]"))
+    const line = serialize(resultEvent("success", `token ${secret} end`), redact)
+    expect(line).not.toContain(secret)
+    expect(JSON.parse(line).result).toBe("token [REDACTED] end")
+  })
 })

@@ -95,5 +95,12 @@ export const resultEvent = (subtype: ResultSubtype, result?: string): StreamEven
   ...(result !== undefined && { result }),
 })
 
-/** Serializes an event as one NDJSON line (compact JSON plus a trailing newline). */
-export const serialize = (event: StreamEvent): string => `${JSON.stringify(event)}\n`
+/**
+ * Serializes an event as one NDJSON line (compact JSON plus a trailing newline).
+ * An optional redactor runs over the event immediately before serialization so
+ * known credentials never reach stdout; it defaults to identity.
+ */
+export const serialize = (
+  event: StreamEvent,
+  redact: <T>(value: T) => T = (value) => value,
+): string => `${JSON.stringify(redact(event))}\n`
