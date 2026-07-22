@@ -52,15 +52,16 @@ describe("loadStartup credential policy", () => {
     ["ZAI_API_KEY", "zai", "apiKey"],
   ]
 
-  test.each(
-    providerEnv,
-  )("%s makes its provider resolvable under exec policy and is ignored under interactive", async (envVar, provider, field) => {
-    const exec = await withConfigDir(() => {}, "stored-then-environment", { [envVar]: "secret" })
-    expect((exec.config.providers[provider] as Record<string, string>)?.[field]).toBe("secret")
+  test.each(providerEnv)(
+    "%s makes its provider resolvable under exec policy and is ignored under interactive",
+    async (envVar, provider, field) => {
+      const exec = await withConfigDir(() => {}, "stored-then-environment", { [envVar]: "secret" })
+      expect((exec.config.providers[provider] as Record<string, string>)?.[field]).toBe("secret")
 
-    const interactive = await withConfigDir(() => {}, "stored-only", { [envVar]: "secret" })
-    expect(interactive.config.providers[provider]).toBeUndefined()
-  })
+      const interactive = await withConfigDir(() => {}, "stored-only", { [envVar]: "secret" })
+      expect(interactive.config.providers[provider]).toBeUndefined()
+    },
+  )
 
   test("stored credentials win over environment credentials", async () => {
     const loaded = await withConfigDir(
