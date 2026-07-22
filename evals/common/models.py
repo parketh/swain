@@ -138,8 +138,10 @@ def swain_exec_command(swain_bin: str, selection: ModelSelection, instruction: s
     """Build the byte-preserving `swain exec` command for a benchmark instruction.
 
     Routing is off (one fixed model); the instruction is shell-quoted so it
-    survives byte-for-byte, and NDJSON is captured via ``tee`` while the process
-    exit code is preserved by ``pipefail`` in the framework exec wrapper.
+    survives byte-for-byte. NDJSON stdout is redirected to a file (not piped
+    through ``tee``) so a non-zero Swain exit propagates as the command's exit
+    code instead of being masked by the pipeline — the framework then fails the
+    trial clearly. Swain's stderr is left on the agent stream for diagnostics.
     """
     return (
         f"{swain_bin} exec"
@@ -148,5 +150,5 @@ def swain_exec_command(swain_bin: str, selection: ModelSelection, instruction: s
         " --output-format stream-json"
         f" --trace-dir {SWAIN_TRACE_DIR}"
         f" {shlex.quote(instruction)}"
-        f" | tee {SWAIN_NDJSON}"
+        f" > {SWAIN_NDJSON}"
     )

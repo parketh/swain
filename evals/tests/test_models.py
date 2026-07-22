@@ -91,8 +91,10 @@ def test_swain_exec_command_structure_and_quoting():
     assert "--model anthropic:claude-opus-4:high" in command
     assert "--output-format stream-json" in command
     assert f"--trace-dir {models.SWAIN_TRACE_DIR}" in command
-    assert f"| tee {models.SWAIN_NDJSON}" in command
+    # Stdout is redirected (not piped) so a non-zero Swain exit is not masked.
+    assert f"> {models.SWAIN_NDJSON}" in command
+    assert "| tee" not in command
 
     # The instruction survives shell parsing byte-for-byte as a single argument.
-    tokens = shlex.split(command.split("| tee")[0])
+    tokens = shlex.split(command.split(f"> {models.SWAIN_NDJSON}")[0])
     assert instruction in tokens
