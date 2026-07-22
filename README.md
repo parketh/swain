@@ -44,6 +44,7 @@ Specs also serve as a living build journal, allowing anyone to understand how an
 
 - Architecture: [`ARCHITECTURE.md`](ARCHITECTURE.md)
 - Build journals & design records: [`specs/`](specs/)
+- Benchmark evals (Terminal-Bench via Harbor, DeepSWE via Pier): [`evals/README.md`](evals/README.md)
 
 ## Commands
 
@@ -102,5 +103,9 @@ sha256sum -c checksums.txt
 tar -xzf swain-vX.Y.Z-linux-x64-glibc.tar.gz
 ./bin/swain --version
 ```
+
+## Evals
+
+Swain runs reproducibly as a custom installed agent against Terminal-Bench 2 (through [Harbor](https://www.harborframework.com)) and DeepSWE (through [Pier](https://github.com/datacurve-ai/deep-swe)), installing an exact checksummed release and emitting complete ATIF v1.7 parent/subagent trajectories. See [`evals/README.md`](evals/README.md) for prerequisites, model/variant mapping, single-task acceptance, and full-run commands.
 
 Build them locally with `bun run build:release -- --version X.Y.Z --commit <sha> --all` (requires Linux and GNU tar).
