@@ -15,6 +15,20 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")/.." && pwd)"
+
+# Load config from the project-root .env if present (override the path with
+# SWAIN_ENV_FILE) so the script can be configured without exporting by hand.
+# Standard dotenv sourcing — `set -a` auto-exports every assignment. The file
+# feeds the host script only; just the selected provider key is later forwarded
+# into the container via --agent-env, so other keys in .env never reach the agent.
+env_file="${SWAIN_ENV_FILE:-$here/../.env}"
+if [ -f "$env_file" ]; then
+  set -a
+  # shellcheck source=/dev/null
+  . "$env_file"
+  set +a
+fi
+
 : "${SWAIN_EVAL_VERSION:?set SWAIN_EVAL_VERSION to an exact Swain release SemVer}"
 : "${SWAIN_EVAL_MODEL:?set SWAIN_EVAL_MODEL to provider/model}"
 

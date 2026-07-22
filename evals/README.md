@@ -35,6 +35,8 @@ export SWAIN_EVAL_VARIANT=high                       # optional reasoning varian
 export ANTHROPIC_API_KEY=...                          # only the selected provider's key
 ```
 
+Instead of exporting by hand, put these in a project-root `.env` (gitignored) — the run scripts source it automatically (override the path with `SWAIN_ENV_FILE`, or skip it with `SWAIN_ENV_FILE=/dev/null`). The `.env` feeds the host script only; still just the selected provider's key is forwarded into the container via `--agent-env`, so other keys in the file never reach the agent. Don't use Harbor/Pier's own `--env-file` for credentials — that would forward every variable into the container.
+
 `SWAIN_EVAL_MODEL` (`<provider>/<model>`) plus the optional variant map to Swain's `provider:model[:variant]`:
 
 | Model prefix | Credential | Provider domain |
