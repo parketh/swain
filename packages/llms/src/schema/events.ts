@@ -2,20 +2,7 @@ import { Effect, Schema } from "effect"
 import { LLMError } from "./errors"
 import { ContentId, ToolCallId } from "./ids"
 import type { AssistantContent } from "./messages"
-import { ReasoningContent, TextContent, ToolCallContent } from "./messages"
-
-export const Usage = Schema.Struct({
-  inputTokens: Schema.Number,
-  outputTokens: Schema.Number,
-  /**
-   * Provider-reported active context pressure for the turn: the total tokens
-   * the provider counted against the context window (input + output + any cache
-   * read/creation). Providers translate their native usage fields into this;
-   * core treats a missing value as `inputTokens + outputTokens`.
-   */
-  activeContextTokens: Schema.optional(Schema.Number),
-})
-export type Usage = typeof Usage.Type
+import { ReasoningContent, TextContent, ToolCallContent, Usage } from "./messages"
 
 export const FinishReason = Schema.Literal(
   "stop",

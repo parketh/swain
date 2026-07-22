@@ -8,7 +8,6 @@ export {
   LLMTurnSummary,
   ProviderError,
   ToolCall,
-  Usage,
 } from "./schema/events"
 export { ContentId, ModelId, ProtocolId, ProviderId, ToolCallId } from "./schema/ids"
 export { Lab } from "./schema/labs"
@@ -31,6 +30,7 @@ export {
   ToolChoice,
   ToolResultContent,
   ToolResultValue,
+  Usage,
   UserContent,
   UserMessage,
 } from "./schema/messages"

@@ -272,6 +272,53 @@ describe("session model persistence", () => {
     expect(reloaded.messages[1]).toEqual(assistant)
   })
 
+  test("save/load round-trips per-response usage on assistant messages", async () => {
+    const user = Message.user("investigate", false, { createdAt: "2026-07-17T10:00:00.000Z" })
+    const assistant = Message.assistant(
+      [{ type: "text", text: "done" }],
+      { createdAt: "2026-07-17T10:00:02.000Z", responseDurationMs: 330 },
+      { inputTokens: 1200, outputTokens: 84, activeContextTokens: 1300 },
+    )
+    const state = createSessionState({
+      sessionId: "s-usage",
+      workingDirectory: dir,
+      model: anthropic,
+      currentDate: "2026-07-17",
+      messages: [user, assistant],
+    })
+    const reloaded = await run(
+      saveSession(state, dir).pipe(
+        Effect.andThen(loadSession({ sessionId: "s-usage", model: anthropic, sessionsDir: dir })),
+      ),
+    )
+    expect(reloaded.messages[1]).toEqual(assistant)
+    expect((reloaded.messages[1] as typeof assistant).usage).toEqual({
+      inputTokens: 1200,
+      outputTokens: 84,
+      activeContextTokens: 1300,
+    })
+  })
+
+  test("legacy assistant messages without usage still decode", async () => {
+    const legacy = Message.assistant([{ type: "text", text: "ok" }], {
+      createdAt: "2026-07-17T10:00:02.000Z",
+    })
+    expect((legacy as { usage?: unknown }).usage).toBeUndefined()
+    const state = createSessionState({
+      sessionId: "s-legacy",
+      workingDirectory: dir,
+      model: anthropic,
+      currentDate: "2026-07-17",
+      messages: [Message.user("start"), legacy],
+    })
+    const reloaded = await run(
+      saveSession(state, dir).pipe(
+        Effect.andThen(loadSession({ sessionId: "s-legacy", model: anthropic, sessionsDir: dir })),
+      ),
+    )
+    expect(reloaded.messages[1]).toEqual(legacy)
+  })
+
   test("save/load preserves tool-result replacement metadata", async () => {
     const replacement = {
       toolCallId: "call-1",

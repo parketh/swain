@@ -541,7 +541,12 @@ const loop = (
       ),
     )
 
-    session.messages.push(assistantMessage(summary.assistantContent, { responseDurationMs }))
+    session.messages.push(
+      assistantMessage(summary.assistantContent, {
+        responseDurationMs,
+        ...(summary.usage !== undefined && { usage: summary.usage }),
+      }),
+    )
     session.counters.turns += 1
     if (summary.usage !== undefined) {
       session.counters.inputTokens += summary.usage.inputTokens

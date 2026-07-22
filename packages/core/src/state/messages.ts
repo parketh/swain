@@ -3,6 +3,7 @@ import {
   type AssistantMessage,
   Message,
   type MessageTiming,
+  type Usage,
   type UserContent,
   type UserMessage,
 } from "@swain/llms"
@@ -29,11 +30,20 @@ export const userMessage = (
   return Message.user(input, isMeta, { createdAt: createdAt ?? messageTimestamp(), ...durations })
 }
 
+export interface AssistantMessageOptions extends MessageTiming {
+  /** Provider-reported usage for the inference that produced this response. */
+  readonly usage?: Usage
+}
+
 /** Core-owned assistant-message constructor mirroring {@link userMessage}. */
 export const assistantMessage = (
   input: string | ReadonlyArray<AssistantContent>,
-  options: MessageTiming = {},
+  options: AssistantMessageOptions = {},
 ): AssistantMessage => {
-  const { createdAt, ...durations } = options
-  return Message.assistant(input, { createdAt: createdAt ?? messageTimestamp(), ...durations })
+  const { createdAt, usage, ...durations } = options
+  return Message.assistant(
+    input,
+    { createdAt: createdAt ?? messageTimestamp(), ...durations },
+    usage,
+  )
 }
