@@ -226,8 +226,13 @@ describe("Glob and Grep", () => {
 })
 
 describe("SWAIN_RG_PATH override", () => {
+  let originalRgPath: string | undefined
+  beforeEach(() => {
+    originalRgPath = process.env.SWAIN_RG_PATH
+  })
   afterEach(() => {
-    delete process.env.SWAIN_RG_PATH
+    if (originalRgPath === undefined) delete process.env.SWAIN_RG_PATH
+    else process.env.SWAIN_RG_PATH = originalRgPath
   })
 
   test("Glob runs the configured rg instead of the system one", async () => {
