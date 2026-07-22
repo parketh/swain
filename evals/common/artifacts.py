@@ -190,10 +190,13 @@ case "$machine" in
   *) fail "unsupported architecture: $machine (only x86_64 is published)" ;;
 esac
 
+# Detect libc by loader file first (a plain stat, robust under CPU emulation
+# where executing `ldd` can be flaky), falling back to `ldd --version`.
 if [ -f /lib/ld-musl-x86_64.so.1 ] || (ldd --version 2>&1 | grep -qi musl); then
   LIBC="musl"
   ASSET="{musl_asset}"
-elif (ldd --version 2>&1 | grep -qiE 'glibc|gnu libc|gnu c library'); then
+elif [ -f /lib64/ld-linux-x86-64.so.2 ] || [ -f /lib/x86_64-linux-gnu/libc.so.6 ] \
+  || (ldd --version 2>&1 | grep -qiE 'glibc|gnu libc|gnu c library'); then
   LIBC="glibc"
   ASSET="{glibc_asset}"
 else

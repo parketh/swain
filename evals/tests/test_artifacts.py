@@ -94,6 +94,13 @@ class TestInstallScript:
         assert "unsupported architecture" in script
         assert "could not detect glibc or musl" in script
 
+    def test_libc_detection_prefers_loader_files(self, script):
+        # A plain stat on the loader file is robust where executing `ldd` is flaky
+        # (e.g. x86_64 under QEMU emulation on an arm64 host).
+        assert "/lib/ld-musl-x86_64.so.1" in script
+        assert "/lib64/ld-linux-x86-64.so.2" in script
+        assert "/lib/x86_64-linux-gnu/libc.so.6" in script
+
     def test_sha256_verified_before_extraction(self, script):
         checksum_cmp = script.index('[ "$expected" = "$actual" ]')
         extract = script.index("tar -xzf")
