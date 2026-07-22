@@ -1,0 +1,33 @@
+[project]
+name = "swain-evals"
+version = "0.0.0"
+description = "Swain installed-agent adapters for Harbor (Terminal-Bench) and Pier (DeepSWE)."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "harbor==0.20.0",
+    "datacurve-pier==0.3.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "ruff==0.15.22",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+# The flat directory is published under the `evals` namespace so `evals.harbor`
+# and `evals.pier` never shadow the installed `harbor`/`pier` framework packages.
+[tool.setuptools]
+package-dir = { "evals" = "." }
+packages = ["evals", "evals.common", "evals.harbor", "evals.pier"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".."]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
