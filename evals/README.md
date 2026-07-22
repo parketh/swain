@@ -60,8 +60,9 @@ uv sync --frozen
 # Cheap install/import preflight; no model request.
 ./scripts/run-terminal-bench-2.sh --install-only
 
-# One live Terminal-Bench 2 task.
-./scripts/run-terminal-bench-2.sh --include-task-name cancel-async-tasks --n-tasks 1
+# One live Terminal-Bench 2 task. Task names are namespaced (`terminal-bench/<name>`);
+# omit --include-task-name to run the whole dataset.
+./scripts/run-terminal-bench-2.sh --include-task-name terminal-bench/cancel-async-tasks --n-tasks 1
 
 # One live DeepSWE task.
 ./scripts/run-deep-swe.sh --include-task-name abs-module-cache-flags --n-tasks 1 --sample-seed 0
