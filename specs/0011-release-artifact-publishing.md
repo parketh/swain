@@ -193,8 +193,13 @@ semantic-release                         25.0.8
 @semantic-release/release-notes-generator 14.1.1
 @semantic-release/exec                   7.1.0
 @semantic-release/github                 12.0.9
-conventional-changelog-conventionalcommits 10.2.1
+conventional-changelog-conventionalcommits 9.1.0
 ```
+
+`conventional-changelog-conventionalcommits` is held at 9.x: 10.x moved to the
+`@conventional-changelog/template` engine, which is incompatible with the
+`conventional-changelog-writer@8` bundled by `release-notes-generator@14` and
+silently produces empty release notes.
 
 Do not add `@semantic-release/changelog` or `@semantic-release/git`: release notes live on the GitHub Release, avoiding generated commits back to protected `main`.
 
