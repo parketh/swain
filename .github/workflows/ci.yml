@@ -30,3 +30,33 @@ jobs:
 
       - name: Run unit tests
         run: bun test packages/llms/test
+
+  verify-artifacts:
+    name: Verify standalone Linux artifacts
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build test artifacts
+        run: bun run build:release -- --version 0.0.0-test --commit "$(git rev-parse HEAD)" --all
+
+      - name: Verify clean containers
+        run: bash packages/tui/scripts/verify-release.sh dist 0.0.0-test
+
+      - name: Reject target mismatch
+        run: bash packages/tui/scripts/verify-release.sh dist 0.0.0-test --mismatch

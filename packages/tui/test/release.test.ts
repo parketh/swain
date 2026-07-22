@@ -1,0 +1,240 @@
+import { describe, expect, test } from "bun:test"
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { dirname, join, resolve } from "node:path"
+import {
+  ARCHIVE_MEMBERS,
+  archiveName,
+  assembleArchive,
+  BUN_VERSION,
+  buildChecksumIndex,
+  buildManifest,
+  findGnuTar,
+  isGitCommit,
+  isPlainSemver,
+  RIPGREP_SOURCE_SHA256,
+  RIPGREP_URL,
+  RIPGREP_VERSION,
+  serializeManifest,
+  TARGETS,
+} from "../scripts/build-release"
+
+const COMMIT = "0123456789abcdef0123456789abcdef01234567"
+
+describe("target table", () => {
+  test("contains exactly the two Artifact Contract rows", () => {
+    expect(TARGETS).toEqual([
+      { name: "linux-x64-glibc", bunTarget: "bun-linux-x64" },
+      { name: "linux-x64-musl", bunTarget: "bun-linux-x64-musl" },
+    ])
+  })
+})
+
+describe("input validation", () => {
+  test("accepts plain SemVer including a prerelease", () => {
+    expect(isPlainSemver("1.2.3")).toBe(true)
+    expect(isPlainSemver("0.0.0-test")).toBe(true)
+    expect(isPlainSemver("v1.2.3")).toBe(false)
+    expect(isPlainSemver("1.2")).toBe(false)
+  })
+
+  test("requires a 40-character hex commit SHA", () => {
+    expect(isGitCommit(COMMIT)).toBe(true)
+    expect(isGitCommit(COMMIT.toUpperCase())).toBe(false)
+    expect(isGitCommit(COMMIT.slice(0, 39))).toBe(false)
+  })
+})
+
+describe("pinned ripgrep constants", () => {
+  test("version, URL, and source digest are fixed", () => {
+    expect(RIPGREP_VERSION).toBe("15.1.0")
+    expect(RIPGREP_SOURCE_SHA256).toBe(
+      "1c9297be4a084eea7ecaedf93eb03d058d6faae29bbc57ecdaf5063921491599",
+    )
+    expect(RIPGREP_URL).toBe(
+      "https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-x86_64-unknown-linux-musl.tar.gz",
+    )
+  })
+})
+
+describe("manifest", () => {
+  test("serializes stably and is target-specific", () => {
+    const glibc = serializeManifest(buildManifest("1.2.3", COMMIT, "linux-x64-glibc"))
+    expect(glibc).toBe(
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          swainVersion: "1.2.3",
+          gitCommit: COMMIT,
+          target: "linux-x64-glibc",
+          bunVersion: BUN_VERSION,
+          ripgrepVersion: "15.1.0",
+          ripgrepSourceSha256: RIPGREP_SOURCE_SHA256,
+        },
+        null,
+        2,
+      )}\n`,
+    )
+    // Same inputs reserialize identically; only the target field differs.
+    expect(serializeManifest(buildManifest("1.2.3", COMMIT, "linux-x64-glibc"))).toBe(glibc)
+    expect(serializeManifest(buildManifest("1.2.3", COMMIT, "linux-x64-musl"))).not.toBe(glibc)
+  })
+})
+
+describe("archive members", () => {
+  test("are exactly the contract files with correct modes", () => {
+    expect(ARCHIVE_MEMBERS).toEqual([
+      { path: "bin/swain", mode: 0o755, executable: true },
+      { path: "libexec/rg", mode: 0o755, executable: true },
+      { path: "manifest.json", mode: 0o644, executable: false },
+      { path: "share/licenses/ripgrep/LICENSE-MIT", mode: 0o644, executable: false },
+      { path: "share/licenses/ripgrep/UNLICENSE", mode: 0o644, executable: false },
+    ])
+  })
+
+  test("archiveName follows the swain-vX.Y.Z-target convention", () => {
+    expect(archiveName("1.2.3", "linux-x64-glibc")).toBe("swain-v1.2.3-linux-x64-glibc.tar.gz")
+  })
+})
+
+describe("checksum index", () => {
+  test("is sorted, lists each archive once, and changes when an archive changes", () => {
+    const index = buildChecksumIndex([
+      { name: "swain-v1.2.3-linux-x64-musl.tar.gz", sha256: "bbb" },
+      { name: "swain-v1.2.3-linux-x64-glibc.tar.gz", sha256: "aaa" },
+    ])
+    expect(index).toBe(
+      "aaa  swain-v1.2.3-linux-x64-glibc.tar.gz\nbbb  swain-v1.2.3-linux-x64-musl.tar.gz\n",
+    )
+    expect(index.trim().split("\n")).toHaveLength(2)
+
+    const changed = buildChecksumIndex([
+      { name: "swain-v1.2.3-linux-x64-musl.tar.gz", sha256: "ccc" },
+      { name: "swain-v1.2.3-linux-x64-glibc.tar.gz", sha256: "aaa" },
+    ])
+    expect(changed).not.toBe(index)
+  })
+})
+
+const REPO_ROOT = resolve(import.meta.dir, "..", "..", "..")
+const readJson = (path: string): unknown => JSON.parse(readFileSync(join(REPO_ROOT, path), "utf8"))
+
+describe("semantic-release config", () => {
+  // biome-ignore lint: config shape is validated field-by-field below.
+  const config = readJson(".releaserc.json") as any
+
+  test("publishes only from main", () => {
+    expect(config.branches).toEqual(["main"])
+  })
+
+  const plugin = (name: string): [string, Record<string, unknown>] =>
+    config.plugins.find((entry: unknown) => Array.isArray(entry) && entry[0] === name)
+
+  test("analyzer and notes use the conventionalcommits preset", () => {
+    expect(plugin("@semantic-release/commit-analyzer")[1].preset).toBe("conventionalcommits")
+    expect(plugin("@semantic-release/release-notes-generator")[1].preset).toBe(
+      "conventionalcommits",
+    )
+  })
+
+  test("prepare invokes the builder with the next version and checked-out SHA", () => {
+    const prepareCmd = plugin("@semantic-release/exec")[1].prepareCmd as string
+    expect(prepareCmd).toContain("bun run build:release")
+    expect(prepareCmd).toContain("--version ${nextRelease.version}")
+    expect(prepareCmd).toContain("--commit ${nextRelease.gitHead}")
+    expect(prepareCmd).toContain("--all")
+  })
+
+  test("uploads exactly the two archives plus checksums.txt", () => {
+    const assets = (plugin("@semantic-release/github")[1].assets as Array<{ path: string }>).map(
+      (asset) => asset.path,
+    )
+    expect(assets).toEqual([
+      "dist/swain-v${nextRelease.version}-linux-x64-glibc.tar.gz",
+      "dist/swain-v${nextRelease.version}-linux-x64-musl.tar.gz",
+      "dist/checksums.txt",
+    ])
+  })
+
+  test("pins every semantic-release dependency to an exact version", () => {
+    // biome-ignore lint: reading a raw manifest shape.
+    const pkg = readJson("package.json") as any
+    const deps = pkg.devDependencies as Record<string, string>
+    for (const name of [
+      "semantic-release",
+      "@semantic-release/commit-analyzer",
+      "@semantic-release/release-notes-generator",
+      "@semantic-release/exec",
+      "@semantic-release/github",
+      "conventional-changelog-conventionalcommits",
+    ]) {
+      expect(deps[name]).toBeDefined()
+      expect(deps[name]).toMatch(/^\d+\.\d+\.\d+$/)
+    }
+  })
+})
+
+describe("verify harness", () => {
+  const script = readFileSync(
+    join(REPO_ROOT, "packages", "tui", "scripts", "verify-release.sh"),
+    "utf8",
+  )
+
+  test("pins both clean-container base images by digest", () => {
+    expect(script).toMatch(/debian@sha256:[0-9a-f]{64}/)
+    expect(script).toMatch(/alpine@sha256:[0-9a-f]{64}/)
+  })
+
+  test("verifies the checksum index before any container extraction", () => {
+    expect(script).toContain("sha256sum -c checksums.txt")
+    // The verify_checksums call runs before the first container is launched.
+    const verifyCall = script.indexOf("\nverify_checksums\n")
+    const firstCheck = script.indexOf('verify_one "$')
+    expect(verifyCall).toBeGreaterThan(-1)
+    expect(firstCheck).toBeGreaterThan(-1)
+    expect(verifyCall).toBeLessThan(firstCheck)
+  })
+
+  test("asserts the executable, sidecar, and manifest target in-container", () => {
+    expect(script).toContain("./bin/swain --version")
+    expect(script).toContain("./bin/swain --help")
+    expect(script).toContain("./libexec/rg --version")
+    expect(script).toContain("ripgrep 15.1.0")
+    expect(script).toContain("manifest.json")
+    expect(script).toContain("$TARGET")
+  })
+
+  test("has a negative path that flags a glibc/musl target mismatch", () => {
+    expect(script).toContain("--mismatch")
+    expect(script).toMatch(/target mismatch went undetected/)
+  })
+
+  test("installs the musl C++ runtime for the Alpine target", () => {
+    expect(script).toContain("apk add --no-cache libstdc++ libgcc")
+  })
+})
+
+// The archive assembly test genuinely shells out to GNU tar; skip it (with a
+// note) on hosts that only have bsdtar, but run it fully on Linux CI.
+const gnuTar = findGnuTar()
+describe("archive assembly", () => {
+  test.skipIf(!gnuTar)("normalizes identical staged files to identical archives", () => {
+    const root = mkdtempSync(join(tmpdir(), "swain-archive-"))
+    try {
+      const stage = join(root, "stage")
+      for (const member of ARCHIVE_MEMBERS) {
+        const abs = join(stage, member.path)
+        mkdirSync(dirname(abs), { recursive: true })
+        writeFileSync(abs, `contents of ${member.path}`)
+        chmodSync(abs, member.mode)
+      }
+      const a = join(root, "a.tar.gz")
+      const b = join(root, "b.tar.gz")
+      assembleArchive({ tar: gnuTar as string, stageDir: stage, outPath: a, epoch: 1_700_000_000 })
+      assembleArchive({ tar: gnuTar as string, stageDir: stage, outPath: b, epoch: 1_700_000_000 })
+      expect(readFileSync(a)).toEqual(readFileSync(b))
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
