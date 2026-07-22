@@ -106,6 +106,8 @@ tar -xzf swain-vX.Y.Z-linux-x64-glibc.tar.gz
 
 ## Evals
 
-Swain runs reproducibly as a custom installed agent against Terminal-Bench 2 (through [Harbor](https://www.harborframework.com)) and DeepSWE (through [Pier](https://github.com/datacurve-ai/deep-swe)), installing an exact checksummed release and emitting complete ATIF v1.7 parent/subagent trajectories. See [`evals/README.md`](evals/README.md) for prerequisites, model/variant mapping, single-task acceptance, and full-run commands.
+Supported evals:
+- Terminal-Bench 2 (via [Harbor](https://www.harborframework.com))
+- DeepSWE (via [Pier](https://github.com/datacurve-ai/deep-swe))
 
-Build them locally with `bun run build:release -- --version X.Y.Z --commit <sha> --all` (requires Linux and GNU tar).
+See [`evals/README.md`](evals/README.md) for more details.
