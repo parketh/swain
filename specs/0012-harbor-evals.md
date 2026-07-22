@@ -4,7 +4,7 @@
 
 **Goal:** Run Swain reproducibly as a custom installed agent against Terminal-Bench 2 through Harbor and DeepSWE through Pier, producing complete ATIF v1.7 parent/subagent trajectories and verified trial metrics.
 
-**Architecture:** Swain gains an opt-in native trace bundle for headless runs: one root snapshot plus one snapshot per completed child session, with committed reasoning, tool calls/results, timestamps, durations, and per-response token usage. Shared Python code installs an exact artifact from `specs/0011-standalone-release-artifacts.md`, maps Harbor/Pier model notation to `swain exec`, redacts known secrets, and converts the native bundle into ATIF. Two thin framework-specific wrappers inherit their respective installed-agent bases because Harbor and Pier expose different install/network APIs.
+**Architecture:** Swain gains an opt-in native trace bundle for headless runs: one root snapshot plus one snapshot per completed child session, with committed reasoning, tool calls/results, timestamps, durations, and per-response token usage. Shared Python code installs an exact artifact from `specs/0011-release-artifact-publishing.md`, maps Harbor/Pier model notation to `swain exec`, redacts known secrets, and converts the native bundle into ATIF. Two thin framework-specific wrappers inherit their respective installed-agent bases because Harbor and Pier expose different install/network APIs.
 
 **Tech Stack:** TypeScript, Bun 1.3.14, Effect, Python 3.12, uv 0.11.11, Harbor 0.20.0, datacurve-pier 0.3.0, ATIF v1.7, pytest 9.1.1, Ruff 0.15.22, Docker; Modal is supported through Pier but is not an acceptance dependency.
 
@@ -12,7 +12,7 @@
 
 ## Dependencies and Scope
 
-- Implement `specs/0011-standalone-release-artifacts.md` first and publish a real Swain release. The adapters never install a host-local binary or build Swain from source inside a task.
+- Implement `specs/0011-release-artifact-publishing.md` first and publish a real Swain release. The adapters never install a host-local binary or build Swain from source inside a task.
 - Reuse the merged `swain exec` implementation from `specs/0009-headless-exec.md`:
 
   ```text
