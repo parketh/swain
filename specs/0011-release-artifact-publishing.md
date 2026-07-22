@@ -291,3 +291,9 @@ Expected: all commands exit `0`; both clean-container smokes pass.
 - **Human installation:** no `curl | bash`, shell profile edits, install root policy, upgrades, or uninstall/purge behavior here.
 - **macOS/Windows:** not required inside Harbor/Pier Linux task containers.
 - **Artifact immutability:** semantic-release never republishes an existing version. Consumers still pin version plus SHA-256 rather than trusting a floating asset URL.
+
+## Post-Implementation Changes
+
+- The Task 4 verifier shipped as `packages/tui/scripts/verify-release.sh` (CI job `verify-artifacts`), not the planned `smoke-release.sh`.
+- The release build stubs `react-devtools-core` (ink's dev-only dynamic import) via a Bun resolver plugin so the compiled binary bundles cleanly.
+- The musl binary is not fully static, so the Alpine verification installs `libstdc++`/`libgcc` before running it; the README documents the same runtime dependency for consumers.
