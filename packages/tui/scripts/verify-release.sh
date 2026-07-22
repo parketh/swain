@@ -24,10 +24,17 @@ MODE="${3:-normal}"
 GLIBC_ARCHIVE="swain-v${VERSION}-linux-x64-glibc.tar.gz"
 MUSL_ARCHIVE="swain-v${VERSION}-linux-x64-musl.tar.gz"
 
+# Bun's musl executable is not fully static — it dynamically links libstdc++ and
+# libgcc, which a bare Alpine image lacks. This mirrors the documented runtime
+# dependency any real musl deployment must satisfy; glibc images (Debian) ship
+# libstdc++ in their base, so they need no setup.
+ALPINE_SETUP="apk add --no-cache libstdc++ libgcc >/dev/null"
+
 # In-container assertions, run under a minimal PATH so a stray system rg/bun is
-# never picked up. Expects $ARCHIVE, $VERSION, and $TARGET in the environment.
+# never picked up. Expects $ARCHIVE, $VERSION, $TARGET, and $SETUP in the env.
 CONTAINER_SCRIPT='
 set -eu
+[ -n "${SETUP:-}" ] && eval "$SETUP"
 export PATH=/usr/bin:/bin
 work=$(mktemp -d)
 tar -xzf "/dist/$ARCHIVE" -C "$work"
@@ -53,9 +60,9 @@ verify_checksums() {
   ( cd "$DIST" && sha256sum -c checksums.txt )
 }
 
-verify_one() { # image archive target
-  docker run --rm --network none \
-    -e VERSION="$VERSION" -e TARGET="$3" -e ARCHIVE="$2" \
+verify_one() { # image archive target setup
+  docker run --rm \
+    -e VERSION="$VERSION" -e TARGET="$3" -e ARCHIVE="$2" -e SETUP="${4:-}" \
     -v "$(cd "$DIST" && pwd)":/dist:ro \
     "$1" sh -c "$CONTAINER_SCRIPT"
 }
@@ -64,7 +71,7 @@ verify_checksums
 
 if [ "$MODE" = "--mismatch" ]; then
   echo "negative check: glibc archive on Alpine (musl) must fail"
-  if verify_one "$ALPINE_IMAGE" "$GLIBC_ARCHIVE" "linux-x64-glibc" 2>/dev/null; then
+  if verify_one "$ALPINE_IMAGE" "$GLIBC_ARCHIVE" "linux-x64-glibc" "$ALPINE_SETUP" 2>/dev/null; then
     echo "FAIL: glibc archive ran clean on Alpine — target mismatch went undetected" >&2
     exit 1
   fi
@@ -73,7 +80,7 @@ if [ "$MODE" = "--mismatch" ]; then
 fi
 
 echo "verifying linux-x64-glibc on Debian"
-verify_one "$DEBIAN_IMAGE" "$GLIBC_ARCHIVE" "linux-x64-glibc"
+verify_one "$DEBIAN_IMAGE" "$GLIBC_ARCHIVE" "linux-x64-glibc" ""
 echo "verifying linux-x64-musl on Alpine"
-verify_one "$ALPINE_IMAGE" "$MUSL_ARCHIVE" "linux-x64-musl"
+verify_one "$ALPINE_IMAGE" "$MUSL_ARCHIVE" "linux-x64-musl" "$ALPINE_SETUP"
 echo "all clean-container checks passed"

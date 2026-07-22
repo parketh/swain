@@ -95,7 +95,7 @@ swain-vX.Y.Z-linux-x64-musl.tar.gz    # Alpine, musl images
 checksums.txt                         # SHA-256, one line per archive
 ```
 
-Each archive unpacks to a standalone `bin/swain` (no Bun required), its private `libexec/rg` sidecar, `manifest.json`, and ripgrep licenses. Pin the version and verify before extracting:
+Each archive unpacks to a standalone `bin/swain` (no Bun required), its private `libexec/rg` sidecar, `manifest.json`, and ripgrep licenses. The `musl` binary is not fully static — on a bare Alpine image install its C++ runtime first: `apk add --no-cache libstdc++ libgcc`. glibc images (Debian, Ubuntu) already ship it. Pin the version and verify before extracting:
 
 ```bash
 sha256sum -c checksums.txt

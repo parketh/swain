@@ -208,6 +208,10 @@ describe("verify harness", () => {
     expect(script).toContain("--mismatch")
     expect(script).toMatch(/target mismatch went undetected/)
   })
+
+  test("installs the musl C++ runtime for the Alpine target", () => {
+    expect(script).toContain("apk add --no-cache libstdc++ libgcc")
+  })
 })
 
 // The archive assembly test genuinely shells out to GNU tar; skip it (with a
