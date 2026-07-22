@@ -19,6 +19,26 @@ import type { TuiConfig } from "../src/config"
 import { type Controller, makeController } from "../src/controller"
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 30))
+// Re-sends a key until `predicate` holds. A keypress fired immediately after an
+// async UI transition can reach a not-yet-active input handler on a slow CI
+// runner and be dropped; retrying until the expected frame appears is race-free.
+const pressUntil = async (
+  press: () => void,
+  predicate: () => boolean,
+  describe: () => string,
+  { timeoutMs = 15000, intervalMs = 150 }: { timeoutMs?: number; intervalMs?: number } = {},
+): Promise<void> => {
+  const start = performance.now()
+  while (!predicate()) {
+    if (performance.now() - start > timeoutMs) {
+      throw new Error(
+        `pressUntil: condition not met in ${timeoutMs}ms\n--- last frame ---\n${describe()}`,
+      )
+    }
+    press()
+    await new Promise((resolve) => setTimeout(resolve, intervalMs))
+  }
+}
 const DOWN = "[B"
 const ESC = ""
 
@@ -181,19 +201,14 @@ describe("App approval integration", () => {
     const turn = c.submitPrompt("go")
     await flush()
     expect(lastFrame()).toContain("Permission required")
-    stdin.write("\r") // Yes
-    // Diagnostic: if the turn never resolves in CI, surface the on-screen frame
-    // instead of a bare test timeout so we can see where the resume stalls.
-    await Promise.race([
-      turn,
-      new Promise((_, reject) =>
-        setTimeout(
-          () =>
-            reject(new Error(`turn did not resolve in 15s\n--- last frame ---\n${lastFrame()}`)),
-          15000,
-        ),
-      ),
-    ])
+    // Retry Yes until the modal closes — a single Enter can be dropped before
+    // the modal's input handler is active on a slow CI runner.
+    await pressUntil(
+      () => stdin.write("\r"),
+      () => !(lastFrame() ?? "").includes("Permission required"),
+      () => lastFrame() ?? "",
+    )
+    await turn
     expect(c.getState().session.messages.at(-1)).toMatchObject({ role: "assistant" })
   })
 
