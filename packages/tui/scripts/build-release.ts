@@ -227,39 +227,57 @@ const prepareRipgrep = async (cacheDir: string): Promise<{ rg: string; licenses:
   return { rg, licenses: inner }
 }
 
-const compileSwain = (bunTarget: string, version: string, outFile: string): void => {
-  execFileSync(
-    "bun",
-    [
-      "build",
-      SWAIN_ENTRY,
-      "--compile",
-      `--target=${bunTarget}`,
-      "--no-compile-autoload-dotenv",
-      "--no-compile-autoload-bunfig",
-      "--define",
-      `__SWAIN_VERSION__=${JSON.stringify(version)}`,
-      "--outfile",
-      outFile,
-    ],
-    { stdio: "inherit" },
-  )
+// ink dynamically imports `react-devtools-core` only under `DEV=true`, but the
+// bundler still walks that import and fails because the dev-only package isn't
+// installed. Stub it to an empty module — the code path never runs in a
+// packaged binary. A compiled executable also can't load an `--external`, so a
+// resolver plugin (Bun.build only) is the way to drop it cleanly.
+const stubReactDevtools: Bun.BunPlugin = {
+  name: "stub-react-devtools",
+  setup(build) {
+    build.onResolve({ filter: /^react-devtools-core$/ }, () => ({
+      path: "react-devtools-core",
+      namespace: "stub-react-devtools",
+    }))
+    build.onLoad({ filter: /.*/, namespace: "stub-react-devtools" }, () => ({
+      contents: "export default {}",
+      loader: "js",
+    }))
+  },
 }
 
-const stageTarget = (opts: {
+const compileSwain = async (bunTarget: string, version: string, outFile: string): Promise<void> => {
+  const result = await Bun.build({
+    entrypoints: [SWAIN_ENTRY],
+    target: "bun",
+    define: { __SWAIN_VERSION__: JSON.stringify(version) },
+    plugins: [stubReactDevtools],
+    compile: {
+      target: bunTarget as Bun.Build.CompileTarget,
+      outfile: outFile,
+      autoloadDotenv: false,
+      autoloadBunfig: false,
+    },
+  })
+  if (!result.success) {
+    die(`compile failed for ${bunTarget}: ${result.logs.map((log) => log.message).join("; ")}`)
+  }
+}
+
+const stageTarget = async (opts: {
   target: Target
   version: string
   commit: string
   rg: string
   licenses: string
   stageDir: string
-}): void => {
+}): Promise<void> => {
   const { stageDir } = opts
   mkdirSync(join(stageDir, "bin"), { recursive: true })
   mkdirSync(join(stageDir, "libexec"), { recursive: true })
   mkdirSync(join(stageDir, "share", "licenses", "ripgrep"), { recursive: true })
 
-  compileSwain(opts.target.bunTarget, opts.version, join(stageDir, "bin", "swain"))
+  await compileSwain(opts.target.bunTarget, opts.version, join(stageDir, "bin", "swain"))
   cpSync(opts.rg, join(stageDir, "libexec", "rg"))
   writeFileSync(
     join(stageDir, "manifest.json"),
@@ -308,7 +326,14 @@ const main = async (): Promise<void> => {
     const checksums: Array<{ name: string; sha256: string }> = []
     for (const target of args.targets) {
       const stageDir = join(work, "stage", target.name)
-      stageTarget({ target, version: args.version, commit: args.commit, rg, licenses, stageDir })
+      await stageTarget({
+        target,
+        version: args.version,
+        commit: args.commit,
+        rg,
+        licenses,
+        stageDir,
+      })
       const name = archiveName(args.version, target.name)
       const outPath = join(args.outDir, name)
       assembleArchive({ tar: tar as string, stageDir, outPath, epoch })
