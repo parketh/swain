@@ -12,8 +12,12 @@ export const resolveSidecarRg = (execPath: string): string | undefined => {
   const candidate = resolve(dirname(execPath), "..", "libexec", "rg")
   try {
     return statSync(candidate).isFile() ? candidate : undefined
-  } catch {
-    return undefined
+  } catch (error) {
+    // Only an absent sidecar means "source run, fall back to PATH". Surface
+    // permission/IO errors instead of silently running a different `rg`.
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === "ENOENT" || code === "ENOTDIR") return undefined
+    throw error
   }
 }
 
