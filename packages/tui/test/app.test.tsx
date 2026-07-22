@@ -25,6 +25,7 @@ import {
 import type { TuiConfig } from "../src/config"
 import { sessionsDir } from "../src/config"
 import { type Controller, makeController } from "../src/controller"
+import { pressUntil, waitFor } from "./test-utils"
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 25))
 // The prompt renders the cursor/command color as raw inline ANSI (so each line
@@ -1213,11 +1214,16 @@ describe("App", () => {
     stdin.write("sk-test-key")
     await flush()
     stdin.write("\r") // save credentials → auto-advance to the model picker
-    await flush()
-    expect(clean(lastFrame())).toContain("Select a model")
-    stdin.write("\r") // select claude-opus-4-8 (offers variants) → variant picker
-    await flush()
-    expect(clean(lastFrame())).toContain("Select a variant")
+    await waitFor(() => clean(lastFrame()).includes("Select a model"), {
+      timeoutMs: 4000,
+      describe: () => clean(lastFrame()),
+    })
+    // select claude-opus-4-8 (offers variants) → variant picker
+    await pressUntil(
+      () => stdin.write("\r"),
+      () => clean(lastFrame()).includes("Select a variant"),
+      () => clean(lastFrame()),
+    )
     expect(clean(lastFrame())).toContain("extra")
   })
 

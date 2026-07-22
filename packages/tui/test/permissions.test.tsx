@@ -17,6 +17,7 @@ import { App } from "../src/app"
 import { PermissionPrompt } from "../src/components/PermissionPrompt"
 import type { TuiConfig } from "../src/config"
 import { type Controller, makeController } from "../src/controller"
+import { pressUntil } from "./test-utils"
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 30))
 const DOWN = "[B"
@@ -181,7 +182,13 @@ describe("App approval integration", () => {
     const turn = c.submitPrompt("go")
     await flush()
     expect(lastFrame()).toContain("Permission required")
-    stdin.write("\r") // Yes
+    // Retry Yes until the modal closes — a single Enter can be dropped before
+    // the modal's input handler is active on a slow CI runner.
+    await pressUntil(
+      () => stdin.write("\r"),
+      () => !(lastFrame() ?? "").includes("Permission required"),
+      () => lastFrame() ?? "",
+    )
     await turn
     expect(c.getState().session.messages.at(-1)).toMatchObject({ role: "assistant" })
   })
