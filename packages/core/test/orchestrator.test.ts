@@ -97,6 +97,61 @@ describe("orchestrator", () => {
     expect(result.durationMs).toBeGreaterThanOrEqual(0)
   })
 
+  test("onChildTrace receives a successful child snapshot with identity before cleanup", async () => {
+    const traces: Array<import("../src/orchestrator").ChildTraceEvent> = []
+    const result = await runProgram(() =>
+      Effect.gen(function* () {
+        const orch = yield* makeOrchestrator({
+          runChild: (ctx) =>
+            Effect.sync(() => {
+              // biome-ignore lint/suspicious/noExplicitAny: minimal committed assistant message
+              ctx.session.messages.push({
+                role: "assistant",
+                content: [{ type: "text", text: "child answer" }],
+                createdAt: "2026-07-08T00:00:00.000Z",
+                // biome-ignore lint/suspicious/noExplicitAny: shape matches AssistantMessage
+              } as any)
+              return "child answer"
+            }) as ReturnType<ChildRunner>,
+          onChildTrace: (event) => Effect.sync(() => void traces.push(event)),
+        })
+        const spawned = yield* orch.spawn(
+          { description: "probe", prompt: "look", agentType: "Explore" },
+          parent(),
+        )
+        yield* Queue.take(orch.completions)
+        return spawned
+      }),
+    )
+    expect(traces).toHaveLength(1)
+    const trace = traces[0]!
+    expect(trace.agentId).toBe(result.agentId)
+    expect(trace.taskId).toBe(result.taskId)
+    expect(trace.agentType).toBe("Explore")
+    expect(trace.outcome).toEqual({ ok: true })
+    // The live child session (with its committed transcript) is handed over.
+    expect(trace.session.messages.some((m) => m.role === "assistant")).toBe(true)
+    expect(trace.tools.length).toBeGreaterThan(0)
+    // Child tool registries never expose Agent (no recursive spawning).
+    expect(trace.tools.some((t) => t.name === "Agent")).toBe(false)
+  })
+
+  test("onChildTrace receives a failed child snapshot with the error", async () => {
+    const traces: Array<import("../src/orchestrator").ChildTraceEvent> = []
+    await runProgram(() =>
+      Effect.gen(function* () {
+        const orch = yield* makeOrchestrator({
+          runChild: () => Effect.fail(new Error("child blew up")),
+          onChildTrace: (event) => Effect.sync(() => void traces.push(event)),
+        })
+        yield* orch.spawn({ description: "probe", prompt: "look", agentType: "Explore" }, parent())
+        yield* Queue.take(orch.completions)
+      }),
+    )
+    expect(traces).toHaveLength(1)
+    expect(traces[0]!.outcome).toEqual({ ok: false, error: "child blew up" })
+  })
+
   test("durationMs measures the child run, not orchestration overhead", async () => {
     const runner: ChildRunner = () =>
       Effect.sleep(Duration.millis(50)).pipe(Effect.as("slept")) as ReturnType<ChildRunner>

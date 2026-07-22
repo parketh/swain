@@ -45,6 +45,7 @@ export {
 export {
   type ChildRunContext,
   type ChildRunner,
+  type ChildTraceEvent,
   makeOrchestrator,
   type Orchestrator,
   type OrchestratorConfig,
@@ -128,3 +129,13 @@ export {
   type UpdateTaskInput,
   updateTask,
 } from "./tasks"
+export {
+  type NativeTrace,
+  type ProjectTraceInput,
+  projectTrace,
+  TRACE_SCHEMA_VERSION,
+  type TraceIdentity,
+  type TraceModelRef,
+  type TraceOutcome,
+  type TraceToolDescriptor,
+} from "./trace"

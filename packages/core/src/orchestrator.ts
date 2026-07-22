@@ -109,10 +109,31 @@ export interface ChildRunContext {
 /** Runs a child session to its final assistant text. Injectable for tests. */
 export type ChildRunner = (ctx: ChildRunContext) => Effect.Effect<string, unknown, LLMClientService>
 
+/**
+ * A completed child session handed to the trace sink before its worktree is
+ * cleaned up and the session becomes unreachable. Carries enough to project a
+ * native trace: the live child session, its identity, the effective tool
+ * registry, and the terminal outcome (successful or failed).
+ */
+export interface ChildTraceEvent {
+  readonly session: SessionState
+  readonly agentId: string
+  readonly taskId: string
+  readonly agentType: AgentType
+  readonly tools: ReadonlyArray<{ readonly name: string; readonly description: string }>
+  readonly outcome: { readonly ok: true } | { readonly ok: false; readonly error: string }
+}
+
 export interface OrchestratorConfig {
   readonly maxConcurrentSubagents?: number
   readonly onEvent?: (event: SubagentEvent) => Effect.Effect<void>
   readonly runChild?: ChildRunner
+  /**
+   * Optional sink invoked once per child, after its outcome is known and before
+   * cleanup discards the session. Headless tracing supplies it; interactive
+   * callers omit it. The sink must not throw — it records its own write errors.
+   */
+  readonly onChildTrace?: (event: ChildTraceEvent) => Effect.Effect<void>
 }
 
 /** Requirements a `spawn` inherits from the ambient parent runtime scope. */
@@ -286,6 +307,22 @@ export const makeOrchestrator = (config: OrchestratorConfig = {}): Effect.Effect
             ),
           )
           const durationMs = Duration.toMillis(elapsed)
+          // Trace the child before its worktree is cleaned up and the session
+          // becomes unreachable. The sink absorbs its own failures, so a trace
+          // write error never disrupts task persistence or the completion queue.
+          if (config.onChildTrace !== undefined) {
+            yield* config.onChildTrace({
+              session: childSession,
+              agentId,
+              taskId,
+              agentType: input.agentType,
+              tools: Array.from(registry.values()).map((tool) => ({
+                name: tool.name,
+                description: tool.description,
+              })),
+              outcome: outcome.ok ? { ok: true } : { ok: false, error: outcome.error },
+            })
+          }
           const cleanup =
             worktree !== undefined
               ? yield* cleanupAgentWorktree(worktree)

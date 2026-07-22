@@ -22,6 +22,8 @@ export interface ExecInvocation {
   readonly model?: ParsedModelRef
   readonly router: boolean
   readonly outputFormat: "text" | "stream-json"
+  /** Opt-in native trace bundle directory (`--trace-dir`); absent leaves tracing off. */
+  readonly traceDir?: string
   readonly prompt: ExecPromptSource
 }
 
@@ -38,6 +40,7 @@ export interface HeadlessOptions {
   readonly model?: ParsedModelRef
   readonly router: boolean
   readonly outputFormat: "text" | "stream-json"
+  readonly traceDir?: string
   readonly prompt: string
   readonly env: Env
   readonly cwd: string
@@ -69,7 +72,7 @@ Usage:
       Start the interactive TUI.
 
   swain exec --permission-mode auto|plan [--model provider:model[:variant]] [--router]
-      [--output-format text|stream-json] "<prompt>" | -
+      [--output-format text|stream-json] [--trace-dir <dir>] "<prompt>" | -
       Run one prompt non-interactively to completion. Pass the prompt as a
       positional argument or "-" to read it from stdin. Routing is off by
       default; pass --router to enable it.
@@ -106,6 +109,7 @@ const parseExec = (args: ReadonlyArray<string>): ParsedCommand => {
   let model: ParsedModelRef | undefined
   let router = false
   let outputFormat: "text" | "stream-json" = "text"
+  let traceDir: string | undefined
   let promptText: string | undefined
   let promptStdin = false
   let onlyPositional = false
@@ -149,6 +153,14 @@ const parseExec = (args: ReadonlyArray<string>): ParsedCommand => {
         case "--router":
           router = true
           break
+        case "--trace-dir": {
+          const value = args[i + 1]
+          i += 1
+          if (value === undefined || value === "")
+            return usage("--trace-dir requires a non-empty directory path.")
+          traceDir = value
+          break
+        }
         case "--output-format": {
           const value = args[i + 1]
           i += 1
@@ -187,6 +199,7 @@ const parseExec = (args: ReadonlyArray<string>): ParsedCommand => {
       ...(model !== undefined && { model }),
       router,
       outputFormat,
+      ...(traceDir !== undefined && { traceDir }),
       prompt: promptStdin ? { source: "stdin" } : { source: "text", text: promptText! },
     },
   }
@@ -252,6 +265,7 @@ export const runCli = async (deps: CliDeps = {}): Promise<number> => {
         ...(parsed.exec.model !== undefined && { model: parsed.exec.model }),
         router: parsed.exec.router,
         outputFormat: parsed.exec.outputFormat,
+        ...(parsed.exec.traceDir !== undefined && { traceDir: parsed.exec.traceDir }),
         prompt,
         env,
         cwd,
