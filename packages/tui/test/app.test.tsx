@@ -29,10 +29,20 @@ import { type Controller, makeController } from "../src/controller"
 const flush = () => new Promise((resolve) => setTimeout(resolve, 25))
 // Polls until `predicate` holds instead of racing a fixed sleep — an async
 // state transition can take longer than one `flush()` on a slow CI runner.
-const waitFor = async (predicate: () => boolean, timeoutMs = 5000): Promise<void> => {
+// On timeout it dumps `describe()` (the last frame) so a CI-only hang reveals
+// what was actually on screen.
+const waitFor = async (
+  predicate: () => boolean,
+  opts: { timeoutMs?: number; describe?: () => string } = {},
+): Promise<void> => {
+  const { timeoutMs = 5000, describe } = opts
   const start = performance.now()
   while (!predicate()) {
-    if (performance.now() - start > timeoutMs) throw new Error("waitFor: condition not met in time")
+    if (performance.now() - start > timeoutMs) {
+      throw new Error(
+        `waitFor: condition not met in ${timeoutMs}ms${describe ? `\n--- last frame ---\n${describe()}` : ""}`,
+      )
+    }
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
 }
@@ -1222,9 +1232,15 @@ describe("App", () => {
     stdin.write("sk-test-key")
     await flush()
     stdin.write("\r") // save credentials → auto-advance to the model picker
-    await waitFor(() => clean(lastFrame()).includes("Select a model"))
+    await waitFor(() => clean(lastFrame()).includes("Select a model"), {
+      timeoutMs: 15000,
+      describe: () => clean(lastFrame()),
+    })
     stdin.write("\r") // select claude-opus-4-8 (offers variants) → variant picker
-    await waitFor(() => clean(lastFrame()).includes("Select a variant"))
+    await waitFor(() => clean(lastFrame()).includes("Select a variant"), {
+      timeoutMs: 15000,
+      describe: () => clean(lastFrame()),
+    })
     expect(clean(lastFrame())).toContain("extra")
   })
 

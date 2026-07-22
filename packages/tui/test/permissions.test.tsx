@@ -182,7 +182,18 @@ describe("App approval integration", () => {
     await flush()
     expect(lastFrame()).toContain("Permission required")
     stdin.write("\r") // Yes
-    await turn
+    // Diagnostic: if the turn never resolves in CI, surface the on-screen frame
+    // instead of a bare test timeout so we can see where the resume stalls.
+    await Promise.race([
+      turn,
+      new Promise((_, reject) =>
+        setTimeout(
+          () =>
+            reject(new Error(`turn did not resolve in 15s\n--- last frame ---\n${lastFrame()}`)),
+          15000,
+        ),
+      ),
+    ])
     expect(c.getState().session.messages.at(-1)).toMatchObject({ role: "assistant" })
   })
 
