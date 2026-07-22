@@ -182,8 +182,11 @@ const parseArgs = (argv: ReadonlyArray<string>): Args => {
     else if (arg === "--commit") commit = argv[++i]
     else if (arg === "--target") target = argv[++i]
     else if (arg === "--all") all = true
-    else if (arg === "--out") outDir = resolve(argv[++i] ?? "")
-    else die(`unknown argument: ${arg}`)
+    else if (arg === "--out") {
+      const value = argv[++i]
+      if (!value) die("--out requires a value")
+      outDir = resolve(value as string)
+    } else die(`unknown argument: ${arg}`)
   }
   if (!version || !isPlainSemver(version)) die(`--version must be plain SemVer (got ${version})`)
   if (!commit || !isGitCommit(commit)) die(`--commit must be a 40-char hex SHA (got ${commit})`)
@@ -198,7 +201,7 @@ const parseArgs = (argv: ReadonlyArray<string>): Args => {
 const prepareRipgrep = async (cacheDir: string): Promise<{ rg: string; licenses: string }> => {
   mkdirSync(cacheDir, { recursive: true })
   const archivePath = join(cacheDir, RIPGREP_ASSET)
-  const response = await fetch(RIPGREP_URL)
+  const response = await fetch(RIPGREP_URL, { signal: AbortSignal.timeout(30_000) })
   if (!response.ok) die(`failed to download ripgrep: ${response.status} ${response.statusText}`)
   const bytes = new Uint8Array(await response.arrayBuffer())
   const digest = sha256(bytes)
@@ -298,8 +301,11 @@ const stageTarget = async (opts: {
 const existsWithEntries = (dir: string): boolean => {
   try {
     return readdirSync(dir).length > 0
-  } catch {
-    return false
+  } catch (error) {
+    // A missing directory is empty; anything else (unreadable, a file) is a
+    // real error worth surfacing rather than silently proceeding to write.
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false
+    throw error
   }
 }
 
@@ -311,12 +317,16 @@ const main = async (): Promise<void> => {
   if (!tar) die("GNU tar is required (install gnu-tar / gtar)")
   if (existsWithEntries(args.outDir)) die(`output directory ${args.outDir} is not empty`)
 
-  const epoch = Number(
-    execFileSync("git", ["show", "-s", "--format=%ct", args.commit], {
+  let epochOutput: string
+  try {
+    epochOutput = execFileSync("git", ["show", "-s", "--format=%ct", args.commit], {
       cwd: REPO_ROOT,
       encoding: "utf8",
-    }).trim(),
-  )
+    }).trim()
+  } catch (error) {
+    return die(`could not resolve commit ${args.commit}: ${(error as Error).message}`)
+  }
+  const epoch = Number(epochOutput)
   if (!Number.isInteger(epoch)) die(`could not resolve commit timestamp for ${args.commit}`)
 
   mkdirSync(args.outDir, { recursive: true })
