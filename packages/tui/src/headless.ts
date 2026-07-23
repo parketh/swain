@@ -236,12 +236,15 @@ export const runHeadless = async (
     // shutdown on failure/signal. A trace write error fails an otherwise-clean
     // run so the caller never trusts an incomplete bundle.
     if (recorder !== undefined) {
+      // Derive from the race-winning `code`, not the mutable `signalCode`: a
+      // signal arriving during finalization must not relabel an already-resolved
+      // run, and a non-zero exit is always "failed" even without an agent-error.
       const outcome: TraceOutcome =
-        signalCode !== undefined
-          ? { status: "interrupted", signal: signalCode === 130 ? "SIGINT" : "SIGTERM" }
-          : fatal
-            ? { status: "failed", error: fatalMessage ?? "" }
-            : { status: "completed" }
+        code === 130 || code === 143
+          ? { status: "interrupted", signal: code === 130 ? "SIGINT" : "SIGTERM" }
+          : code === 0
+            ? { status: "completed" }
+            : { status: "failed", error: fatalMessage ?? "" }
       await recorder.finalizeRoot({ session, tools: rootTraceTools, outcome })
       const traceError = recorder.firstError()
       if (traceError !== undefined) {
