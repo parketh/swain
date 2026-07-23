@@ -252,6 +252,7 @@ grep -q '"swainVersion"[[:space:]]*:[[:space:]]*"'"$SWAIN_VERSION"'"' "$MANIFEST
 grep -q '"target"[[:space:]]*:[[:space:]]*"linux-x64-'"$LIBC"'"' "$MANIFEST" \\
   || fail "manifest target does not match linux-x64-$LIBC"
 [ -x "$STAGE/unpack/bin/swain" ] || fail "archive missing bin/swain"
+[ -x "$STAGE/unpack/libexec/rg" ] || fail "archive missing libexec/rg"
 
 # Only now replace/create the versioned install, read-only, no global symlink.
 mkdir -p "$INSTALL_ROOT"

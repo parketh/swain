@@ -113,6 +113,11 @@ class TestInstallScript:
         extract = script.index("tar -xzf")
         assert extract < manifest_check
 
+    def test_validates_rg_before_replacing_install(self, script):
+        rg_check = script.index("archive missing libexec/rg")
+        replace = script.index('rm -rf "$INSTALL_DIR"')
+        assert rg_check < replace
+
     def test_installs_readonly_under_versioned_root(self, script):
         assert 'INSTALL_DIR="/opt/swain/v1.4.2"' in script
         assert "chmod -R a-w" in script
