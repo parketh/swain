@@ -166,11 +166,11 @@ export const runHeadless = async (
     if (streamJson) flush()
     if (event.type !== "agent-error") return
     if (event.recoverable === true) {
-      stderr(`${event.message}\n`)
+      stderr(`${redact(event.message)}\n`)
     } else if (!fatal) {
       fatal = true
       fatalMessage = event.message
-      stderr(`${event.message}\n`)
+      stderr(`${redact(event.message)}\n`)
     }
   })
   if (streamJson) {
@@ -245,7 +245,7 @@ export const runHeadless = async (
       await recorder.finalizeRoot({ session, tools: rootTraceTools, outcome })
       const traceError = recorder.firstError()
       if (traceError !== undefined) {
-        stderr(`Trace write failed: ${traceError.message}\n`)
+        stderr(`Trace write failed: ${redact(traceError.message)}\n`)
         return code === 0 ? 1 : code
       }
     }

@@ -165,6 +165,25 @@ describe("runHeadless", () => {
     expect(err).toContain("upstream boom")
   })
 
+  test("a fatal error carrying a provider key is redacted on stderr", async () => {
+    const secret = "sk-ant-secret-0123456789"
+    writeFileSync(join(swainDir, "auth.json"), JSON.stringify({ anthropic: { apiKey: secret } }))
+    const boom = new LLMError({
+      reason: "server-error",
+      message: `401 unauthorized key=${secret}`,
+      retryable: false,
+    })
+    const layer = Layer.succeed(LLMClient.Service, {
+      request: LLMClient.request,
+      streamTurn: () => Stream.fail(boom),
+      generateTurn: () => Effect.fail(boom),
+    })
+    const code = await runHeadless(options("go"), { llmLayer: layer })
+    expect(code).toBe(1)
+    expect(err).not.toContain(secret)
+    expect(err).toContain("[REDACTED]")
+  })
+
   test("a detached subagent completes and informs the parent's final response before stdout", async () => {
     seedAuth()
     const spawn = toolCallTurn("Agent", {
