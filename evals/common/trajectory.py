@@ -165,6 +165,11 @@ def convert_native(native: dict[str, Any]) -> dict[str, Any]:
         if tool_results:
             if last_agent_step is None:
                 raise ConversionError("tool-result message with no preceding agent step")
+            # Swain builds tool-result user messages exclusively from results; a
+            # message mixing in text would silently drop it below, so make the
+            # invariant loud rather than lose data.
+            if any(c.get("type") == "text" and c.get("text") for c in content):
+                raise ConversionError("tool-result message unexpectedly also contains text")
             observation = last_agent_step.setdefault("observation", {"results": []})
             observation["results"].extend(_observation_result(tr) for tr in tool_results)
             continue
@@ -247,6 +252,22 @@ class BundleResult:
     total_output_tokens: int
 
 
+def _safe_join(base: Path, rel: str) -> Path:
+    """Join ``rel`` under ``base``, rejecting absolute paths and parent escapes.
+
+    Manifest- and trace-supplied paths (``root``, ``children[].file``, and derived
+    ``subagents/<agentId>.json`` refs) are untrusted: the bundle is downloaded from
+    the task container, so a crafted ``..`` segment or absolute path must not read
+    or write outside the bundle/output directory.
+    """
+    if Path(rel).is_absolute() or ".." in Path(rel).parts:
+        raise ConversionError(f"unsafe trace path: {rel!r}")
+    resolved = (base / rel).resolve()
+    if not resolved.is_relative_to(base.resolve()):
+        raise ConversionError(f"trace path escapes bundle directory: {rel!r}")
+    return base / rel
+
+
 def _load_json(path: Path) -> dict[str, Any]:
     try:
         return json.loads(path.read_text())
@@ -266,17 +287,23 @@ def convert_bundle(bundle_dir: Path, trajectory_model: Any = None) -> BundleResu
     bundle_dir = Path(bundle_dir)
     manifest = _load_json(bundle_dir / "manifest.json")
 
-    root_native = _load_json(bundle_dir / manifest.get("root", "root.json"))
+    root_native = _load_json(_safe_join(bundle_dir, manifest.get("root", "root.json")))
     root_atif = convert_native(root_native)
 
     children: dict[str, dict[str, Any]] = {}
     for child in manifest.get("children", []):
         rel = child["file"]
-        children[rel] = convert_native(_load_json(bundle_dir / rel))
+        children[rel] = convert_native(_load_json(_safe_join(bundle_dir, rel)))
 
     # Missing referenced child = failure, independent of what the manifest lists.
-    for rel in referenced_child_paths(root_atif):
-        if not (bundle_dir / rel).is_file():
+    # Subagents cannot themselves delegate today (a two-level root->child tree), so
+    # every ref lives on the root; walking children too keeps this correct if
+    # nested delegation is ever added.
+    referenced = referenced_child_paths(root_atif)
+    for atif in children.values():
+        referenced |= referenced_child_paths(atif)
+    for rel in referenced:
+        if not _safe_join(bundle_dir, rel).is_file():
             raise ConversionError(f"referenced child trace missing on disk: {rel}")
 
     if trajectory_model is not None:
@@ -330,7 +357,7 @@ def write_bundle(result: BundleResult, out_dir: Path) -> Path:
     root_path = out_dir / ROOT_OUTPUT
     root_path.write_text(json.dumps(result.root, indent=2) + "\n")
     for rel, atif in result.children.items():
-        path = out_dir / rel
+        path = _safe_join(out_dir, rel)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(atif, indent=2) + "\n")
     return root_path

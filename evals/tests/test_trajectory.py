@@ -182,6 +182,25 @@ def test_tool_result_without_agent_step_raises():
         convert_native(native)
 
 
+@pytest.mark.parametrize("evil", ["../escape.json", "/etc/passwd", "subagents/../../x.json"])
+def test_manifest_path_traversal_is_rejected(tmp_path, evil):
+    bundle = build_native_bundle(tmp_path / "b", include_child=False)
+    manifest = json.loads((bundle / "manifest.json").read_text())
+    manifest["children"] = [{"agentId": "x", "taskId": "t", "file": evil}]
+    (bundle / "manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(ConversionError):
+        convert_bundle(bundle)
+
+
+def test_tool_result_message_with_text_raises():
+    native = load_fixture("root-trace.json")
+    tool_result_msg = dict(native["messages"][2])
+    tool_result_msg["content"] = [*tool_result_msg["content"], {"type": "text", "text": "leak"}]
+    native["messages"][2] = tool_result_msg
+    with pytest.raises(ConversionError):
+        convert_native(native)
+
+
 def test_ndjson_result_event_detection():
     assert trajectory.ndjson_has_result_event('{"type":"result"}\n')
     assert not trajectory.ndjson_has_result_event('{"type":"assistant"}\nnot json\n')
