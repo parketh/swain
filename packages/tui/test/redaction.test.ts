@@ -58,4 +58,12 @@ describe("makeRedactor", () => {
     const redact = makeRedactor(["ok"]) // below threshold, filtered out
     expect(redact("this is ok and fine")).toBe("this is ok and fine")
   })
+
+  test("fully redacts a longer secret even when passed shorter-first", () => {
+    const longer = `${LONG}-abcdef`
+    const shorter = `${LONG}-abc`
+    // Unsorted input (shorter before longer): makeRedactor must sort internally.
+    const redact = makeRedactor([shorter, longer])
+    expect(redact(`x ${longer} y`)).toBe(`x ${REDACTED} y`)
+  })
 })

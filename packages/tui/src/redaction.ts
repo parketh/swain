@@ -43,7 +43,12 @@ export const collectSecrets = (
  * can prevent. Returns an identity function when there are no secrets to redact.
  */
 export const makeRedactor = (secrets: ReadonlyArray<string>): (<T>(value: T) => T) => {
-  const active = secrets.filter((secret) => secret.length >= MIN_SECRET_LENGTH)
+  // Sort longest-first here (not only in `collectSecrets`) so any caller gets
+  // correct overlapping-secret redaction: a longer secret is replaced before a
+  // shorter one it contains can pre-empt it.
+  const active = secrets
+    .filter((secret) => secret.length >= MIN_SECRET_LENGTH)
+    .sort((a, b) => b.length - a.length)
   if (active.length === 0) return (value) => value
 
   const redactString = (input: string): string => {
