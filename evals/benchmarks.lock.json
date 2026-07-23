@@ -1,0 +1,27 @@
+{
+  "$comment": "Pinned benchmark inputs for reproducible Swain eval jobs. Framework versions, the Swain release, and the model/variant are separate lock dimensions and must appear in every job's resolved configuration. Never silently update any pin in an existing baseline.",
+  "terminal_bench": {
+    "framework": "harbor",
+    "framework_version": "0.20.0",
+    "dataset": "terminal-bench/terminal-bench-2@1",
+    "resolved": {
+      "dataset_digest": null,
+      "task_digests": null,
+      "$comment": "Populated on the first live resolve by Harbor 0.20.0 (harbor sync / job start). Once recorded, a run whose resolved digests differ must fail rather than proceed on a drifted dataset."
+    }
+  },
+  "deep_swe": {
+    "framework": "datacurve-pier",
+    "framework_version": "0.3.0",
+    "repo": "datacurve-ai/deep-swe",
+    "commit": "6db64a40f3318d8659238ff34a8cc4b491c49205",
+    "tasks_subdir": "tasks",
+    "task_count_at_pin": 113,
+    "checkout_dir": ".cache/deep-swe"
+  },
+  "swain_release": {
+    "$comment": "Set via SWAIN_EVAL_VERSION at run time. The exact release version and the per-archive SHA-256 read from the release checksums.txt are the artifact lock dimension; the install shell verifies them before extraction.",
+    "install_root": "/opt/swain",
+    "asset_pattern": "swain-v<version>-linux-x64-{glibc,musl}.tar.gz"
+  }
+}

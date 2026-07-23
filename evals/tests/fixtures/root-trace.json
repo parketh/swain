@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "swainVersion": "1.4.2",
+  "sessionId": "sess-root-0001",
+  "agentId": "root-abc123",
+  "agentType": "root",
+  "model": { "provider": "anthropic", "modelId": "claude-opus-4", "variant": "high" },
+  "permissionMode": "auto",
+  "workingDirectory": "/work",
+  "systemPrompt": "You are Swain, an autonomous coding agent. Working directory: /work.",
+  "messages": [
+    {
+      "role": "user",
+      "content": [{ "type": "text", "text": "Investigate and fix the failing test." }],
+      "createdAt": "2026-07-20T10:00:00.000Z"
+    },
+    {
+      "role": "assistant",
+      "content": [
+        { "type": "reasoning", "text": "I should delegate exploration to a subagent first." },
+        { "type": "text", "text": "Let me explore the repository." },
+        {
+          "type": "tool-call",
+          "toolCallId": "tc-agent-1",
+          "name": "Agent",
+          "input": { "subagent_type": "Explore", "prompt": "Find the failing test." }
+        }
+      ],
+      "usage": { "inputTokens": 1000, "outputTokens": 500, "activeContextTokens": 1600 },
+      "createdAt": "2026-07-20T10:00:01.000Z",
+      "responseDurationMs": 1200,
+      "turnDurationMs": 1500
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool-result",
+          "toolCallId": "tc-agent-1",
+          "name": "Agent",
+          "result": {
+            "type": "json",
+            "value": {
+              "agentId": "child-xyz789",
+              "taskId": "task-explore-1",
+              "agentType": "Explore",
+              "status": "spawned"
+            }
+          }
+        }
+      ],
+      "createdAt": "2026-07-20T10:00:20.000Z"
+    },
+    {
+      "role": "assistant",
+      "content": [
+        { "type": "text", "text": "The subagent found it. Applying the fix." },
+        {
+          "type": "tool-call",
+          "toolCallId": "tc-bash-1",
+          "name": "Bash",
+          "input": { "command": "pytest -q" }
+        }
+      ],
+      "usage": { "inputTokens": 500, "outputTokens": 300 },
+      "createdAt": "2026-07-20T10:00:21.000Z",
+      "responseDurationMs": 900,
+      "turnDurationMs": 1100
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool-result",
+          "toolCallId": "tc-bash-1",
+          "name": "Bash",
+          "result": { "type": "text", "value": "1 passed in 0.42s" },
+          "durationMs": 420
+        }
+      ],
+      "createdAt": "2026-07-20T10:00:22.000Z"
+    },
+    {
+      "role": "assistant",
+      "content": [{ "type": "text", "text": "The test passes now." }],
+      "usage": { "inputTokens": 200, "outputTokens": 60 },
+      "createdAt": "2026-07-20T10:00:23.000Z"
+    }
+  ],
+  "counters": { "turns": 3, "inputTokens": 1700, "outputTokens": 860 },
+  "outcome": { "status": "completed" }
+}

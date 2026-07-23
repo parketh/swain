@@ -1,6 +1,19 @@
 import { Schema } from "effect"
 import { ToolCallId } from "./ids"
 
+export const Usage = Schema.Struct({
+  inputTokens: Schema.Number,
+  outputTokens: Schema.Number,
+  /**
+   * Provider-reported active context pressure for the turn: the total tokens
+   * the provider counted against the context window (input + output + any cache
+   * read/creation). Providers translate their native usage fields into this;
+   * core treats a missing value as `inputTokens + outputTokens`.
+   */
+  activeContextTokens: Schema.optional(Schema.Number),
+})
+export type Usage = typeof Usage.Type
+
 const SystemContentSchema = Schema.Struct({
   text: Schema.String,
 })
@@ -145,6 +158,10 @@ export type UserMessage = typeof UserMessage.Type
 export const AssistantMessage = Schema.Struct({
   role: Schema.Literal("assistant"),
   content: Schema.Array(AssistantContent),
+  /** Provider-reported token usage for the inference that produced this response.
+   * Local-only (never lowered into a provider request); optional so legacy
+   * persisted assistant messages without it still decode. */
+  usage: Schema.optional(Usage),
   ...timingFields,
 })
 export type AssistantMessage = typeof AssistantMessage.Type
@@ -183,10 +200,12 @@ export const Message = Object.assign(MessageSchema, {
   assistant: (
     input: string | ReadonlyArray<AssistantContent>,
     timing: MessageTiming = {},
+    usage?: Usage,
   ): AssistantMessage =>
     AssistantMessage.make({
       role: "assistant",
       content: typeof input === "string" ? [text(input)] : input,
+      ...(usage !== undefined && { usage }),
       ...withTiming(timing),
     }),
 })

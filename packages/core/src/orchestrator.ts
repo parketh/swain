@@ -1,7 +1,7 @@
 import type { CommandExecutor, FileSystem } from "@effect/platform"
 import type { Model } from "@swain/llms"
 import { LLMClient } from "@swain/llms"
-import { Context, Duration, Effect, Fiber, Queue, Ref } from "effect"
+import { Cause, Context, Duration, Effect, Fiber, Queue, Ref } from "effect"
 import type { AgentEvent } from "./agent"
 import { runTurn } from "./agent"
 import { ToolError } from "./errors"
@@ -109,10 +109,31 @@ export interface ChildRunContext {
 /** Runs a child session to its final assistant text. Injectable for tests. */
 export type ChildRunner = (ctx: ChildRunContext) => Effect.Effect<string, unknown, LLMClientService>
 
+/**
+ * A completed child session handed to the trace sink before its worktree is
+ * cleaned up and the session becomes unreachable. Carries enough to project a
+ * native trace: the live child session, its identity, the effective tool
+ * registry, and the terminal outcome (successful or failed).
+ */
+export interface ChildTraceEvent {
+  readonly session: SessionState
+  readonly agentId: string
+  readonly taskId: string
+  readonly agentType: AgentType
+  readonly tools: ReadonlyArray<{ readonly name: string; readonly description: string }>
+  readonly outcome: { readonly ok: true } | { readonly ok: false; readonly error: string }
+}
+
 export interface OrchestratorConfig {
   readonly maxConcurrentSubagents?: number
   readonly onEvent?: (event: SubagentEvent) => Effect.Effect<void>
   readonly runChild?: ChildRunner
+  /**
+   * Optional sink invoked once per child, after its outcome is known and before
+   * cleanup discards the session. Headless tracing supplies it; interactive
+   * callers omit it. The sink must not throw — it records its own write errors.
+   */
+  readonly onChildTrace?: (event: ChildTraceEvent) => Effect.Effect<void>
 }
 
 /** Requirements a `spawn` inherits from the ambient parent runtime scope. */
@@ -286,6 +307,32 @@ export const makeOrchestrator = (config: OrchestratorConfig = {}): Effect.Effect
             ),
           )
           const durationMs = Duration.toMillis(elapsed)
+          // Trace the child before its worktree is cleaned up and the session
+          // becomes unreachable. This runs before task persistence and the
+          // completion queue, so a sink that fails or throws must never escape:
+          // catch every cause here so it can't skip cleanup or deadlock the parent
+          // waiting on the completion doorbell.
+          if (config.onChildTrace !== undefined) {
+            yield* config
+              .onChildTrace({
+                session: childSession,
+                agentId,
+                taskId,
+                agentType: input.agentType,
+                tools: Array.from(registry.values()).map((tool) => ({
+                  name: tool.name,
+                  description: tool.description,
+                })),
+                outcome: outcome.ok ? { ok: true } : { ok: false, error: outcome.error },
+              })
+              .pipe(
+                Effect.catchAllCause((cause) =>
+                  Effect.logError(
+                    `Child trace sink failed for task ${taskId}: ${Cause.pretty(cause)}`,
+                  ),
+                ),
+              )
+          }
           const cleanup =
             worktree !== undefined
               ? yield* cleanupAgentWorktree(worktree)

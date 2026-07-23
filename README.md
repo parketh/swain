@@ -44,6 +44,7 @@ Specs also serve as a living build journal, allowing anyone to understand how an
 
 - Architecture: [`ARCHITECTURE.md`](ARCHITECTURE.md)
 - Build journals & design records: [`specs/`](specs/)
+- Benchmark evals (Terminal-Bench via Harbor, DeepSWE via Pier): [`evals/README.md`](evals/README.md)
 
 ## Commands
 
@@ -82,3 +83,11 @@ pick the active model
 - `/clear` starts a fresh session
 - `/resume` reopens a saved one
 - Shift-Tab cycles the permission mode (`ask → auto → plan`)
+
+## Evals
+
+Supported evals:
+- Terminal-Bench 2 (via [Harbor](https://www.harborframework.com))
+- DeepSWE (via [Pier](https://github.com/datacurve-ai/deep-swe))
+
+See [`evals/README.md`](evals/README.md) for more details.

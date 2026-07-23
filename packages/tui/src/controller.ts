@@ -5,6 +5,7 @@ import {
   type AgentEvent,
   type AgentType,
   type Approval,
+  type ChildTraceEvent,
   type CompactionReason,
   type CompactionResult,
   compactSession,
@@ -175,6 +176,12 @@ export interface ControllerDeps {
    * here (headless exec points this at a temporary directory it later removes).
    */
   readonly sessionStorageRoot?: string
+  /**
+   * Optional child trace sink (headless tracing only). Invoked once per completed
+   * subagent, before its worktree cleanup, so a native trace can be captured. Must
+   * not reject — it records its own write errors.
+   */
+  readonly onChildTrace?: (event: ChildTraceEvent) => Promise<void>
 }
 
 const NEXT_MODE: Record<PermissionMode, PermissionMode> = {
@@ -442,6 +449,11 @@ export const makeController = (deps: ControllerDeps): Controller => {
             // Progress events don't change task state; only lifecycle edges do.
             if (event.type !== "subagent-progress") void refreshTasks()
           }),
+        ...(deps.onChildTrace !== undefined && {
+          // Guard against a rejecting sink becoming an Effect defect that would
+          // kill the finalize fiber before it offers completion (a hang).
+          onChildTrace: (event) => Effect.promise(() => deps.onChildTrace!(event).catch(() => {})),
+        }),
       }),
     )
     const layers = Layer.merge(

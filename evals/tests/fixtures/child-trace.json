@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "swainVersion": "1.4.2",
+  "sessionId": "sess-child-0002",
+  "agentId": "child-xyz789",
+  "agentType": "Explore",
+  "taskId": "task-explore-1",
+  "parentAgentId": "root-abc123",
+  "model": { "provider": "anthropic", "modelId": "claude-opus-4", "variant": "high" },
+  "permissionMode": "auto",
+  "workingDirectory": "/work",
+  "systemPrompt": "You are an Explore subagent. Working directory: /work.",
+  "messages": [
+    {
+      "role": "user",
+      "content": [{ "type": "text", "text": "Find the failing test." }],
+      "isMeta": true,
+      "createdAt": "2026-07-20T10:00:02.000Z"
+    },
+    {
+      "role": "assistant",
+      "content": [
+        { "type": "reasoning", "text": "Search for test files that reference the module." },
+        { "type": "text", "text": "Searching the test suite." },
+        {
+          "type": "tool-call",
+          "toolCallId": "tc-grep-1",
+          "name": "Grep",
+          "input": { "pattern": "def test_", "path": "tests" }
+        }
+      ],
+      "usage": { "inputTokens": 400, "outputTokens": 220 },
+      "createdAt": "2026-07-20T10:00:05.000Z",
+      "responseDurationMs": 700,
+      "turnDurationMs": 800
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool-result",
+          "toolCallId": "tc-grep-1",
+          "name": "Grep",
+          "result": { "type": "text", "value": "tests/test_math.py:def test_add" }
+        }
+      ],
+      "createdAt": "2026-07-20T10:00:06.000Z"
+    },
+    {
+      "role": "assistant",
+      "content": [{ "type": "text", "text": "The failing test is test_add in tests/test_math.py." }],
+      "usage": { "inputTokens": 300, "outputTokens": 90 },
+      "createdAt": "2026-07-20T10:00:07.000Z",
+      "responseDurationMs": 500,
+      "turnDurationMs": 600
+    }
+  ],
+  "counters": { "turns": 2, "inputTokens": 700, "outputTokens": 310 },
+  "outcome": { "status": "completed" }
+}

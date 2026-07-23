@@ -541,7 +541,12 @@ const loop = (
       ),
     )
 
-    session.messages.push(assistantMessage(summary.assistantContent, { responseDurationMs }))
+    session.messages.push(
+      assistantMessage(summary.assistantContent, {
+        responseDurationMs,
+        ...(summary.usage !== undefined && { usage: summary.usage }),
+      }),
+    )
     session.counters.turns += 1
     if (summary.usage !== undefined) {
       session.counters.inputTokens += summary.usage.inputTokens
@@ -578,8 +583,11 @@ const loop = (
           switching?.role === "assistant"
             ? switching.content.filter((block) => block.type !== "tool-call")
             : []
-        if (retained.length > 0) {
-          session.messages[lastIndex] = Message.assistant(retained)
+        if (retained.length > 0 && switching?.role === "assistant") {
+          // Keep the switching message's usage/timing/createdAt — only the content
+          // changes (tool-call blocks dropped) — so per-response usage retention
+          // still accounts for the switch turn.
+          session.messages[lastIndex] = { ...switching, content: retained }
           session.messages.push(outcome.meta)
         } else {
           session.messages[lastIndex] = outcome.meta

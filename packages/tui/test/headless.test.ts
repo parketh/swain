@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { LLMEvent, LLMRequest } from "@swain/llms"
@@ -155,6 +163,25 @@ describe("runHeadless", () => {
     expect(code).toBe(1)
     expect(out).toBe("")
     expect(err).toContain("upstream boom")
+  })
+
+  test("a fatal error carrying a provider key is redacted on stderr", async () => {
+    const secret = "sk-ant-secret-0123456789"
+    writeFileSync(join(swainDir, "auth.json"), JSON.stringify({ anthropic: { apiKey: secret } }))
+    const boom = new LLMError({
+      reason: "server-error",
+      message: `401 unauthorized key=${secret}`,
+      retryable: false,
+    })
+    const layer = Layer.succeed(LLMClient.Service, {
+      request: LLMClient.request,
+      streamTurn: () => Stream.fail(boom),
+      generateTurn: () => Effect.fail(boom),
+    })
+    const code = await runHeadless(options("go"), { llmLayer: layer })
+    expect(code).toBe(1)
+    expect(err).not.toContain(secret)
+    expect(err).toContain("[REDACTED]")
   })
 
   test("a detached subagent completes and informs the parent's final response before stdout", async () => {
@@ -420,6 +447,171 @@ describe("runHeadless", () => {
     ;(process.listeners("SIGINT").at(-1) as () => void)()
     expect(await run).toBe(130)
     expect(events().at(-1)).toEqual({ type: "result", subtype: "interrupted", isError: true })
+    release()
+  })
+
+  // --- Native trace bundle (--trace-dir) ---------------------------------
+
+  const readTrace = (dir: string, file: string) => JSON.parse(readFileSync(join(dir, file), "utf8"))
+
+  test("without --trace-dir performs no trace I/O", async () => {
+    seedAuth()
+    await runHeadless(options("go"), { llmLayer: scripted([textTurn("ok")]).layer })
+    // No stray trace directory materializes in the working directory.
+    expect(readdirSync(cwd)).toHaveLength(0)
+  })
+
+  test("--trace-dir on a successful run writes a root snapshot and manifest", async () => {
+    seedAuth()
+    const traceDir = join(cwd, "logs", "agent", "swain")
+    const llm = scripted([textTurn("the summary")])
+    const code = await runHeadless(options("summarize", { traceDir }), { llmLayer: llm.layer })
+    expect(code).toBe(0)
+    const root = readTrace(traceDir, "root.json")
+    expect(root.schemaVersion).toBe(1)
+    expect(root.agentType).toBe("root")
+    expect(root.outcome).toEqual({ status: "completed" })
+    // The traced system prompt is exactly what was sent to the model.
+    expect(root.systemPrompt).toBe((llm.requests[0]?.system as { text: string }).text)
+    // The committed assistant response and its usage survive into the trace.
+    const assistant = root.messages.find((m: { role: string }) => m.role === "assistant")
+    expect(assistant.usage).toEqual({ inputTokens: 1, outputTokens: 1 })
+    const manifest = readTrace(traceDir, "manifest.json")
+    expect(manifest.children).toEqual([])
+  })
+
+  test("an unwritable --trace-dir fails the run before any model request", async () => {
+    seedAuth()
+    // A file in the parent chain makes the trace directory uncreatable.
+    const filePath = join(cwd, "blocker")
+    writeFileSync(filePath, "x")
+    const llm = scripted([textTurn("never")])
+    const code = await runHeadless(options("go", { traceDir: join(filePath, "logs") }), {
+      llmLayer: llm.layer,
+    })
+    expect(code).toBe(1)
+    expect(out).toBe("")
+    expect(llm.requests).toHaveLength(0)
+  })
+
+  test("a fatal failure still leaves a root snapshot with a failed outcome", async () => {
+    seedAuth()
+    const traceDir = join(cwd, "logs")
+    const layer = Layer.succeed(LLMClient.Service, {
+      request: LLMClient.request,
+      streamTurn: () =>
+        Stream.fail(
+          new LLMError({ reason: "server-error", message: "upstream boom", retryable: false }),
+        ),
+      generateTurn: () =>
+        Effect.fail(
+          new LLMError({ reason: "server-error", message: "upstream boom", retryable: false }),
+        ),
+    })
+    const code = await runHeadless(options("go", { traceDir }), { llmLayer: layer })
+    expect(code).toBe(1)
+    const root = readTrace(traceDir, "root.json")
+    expect(root.outcome).toEqual({ status: "failed", error: "upstream boom" })
+  })
+
+  test("a completed subagent leaves its own child trace file", async () => {
+    seedAuth()
+    const traceDir = join(cwd, "logs")
+    const spawn = toolCallTurn("Agent", {
+      description: "probe",
+      prompt: "look",
+      subagentType: "Explore",
+    })
+    let parentCalls = 0
+    const layer = Layer.succeed(LLMClient.Service, {
+      request: LLMClient.request,
+      streamTurn: (req: LLMRequest) => {
+        if (JSON.stringify(req.messages).includes("## Assignment:"))
+          return Stream.fromIterable(textTurn("child findings"))
+        parentCalls += 1
+        return Stream.fromIterable(
+          parentCalls === 1 ? spawn : parentCalls === 2 ? textTurn("waiting") : textTurn("done"),
+        )
+      },
+      generateTurn: () => Effect.succeed({ events: [] }),
+    })
+    const code = await runHeadless(options("delegate", { traceDir }), { llmLayer: layer })
+    expect(code).toBe(0)
+    const children = readdirSync(join(traceDir, "subagents"))
+    expect(children).toHaveLength(1)
+    const child = readTrace(traceDir, join("subagents", children[0]!))
+    expect(child.agentType).toBe("Explore")
+    expect(child.parentAgentId).toBe(root_agentId(traceDir))
+    expect(child.outcome).toEqual({ status: "completed" })
+    // The manifest links the child by relative path.
+    const manifest = readTrace(traceDir, "manifest.json")
+    expect(manifest.children).toHaveLength(1)
+    expect(manifest.children[0].file).toBe(join("subagents", children[0]!))
+  })
+
+  const root_agentId = (dir: string): string => readTrace(dir, "root.json").agentId
+
+  test("a selected provider key is redacted in both stdout and the trace", async () => {
+    const key = "sk-ant-secret-0123456789abcdefghij"
+    writeFileSync(join(swainDir, "auth.json"), JSON.stringify({ anthropic: { apiKey: key } }))
+    const traceDir = join(cwd, "logs")
+    // The assistant text echoes the key; redaction must scrub it everywhere.
+    const code = await runHeadless(options(`leak ${key}`, { traceDir }), {
+      llmLayer: scripted([textTurn(`the key is ${key} ok`)]).layer,
+    })
+    expect(code).toBe(0)
+    expect(out).toContain("[REDACTED]")
+    expect(out).not.toContain(key)
+    const rootRaw = readFileSync(join(traceDir, "root.json"), "utf8")
+    expect(rootRaw).not.toContain(key)
+    expect(rootRaw).toContain("[REDACTED]")
+  })
+
+  test("the traced root prompt carries the router block only when routing is active", async () => {
+    writeFileSync(
+      join(swainDir, "auth.json"),
+      JSON.stringify({ anthropic: { apiKey: "sk-a" }, deepseek: { apiKey: "sk-d" } }),
+    )
+    writeFileSync(
+      join(swainDir, "config.json"),
+      JSON.stringify({ router: { enabled: true, disabledModels: [], disabledTargets: [] } }),
+    )
+
+    const offDir = join(cwd, "logs-off")
+    await runHeadless(options("go", { traceDir: offDir }), {
+      llmLayer: scripted([textTurn("ok")]).layer,
+    })
+    expect(readTrace(offDir, "root.json").systemPrompt).not.toContain("Routable model targets")
+
+    const onDir = join(cwd, "logs-on")
+    await runHeadless(options("go", { router: true, traceDir: onDir }), {
+      llmLayer: scripted([textTurn("ok")]).layer,
+    })
+    expect(readTrace(onDir, "root.json").systemPrompt).toContain("Routable model targets")
+  })
+
+  test("SIGINT during a run leaves a root snapshot marked interrupted", async () => {
+    seedAuth()
+    const traceDir = join(cwd, "logs")
+    let release = (): void => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const layer = Layer.succeed(LLMClient.Service, {
+      request: LLMClient.request,
+      streamTurn: () =>
+        Stream.unwrap(
+          Effect.promise(() => gate).pipe(Effect.as(Stream.fromIterable(textTurn("late")))),
+        ),
+      generateTurn: () => Effect.succeed({ events: [] }),
+    })
+    const before = process.listeners("SIGINT").length
+    const run = runHeadless(options("go", { traceDir }), { llmLayer: layer })
+    await waitFor(() => process.listeners("SIGINT").length > before)
+    ;(process.listeners("SIGINT").at(-1) as () => void)()
+    expect(await run).toBe(130)
+    const root = readTrace(traceDir, "root.json")
+    expect(root.outcome).toEqual({ status: "interrupted", signal: "SIGINT" })
     release()
   })
 })

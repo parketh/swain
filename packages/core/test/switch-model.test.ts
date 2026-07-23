@@ -328,6 +328,9 @@ describe("SwitchModel control flow", () => {
       "reasoning",
       "text",
     ])
+    // The rebuild preserves the response's usage so the switch turn is still
+    // accounted for in per-response usage retention.
+    expect((switching as { usage?: { inputTokens: number } }).usage?.inputTokens).toBe(1)
     // No tool_use survives the switch (neither the SwitchModel call nor siblings).
     expect(hasBlock(state, "assistant", (b) => b.type === "tool-call")).toBe(false)
     // The message immediately after the switching assistant is the switch marker.

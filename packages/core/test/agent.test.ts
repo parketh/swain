@@ -365,6 +365,8 @@ describe("runTurn", () => {
     expect(final?.responseDurationMs).toBeTypeOf("number")
     expect(final?.responseDurationMs).toBeGreaterThanOrEqual(0)
     expect(final?.turnDurationMs).toBeGreaterThanOrEqual(0)
+    // The committed assistant response retains exactly this inference's step-end usage.
+    expect((final as { usage?: unknown })?.usage).toEqual({ inputTokens: 1, outputTokens: 1 })
   })
 
   const captureSystem = async (options: { nonInteractive?: boolean }): Promise<string> => {

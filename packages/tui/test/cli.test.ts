@@ -105,6 +105,30 @@ describe("parseArgs", () => {
     expect(parsed.kind).toBe("usage-error")
   })
 
+  test("--trace-dir is absent by default and captured when supplied", () => {
+    const def = parseArgs(["exec", "--permission-mode", "auto", "p"])
+    expect(def.kind === "exec" && def.exec.traceDir).toBeUndefined()
+    const traced = parseArgs([
+      "exec",
+      "--permission-mode",
+      "auto",
+      "--trace-dir",
+      "/logs/agent/swain",
+      "p",
+    ])
+    expect(traced.kind === "exec" && traced.exec.traceDir).toBe("/logs/agent/swain")
+  })
+
+  test("--trace-dir without a value is a usage error", () => {
+    const parsed = parseArgs(["exec", "--permission-mode", "auto", "--trace-dir"])
+    expect(parsed.kind).toBe("usage-error")
+  })
+
+  test("--trace-dir is only recognized for exec, not interactive", () => {
+    // Leading flag routes to interactive, where exec-only flags aren't parsed here.
+    expect(parseArgs(["--trace-dir", "/logs"]).kind).toBe("interactive")
+  })
+
   test("--output-format without a value is a usage error", () => {
     const parsed = parseArgs(["exec", "--permission-mode", "auto", "--output-format"])
     expect(parsed.kind).toBe("usage-error")

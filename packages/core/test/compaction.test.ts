@@ -107,6 +107,15 @@ describe("compaction", () => {
     }
   })
 
+  test("folds the compaction turn's provider usage into the session counters", async () => {
+    const state = session(transcript())
+    const before = { ...state.counters }
+    await run(state, { reason: "manual", tailBudget: 20, now: "2026-07-13T00:00:00Z" })
+    // summaryTurn reports inputTokens: 1, outputTokens: 1.
+    expect(state.counters.inputTokens).toBe(before.inputTokens + 1)
+    expect(state.counters.outputTokens).toBe(before.outputTokens + 1)
+  })
+
   test("derived context replaces the older prefix with the summary", async () => {
     const state = session(transcript())
     await run(state, { reason: "manual", tailBudget: 20 })

@@ -49,6 +49,7 @@ export const environmentCredentialSources: ReadonlyArray<{
 }> = [
   { provider: Provider.Anthropic, field: "apiKey", envVar: "ANTHROPIC_API_KEY" },
   { provider: Provider.OpenAI, field: "apiKey", envVar: "OPENAI_API_KEY" },
+  { provider: Provider.Kimi, field: "apiKey", envVar: "MOONSHOT_API_KEY" },
   { provider: Provider.DeepSeek, field: "apiKey", envVar: "DEEPSEEK_API_KEY" },
   { provider: Provider.ZAI, field: "apiKey", envVar: "ZAI_API_KEY" },
 ]

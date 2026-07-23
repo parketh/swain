@@ -298,6 +298,14 @@ export const compactSession = (
       })
     }
 
+    // Compaction spends real provider tokens; fold this turn's usage into the
+    // session counters at the commit point (context accounting is re-estimated
+    // below, so only the cumulative totals are updated here).
+    if (summary.usage !== undefined) {
+      session.counters.inputTokens += summary.usage.inputTokens
+      session.counters.outputTokens += summary.usage.outputTokens
+    }
+
     // Append at the temporal position; full history is retained for display.
     history.push(meta)
     Object.assign(session.compaction, {
