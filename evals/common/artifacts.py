@@ -161,6 +161,9 @@ def install_script(version: str, repo: str = RELEASE_REPO) -> str:
     install_dir = f"{INSTALL_ROOT}/v{version}"
     return _INSTALL_TEMPLATE.format(
         version=version,
+        # `.` is the only BRE metacharacter a SemVer can contain; escape it so the
+        # manifest grep matches the literal version, not any character.
+        version_bre=version.replace(".", r"\."),
         base_url=base,
         glibc_asset=assets.glibc,
         musl_asset=assets.musl,
@@ -236,7 +239,10 @@ trap 'rm -rf "$STAGE"' EXIT
 download "$BASE_URL/$CHECKSUMS" "$STAGE/$CHECKSUMS"
 download "$BASE_URL/$ASSET" "$STAGE/$ASSET"
 
-expected="$(grep "  $ASSET\\$" "$STAGE/$CHECKSUMS" | awk '{{print $1}}')"
+# Exact filename match (awk field compare, not a regex) so metacharacters in the
+# asset name are literal, tolerating both text-mode ("  name") and binary-mode
+# (" *name") sha256sum separators.
+expected="$(awk -v a="$ASSET" '$2==a || $2==("*" a) {{print $1}}' "$STAGE/$CHECKSUMS")"
 [ -n "$expected" ] || fail "no checksum for $ASSET in $CHECKSUMS"
 actual="$(sha256_of "$STAGE/$ASSET")"
 [ "$expected" = "$actual" ] || fail "checksum mismatch for $ASSET (expected $expected, got $actual)"
@@ -247,7 +253,7 @@ tar -xzf "$STAGE/$ASSET" -C "$STAGE/unpack"
 
 MANIFEST="$STAGE/unpack/manifest.json"
 [ -f "$MANIFEST" ] || fail "archive missing manifest.json"
-grep -q '"swainVersion"[[:space:]]*:[[:space:]]*"'"$SWAIN_VERSION"'"' "$MANIFEST" \\
+grep -q '"swainVersion"[[:space:]]*:[[:space:]]*"{version_bre}"' "$MANIFEST" \\
   || fail "manifest version does not match $SWAIN_VERSION"
 grep -q '"target"[[:space:]]*:[[:space:]]*"linux-x64-'"$LIBC"'"' "$MANIFEST" \\
   || fail "manifest target does not match linux-x64-$LIBC"

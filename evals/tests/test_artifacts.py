@@ -113,6 +113,14 @@ class TestInstallScript:
         extract = script.index("tar -xzf")
         assert extract < manifest_check
 
+    def test_checksum_match_is_metacharacter_safe(self, script):
+        # Exact field compare, not a regex, and tolerant of the binary-mode marker.
+        assert '$2==a || $2==("*" a)' in script
+        assert 'grep "  $ASSET' not in script
+
+    def test_manifest_version_grep_escapes_dots(self, script):
+        assert r'"1\.4\.2"' in script
+
     def test_validates_rg_before_replacing_install(self, script):
         rg_check = script.index("archive missing libexec/rg")
         replace = script.index('rm -rf "$INSTALL_DIR"')
