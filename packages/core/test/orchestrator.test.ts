@@ -153,12 +153,14 @@ describe("orchestrator", () => {
   })
 
   test("a failing onChildTrace sink still persists the task and rings the doorbell", async () => {
+    let sinkCalls = 0
     const result = await runProgram(() =>
       Effect.gen(function* () {
         const orch = yield* makeOrchestrator({
           runChild: () => Effect.succeed("the findings"),
           onChildTrace: () =>
             Effect.sync(() => {
+              sinkCalls += 1
               throw new Error("sink boom")
             }),
         })
@@ -171,6 +173,8 @@ describe("orchestrator", () => {
         return yield* getTask(spawned.taskId)
       }),
     )
+    // The sink really ran (and threw) on the completion path — the guard caught it.
+    expect(sinkCalls).toBe(1)
     expect(result.status).toBe("completed")
     expect(result.result).toBe("the findings")
   })
