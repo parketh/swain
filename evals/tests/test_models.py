@@ -98,3 +98,14 @@ def test_swain_exec_command_structure_and_quoting():
     # The instruction survives shell parsing byte-for-byte as a single argument.
     tokens = shlex.split(command.split(f"> {models.SWAIN_NDJSON}")[0])
     assert instruction in tokens
+
+
+def test_swain_exec_command_quotes_hostile_model_ref(monkeypatch):
+    sel = models.resolve_model("anthropic/claude-opus-4")
+    monkeypatch.setattr(type(sel), "swain_model_ref", "anthropic:x; rm -rf /")
+    command = models.swain_exec_command("/opt/swain/v1.4.2/bin/swain", sel, "task")
+
+    tokens = shlex.split(command.split(f"> {models.SWAIN_NDJSON}")[0])
+    # The whole ref is one argument; the injected command never becomes its own token.
+    assert "anthropic:x; rm -rf /" in tokens
+    assert "rm" not in tokens

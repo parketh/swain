@@ -146,7 +146,7 @@ def swain_exec_command(swain_bin: str, selection: ModelSelection, instruction: s
     return (
         f"{swain_bin} exec"
         " --permission-mode auto"
-        f" --model {selection.swain_model_ref}"
+        f" --model {shlex.quote(selection.swain_model_ref)}"
         " --output-format stream-json"
         f" --trace-dir {SWAIN_TRACE_DIR}"
         f" {shlex.quote(instruction)}"
