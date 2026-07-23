@@ -1,6 +1,6 @@
 import type { Message } from "@swain/llms"
-import { assembleSystemPrompt } from "./prompt"
-import type { SessionCounters, SessionState } from "./state"
+import { assembleSystemPrompt, type RouterPromptTarget } from "./prompt"
+import { modelRefKey, type SessionCounters, type SessionState } from "./state"
 
 /**
  * The native trace schema is versioned independently of any framework format.
@@ -72,12 +72,19 @@ export interface ProjectTraceInput {
   readonly outcome: TraceOutcome
   /** True for headless exec runs; folds the non-interactive guidance into the prompt. */
   readonly nonInteractive?: boolean
+  /**
+   * Routable targets when routing was active (root only; subagents never route).
+   * Present so `swain exec --router` traces carry the same router block the loop
+   * sent; omitted — the default and the only eval configuration — means no block.
+   */
+  readonly router?: { readonly targets: ReadonlyArray<RouterPromptTarget> }
 }
 
 /**
  * Pure projection of a live session into a serializable native trace. Reassembles
- * the exact system prompt from the same inputs the agent loop uses (routing is
- * off, so no router block), and copies committed messages and counters verbatim.
+ * the exact system prompt from the same inputs the agent loop uses — including the
+ * router block when routing was active — and copies committed messages and counters
+ * verbatim.
  */
 export const projectTrace = (input: ProjectTraceInput): NativeTrace => {
   const { session, identity } = input
@@ -88,6 +95,9 @@ export const projectTrace = (input: ProjectTraceInput): NativeTrace => {
     model: session.systemContext.model.id,
     permissionMode: session.systemContext.permissionMode,
     tools: input.tools,
+    ...(input.router !== undefined && {
+      router: { targets: input.router.targets, currentId: modelRefKey(modelRef) },
+    }),
     ...(input.nonInteractive === true && { nonInteractive: true }),
   })
   return {

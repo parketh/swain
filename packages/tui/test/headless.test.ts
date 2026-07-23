@@ -567,6 +567,29 @@ describe("runHeadless", () => {
     expect(rootRaw).toContain("[REDACTED]")
   })
 
+  test("the traced root prompt carries the router block only when routing is active", async () => {
+    writeFileSync(
+      join(swainDir, "auth.json"),
+      JSON.stringify({ anthropic: { apiKey: "sk-a" }, deepseek: { apiKey: "sk-d" } }),
+    )
+    writeFileSync(
+      join(swainDir, "config.json"),
+      JSON.stringify({ router: { enabled: true, disabledModels: [], disabledTargets: [] } }),
+    )
+
+    const offDir = join(cwd, "logs-off")
+    await runHeadless(options("go", { traceDir: offDir }), {
+      llmLayer: scripted([textTurn("ok")]).layer,
+    })
+    expect(readTrace(offDir, "root.json").systemPrompt).not.toContain("Routable model targets")
+
+    const onDir = join(cwd, "logs-on")
+    await runHeadless(options("go", { router: true, traceDir: onDir }), {
+      llmLayer: scripted([textTurn("ok")]).layer,
+    })
+    expect(readTrace(onDir, "root.json").systemPrompt).toContain("Routable model targets")
+  })
+
   test("SIGINT during a run leaves a root snapshot marked interrupted", async () => {
     seedAuth()
     const traceDir = join(cwd, "logs")

@@ -11,7 +11,7 @@ import { makeController } from "./controller"
 import { initEvent, messageEvent, resultEvent, serialize } from "./exec-events"
 import { initTraceRecorder, type TraceRecorder } from "./exec-trace"
 import { collectSecrets, makeRedactor } from "./redaction"
-import { routerSettings } from "./router"
+import { routerPromptTargets, routerSettings, routerStatus } from "./router"
 import type { LLMClientService } from "./runtime"
 import { loadStartup, resolveHeadlessModel } from "./startup"
 import { version } from "./version"
@@ -90,11 +90,13 @@ export const runHeadless = async (
   // Opt-in native trace bundle. Initialize the directory before any model request
   // so an unwritable path fails the exec (exit 1) rather than silently claiming
   // ATIF support after spending tokens.
+  // The traced root prompt must match the loop's: both SwitchModel and the router
+  // block are present only when routing is actually active (off by default in exec;
+  // --router leaves the saved config's status effective).
+  const routerActive = routerStatus(config) === "on"
   const execTools = builtinTools.filter((tool) => tool.name !== "Ask")
-  // The traced root system prompt must match the loop's: SwitchModel is only
-  // offered when routing is active (it is off by default in exec).
   const rootTraceTools = execTools
-    .filter((tool) => tool.name !== "SwitchModel" || options.router)
+    .filter((tool) => tool.name !== "SwitchModel" || routerActive)
     .map((tool) => ({ name: tool.name, description: tool.description }))
   let recorder: TraceRecorder | undefined
   if (options.traceDir !== undefined) {
@@ -105,6 +107,7 @@ export const runHeadless = async (
         rootAgentId: session.sessionId,
         nonInteractive: true,
         redact,
+        ...(routerActive && { router: { targets: routerPromptTargets(config) } }),
       })
     } catch (error) {
       stderr(`${describe(error)}\n`)

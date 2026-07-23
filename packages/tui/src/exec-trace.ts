@@ -6,6 +6,7 @@ import {
   type ChildTraceEvent,
   type NativeTrace,
   projectTrace,
+  type RouterPromptTarget,
   type SessionState,
   TRACE_SCHEMA_VERSION,
   type TraceIdentity,
@@ -36,6 +37,8 @@ export interface TraceRecorderOptions {
   readonly nonInteractive?: boolean
   /** Redacts known credentials from trace values before they are written. */
   readonly redact?: <T>(value: T) => T
+  /** Routable targets when routing was active; folds a router block into the root prompt. */
+  readonly router?: { readonly targets: ReadonlyArray<RouterPromptTarget> }
 }
 
 export interface RootFinalizeInput {
@@ -134,6 +137,7 @@ export const initTraceRecorder = async (options: TraceRecorderOptions): Promise<
       swainVersion: options.swainVersion,
       outcome: input.outcome,
       ...(options.nonInteractive === true && { nonInteractive: true }),
+      ...(options.router !== undefined && { router: options.router }),
     })
     const manifest: TraceManifest = {
       schemaVersion: TRACE_SCHEMA_VERSION,
