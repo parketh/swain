@@ -97,7 +97,7 @@ class TestHarborRun:
         assert "--model anthropic:claude-opus-4" in exec_call.command
         assert "--output-format stream-json" in exec_call.command
         assert "--trace-dir /logs/agent/swain" in exec_call.command
-        assert instruction in shlex.split(exec_call.command.split("| tee")[0])
+        assert instruction in shlex.split(exec_call.command.split(" > ")[0])
 
     def test_secret_absent_from_command_and_per_call_env(self, tmp_path, fake_env):
         agent = make_harbor(tmp_path)
