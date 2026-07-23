@@ -11,9 +11,12 @@ path, per-file local ``final_metrics``, and omitted cost/cache fields.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from evals.common.redaction import redact_value
 
 SCHEMA_VERSION = "ATIF-v1.7"
 SUBAGENT_DIR = "subagents"
@@ -326,10 +329,27 @@ def convert_bundle(bundle_dir: Path, trajectory_model: Any = None) -> BundleResu
 
 
 def convert_and_write_bundle(
-    bundle_dir: Path, out_dir: Path, trajectory_model: Any
+    bundle_dir: Path,
+    out_dir: Path,
+    trajectory_model: Any,
+    secrets: Iterable[str] = (),
 ) -> BundleResult:
-    """Convert (validating with ``trajectory_model``) and write a bundle."""
+    """Convert (validating with ``trajectory_model``), redact, and write a bundle.
+
+    ``secrets`` are scrubbed from every converted trajectory before it is written:
+    defense-in-depth over Swain's own in-container redaction, so a secret that
+    reaches the retained ``trajectory.json``/``subagents/*.json`` artifacts is
+    caught here too. Token totals are unaffected (redaction only rewrites strings).
+    """
     result = convert_bundle(bundle_dir, trajectory_model)
+    secrets = list(secrets)
+    if secrets:
+        result = BundleResult(
+            root=redact_value(result.root, secrets),
+            children={rel: redact_value(atif, secrets) for rel, atif in result.children.items()},
+            total_input_tokens=result.total_input_tokens,
+            total_output_tokens=result.total_output_tokens,
+        )
     write_bundle(result, out_dir)
     return result
 

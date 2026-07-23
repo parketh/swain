@@ -97,7 +97,8 @@ class SwainHarborAgent(BaseInstalledAgent):
         ndjson = agent_dir / "swain.ndjson"
         if ndjson.is_file() and not ndjson_has_result_event(ndjson.read_text()):
             raise ConversionError("Swain NDJSON has no terminal result event.")
-        result = convert_and_write_bundle(agent_dir / "swain", agent_dir, Trajectory)
+        secrets = [v for v in self.extra_env.values() if v]
+        result = convert_and_write_bundle(agent_dir / "swain", agent_dir, Trajectory, secrets)
         context.n_input_tokens = result.total_input_tokens
         context.n_output_tokens = result.total_output_tokens
 

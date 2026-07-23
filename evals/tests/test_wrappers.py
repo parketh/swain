@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import shlex
 
 import pytest
@@ -124,6 +125,19 @@ class TestHarborPostRun:
         assert context.n_output_tokens == 1170
         assert context.cost_usd is None
 
+    def test_converted_bundle_is_redacted(self, tmp_path, fake_env):
+        root = fake_env.container_trace_dir / "root.json"
+        data = json.loads(root.read_text())
+        data["systemPrompt"] = f"{data.get('systemPrompt', '')} leaked {SECRET}"
+        root.write_text(json.dumps(data))
+        agent = make_harbor(tmp_path)
+        context = HarborContext()
+        asyncio.run(agent.run("Do it.", fake_env, context))
+        agent.populate_context_post_run(context)
+        published = (tmp_path / "logs" / "agent" / "trajectory.json").read_text()
+        assert SECRET not in published
+        assert "[REDACTED]" in published
+
     def test_missing_result_event_fails(self, tmp_path, fake_env):
         fake_env.container_ndjson.write_text('{"type":"assistant"}\n')
         agent = make_harbor(tmp_path)
@@ -213,3 +227,16 @@ class TestPierRunAndPostRun:
         assert context.n_input_tokens == 2400
         assert context.n_output_tokens == 1170
         assert context.cost_usd is None
+
+    def test_converted_bundle_is_redacted(self, tmp_path, fake_env):
+        root = fake_env.container_trace_dir / "root.json"
+        data = json.loads(root.read_text())
+        data["systemPrompt"] = f"{data.get('systemPrompt', '')} leaked {SECRET}"
+        root.write_text(json.dumps(data))
+        agent = make_pier(tmp_path)
+        context = PierContext()
+        asyncio.run(agent.run("Do it.", fake_env, context))
+        agent.populate_context_post_run(context)
+        published = (tmp_path / "logs" / "agent" / "trajectory.json").read_text()
+        assert SECRET not in published
+        assert "[REDACTED]" in published
