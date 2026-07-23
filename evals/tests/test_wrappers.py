@@ -63,6 +63,18 @@ class TestHarborConstruction:
         with pytest.raises(ValueError):
             make_harbor(tmp_path, model_name="mistral/large")
 
+    def test_sources_only_selected_key_from_host_env(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", SECRET)
+        monkeypatch.setenv("OPENAI_API_KEY", "other-provider-key-should-not-leak")
+        agent = make_harbor(tmp_path, extra_env=None)
+        assert agent.extra_env == {"ANTHROPIC_API_KEY": SECRET}
+
+    def test_rejects_base_url_override_in_host_env(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", SECRET)
+        monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://gateway.example")
+        with pytest.raises(ValueError):
+            make_harbor(tmp_path, extra_env=None)
+
 
 class TestHarborInstall:
     def test_installs_and_verifies_swain_and_rg(self, tmp_path, fake_env):

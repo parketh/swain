@@ -18,9 +18,9 @@ here="$(cd "$(dirname "$0")/.." && pwd)"
 
 # Load config from the project-root .env if present (override the path with
 # SWAIN_ENV_FILE) so the script can be configured without exporting by hand.
-# Standard dotenv sourcing — `set -a` auto-exports every assignment. The file
-# feeds the host script only; just the selected provider key is later forwarded
-# into the container via --agent-env, so other keys in .env never reach the agent.
+# Standard dotenv sourcing — `set -a` auto-exports every assignment into the
+# `harbor run` process env. The wrapper reads only the selected provider key from
+# os.environ, so other keys in .env never reach the agent.
 env_file="${SWAIN_ENV_FILE:-$here/../.env}"
 if [ -f "$env_file" ]; then
   set -a
@@ -54,14 +54,15 @@ if [ -n "${SWAIN_EVAL_VARIANT:-}" ]; then
 fi
 
 # HARBOR_TELEMETRY=off keeps runs reproducible regardless of telemetry availability.
-# The credential travels via --agent-env (KEY=VALUE); it is never echoed. Concurrency
-# defaults to 1 for acceptance; a later --n-concurrent in "$@" overrides it.
+# The credential is inherited from this script's exported env (never passed on the
+# command line): the wrapper reads exactly the selected provider key from os.environ,
+# so it stays out of the world-readable `harbor run` argv. Concurrency defaults to 1
+# for acceptance; a later --n-concurrent in "$@" overrides it.
 HARBOR_TELEMETRY=off exec uv run harbor run \
   --dataset "$dataset" \
   --agent evals.harbor.agent:SwainHarborAgent \
   --model "$SWAIN_EVAL_MODEL" \
   "${agent_kwargs[@]}" \
-  --agent-env "$cred_var=${!cred_var}" \
   --jobs-dir "$here/.cache/jobs/terminal-bench-2" \
   --n-concurrent 1 \
   --yes \

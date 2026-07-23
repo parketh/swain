@@ -9,6 +9,7 @@ logic with ``evals.common``; the Harbor wrapper is never imported here.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -54,6 +55,12 @@ class SwainPierAgent(BaseInstalledAgent):
         artifacts.validate_version(version)
         self._selection = models.resolve_model(model_name, variant)
         self._variant = variant
+        # Source exactly the selected provider's credential from the host env
+        # (rejecting base-URL/gateway overrides) rather than accepting it on the
+        # command line, so the secret never lands in a world-readable `pier run`
+        # argv. Explicit `extra_env` (tests) is honored as-is.
+        if not extra_env:
+            extra_env = models.select_agent_env(self._selection, os.environ)
         super().__init__(
             logs_dir,
             prompt_template_path=prompt_template_path,

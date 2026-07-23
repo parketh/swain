@@ -19,9 +19,9 @@ here="$(cd "$(dirname "$0")/.." && pwd)"
 
 # Load config from the project-root .env if present (override the path with
 # SWAIN_ENV_FILE) so the script can be configured without exporting by hand.
-# Standard dotenv sourcing — `set -a` auto-exports every assignment. The file
-# feeds the host script only; just the selected provider key is later forwarded
-# into the container via --agent-env, so other keys in .env never reach the agent.
+# Standard dotenv sourcing — `set -a` auto-exports every assignment into the
+# `pier run` process env. The wrapper reads only the selected provider key from
+# os.environ, so other keys in .env never reach the agent.
 env_file="${SWAIN_ENV_FILE:-$here/../.env}"
 if [ -f "$env_file" ]; then
   set -a
@@ -57,13 +57,14 @@ if [ -n "${SWAIN_EVAL_VARIANT:-}" ]; then
 fi
 
 # Default to Docker and concurrency 1 for acceptance; a later --env / --n-concurrent
-# in "$@" overrides. The credential travels via --agent-env and is never echoed.
+# in "$@" overrides. The credential is inherited from this script's exported env (never
+# passed on the command line): the wrapper reads exactly the selected provider key from
+# os.environ, so it stays out of the world-readable `pier run` argv.
 exec uv run pier run \
   --path "$tasks_path" \
   --agent-import-path evals.pier.agent:SwainPierAgent \
   --model "$SWAIN_EVAL_MODEL" \
   "${agent_kwargs[@]}" \
-  --agent-env "$cred_var=${!cred_var}" \
   --env docker \
   --n-concurrent 1 \
   --yes \
