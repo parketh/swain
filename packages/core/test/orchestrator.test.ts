@@ -157,7 +157,10 @@ describe("orchestrator", () => {
       Effect.gen(function* () {
         const orch = yield* makeOrchestrator({
           runChild: () => Effect.succeed("the findings"),
-          onChildTrace: () => Effect.fail(new Error("sink boom")),
+          onChildTrace: () =>
+            Effect.sync(() => {
+              throw new Error("sink boom")
+            }),
         })
         const spawned = yield* orch.spawn(
           { description: "probe", prompt: "look", agentType: "Explore" },
