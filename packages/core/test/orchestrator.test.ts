@@ -152,6 +152,26 @@ describe("orchestrator", () => {
     expect(traces[0]!.outcome).toEqual({ ok: false, error: "child blew up" })
   })
 
+  test("a failing onChildTrace sink still persists the task and rings the doorbell", async () => {
+    const result = await runProgram(() =>
+      Effect.gen(function* () {
+        const orch = yield* makeOrchestrator({
+          runChild: () => Effect.succeed("the findings"),
+          onChildTrace: () => Effect.fail(new Error("sink boom")),
+        })
+        const spawned = yield* orch.spawn(
+          { description: "probe", prompt: "look", agentType: "Explore" },
+          parent(),
+        )
+        // Doorbell must still ring; if the sink failure escaped, this would hang.
+        yield* Queue.take(orch.completions)
+        return yield* getTask(spawned.taskId)
+      }),
+    )
+    expect(result.status).toBe("completed")
+    expect(result.result).toBe("the findings")
+  })
+
   test("durationMs measures the child run, not orchestration overhead", async () => {
     const runner: ChildRunner = () =>
       Effect.sleep(Duration.millis(50)).pipe(Effect.as("slept")) as ReturnType<ChildRunner>

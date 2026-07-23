@@ -1,7 +1,7 @@
 import type { CommandExecutor, FileSystem } from "@effect/platform"
 import type { Model } from "@swain/llms"
 import { LLMClient } from "@swain/llms"
-import { Context, Duration, Effect, Fiber, Queue, Ref } from "effect"
+import { Cause, Context, Duration, Effect, Fiber, Queue, Ref } from "effect"
 import type { AgentEvent } from "./agent"
 import { runTurn } from "./agent"
 import { ToolError } from "./errors"
@@ -308,20 +308,30 @@ export const makeOrchestrator = (config: OrchestratorConfig = {}): Effect.Effect
           )
           const durationMs = Duration.toMillis(elapsed)
           // Trace the child before its worktree is cleaned up and the session
-          // becomes unreachable. The sink absorbs its own failures, so a trace
-          // write error never disrupts task persistence or the completion queue.
+          // becomes unreachable. This runs before task persistence and the
+          // completion queue, so a sink that fails or throws must never escape:
+          // catch every cause here so it can't skip cleanup or deadlock the parent
+          // waiting on the completion doorbell.
           if (config.onChildTrace !== undefined) {
-            yield* config.onChildTrace({
-              session: childSession,
-              agentId,
-              taskId,
-              agentType: input.agentType,
-              tools: Array.from(registry.values()).map((tool) => ({
-                name: tool.name,
-                description: tool.description,
-              })),
-              outcome: outcome.ok ? { ok: true } : { ok: false, error: outcome.error },
-            })
+            yield* config
+              .onChildTrace({
+                session: childSession,
+                agentId,
+                taskId,
+                agentType: input.agentType,
+                tools: Array.from(registry.values()).map((tool) => ({
+                  name: tool.name,
+                  description: tool.description,
+                })),
+                outcome: outcome.ok ? { ok: true } : { ok: false, error: outcome.error },
+              })
+              .pipe(
+                Effect.catchAllCause((cause) =>
+                  Effect.logError(
+                    `Child trace sink failed for task ${taskId}: ${Cause.pretty(cause)}`,
+                  ),
+                ),
+              )
           }
           const cleanup =
             worktree !== undefined
