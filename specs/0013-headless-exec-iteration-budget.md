@@ -192,4 +192,12 @@ No changes to `packages/core` (runTurn already supports the option). No changes 
 
 ## Post-Implementation Changes
 
-_(to be filled in after implementation, per AGENTS.md spec-driven convention)_
+Implemented as specified: `ControllerDeps.maxIterations` threaded into `runTurnNow`'s `runTurn` call; `headless.ts` sets `EXEC_MAX_ITERATIONS = 200`. Interactive TUI (`index.ts`) unchanged. 587 core+tui tests pass; typecheck/format clean.
+
+**Measured effect (glm-5.2, released as `0.2.1-eval.1`):**
+- DeepSWE `abs-module-cache-flags`: **f2p 0/20 → 19/20** (partial 0.13 → 0.96). Baseline (v0.2.0, cap 20) produced an **empty patch** — 19 read-only exploration calls, force-concluded before any Write/Edit. With the 200 budget glm used **135 iterations**, ran `go test` 21×, committed to a branch, and implemented almost the whole task. The one remaining miss (`TestChallengeRequireCycleDetection`) is a glm capability/convention choice (it returned a bespoke `*object.CycleError` instead of the standard `*object.Error`), not an iteration issue — left as-is.
+- TB2 `cancel-async-tasks`: unaffected (uses ~11–14 iterations, well under both caps); its pass rate is glm-variance-bound.
+
+Kept — clearly correct, general improvement (any long-horizon task benefits; nothing eval-specific).
+
+**Deferred (per Risks):** subagent iteration cap still hardcoded at 20 (`orchestrator.ts:182`); only matters if a run delegates implementation to an Agent subagent (observed runs did not).
