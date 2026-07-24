@@ -37,6 +37,15 @@ export interface SystemPromptInput {
  * built-in tools. Full tool schemas travel through the `@swain/llms` `tools`
  * request field via `toLLMTool`; only names/descriptions appear here.
  */
+const WORKING_APPROACH = `Working approach:
+- Understand before you change. Explore the relevant code and read the files you will modify in full, tracing how the affected behavior works today before editing.
+- Follow the codebase's existing conventions. Match its style and structure, and reuse its existing types, helpers, and patterns instead of introducing new ones. Do not assume a library or API exists — confirm it in the code or manifests first.
+- Make the smallest correct change. Prefer a focused, minimal edit over new abstractions, and do not add speculative features, options, or handling for cases that cannot occur.
+- Fix root causes, not symptoms. When something fails, inspect the actual state to find why, form and test a hypothesis, and address the underlying cause.
+- Verify your work before concluding. Exercise the change and confirm it behaves as intended, running the project's own build, tests, and checks where they exist. Reading code is not verification; never report success you have not observed, and if something fails or cannot be checked, say so plainly.
+- Finish the job. Carry the task through implementation and verification rather than stopping at a partial fix or a description of what you would do, working through blockers yourself before asking.
+- Use tools deliberately. Prefer the dedicated file and search tools over shell equivalents, run independent read-only operations in parallel, and trust that an edit fails loudly rather than re-reading a file to confirm it landed.`
+
 const TASK_GUIDANCE = `You have a task list (TaskCreate, TaskList, TaskGet, TaskUpdate). Use it as a to-do list to plan and track your own multi-step work; a task with no owner is simply your own work, and delegating one to a subagent with Agent is optional.
 
 Keep the list moving in real time — this is how the user sees progress:
@@ -107,6 +116,7 @@ Permission mode: ${input.permissionMode}
 Available tools:
 ${JSON.stringify(toolList, null, 2)}`,
   ]
+  sections.push(WORKING_APPROACH)
   if (hasTaskTools) sections.push(TASK_GUIDANCE)
   if (hasAgentTool) sections.push(AGENT_REMINDER)
   if (input.router !== undefined) sections.push(renderRouterBlock(input.router))

@@ -96,6 +96,18 @@ describe("assembleSystemPrompt", () => {
     expect(assembleSystemPrompt(baseInput)).toBe(assembleSystemPrompt(baseInput))
   })
 
+  test("includes the general working-approach guidance", () => {
+    const prompt = assembleSystemPrompt(baseInput)
+    expect(prompt).toContain("Understand before you change")
+    expect(prompt).toContain("reuse its existing types, helpers, and patterns")
+    expect(prompt).toContain("Make the smallest correct change")
+    expect(prompt).toContain("Verify your work before concluding")
+    expect(prompt).toContain("Fix root causes")
+    // General guidance — no evaluation/benchmark framing.
+    expect(prompt.toLowerCase()).not.toContain("graded")
+    expect(prompt.toLowerCase()).not.toContain("benchmark")
+  })
+
   test("includes the non-interactive instruction only when requested", () => {
     expect(assembleSystemPrompt(baseInput)).not.toContain("running non-interactively")
     const nonInteractive = assembleSystemPrompt({ ...baseInput, nonInteractive: true })
