@@ -218,10 +218,21 @@ const prepareRipgrep = async (cacheDir: string): Promise<{ rg: string; licenses:
 
   // Early tracer: the musl-static PIE `rg` must run under the (glibc) build host
   // before any target is packaged, proving the sidecar is libc-independent.
+  // On a non-x86_64 build host (e.g. a macOS/ARM dev box cutting a throwaway
+  // pre-release) the Linux x64 binary cannot exec (ENOEXEC). The produced archive
+  // is unaffected — the `rg` bytes are already pinned by RIPGREP_SOURCE_SHA256
+  // above — so skip the run-smoke-test on such hosts rather than failing.
   let trace: string
   try {
     trace = execFileSync(rg, ["--version"], { encoding: "utf8" })
   } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOEXEC") {
+      console.error(
+        `build-release: skipping ripgrep run-smoke-test on ${process.platform}/${process.arch} ` +
+          "(cannot exec the Linux x64 sidecar); bytes are SHA-256-verified.",
+      )
+      return { rg, licenses: inner }
+    }
     return die(`ripgrep tracer could not run the extracted rg: ${(error as Error).message}`)
   }
   if (!trace.startsWith(`ripgrep ${RIPGREP_VERSION}`)) {
