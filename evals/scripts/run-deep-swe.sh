@@ -66,6 +66,7 @@ exec uv run pier run \
   --model "$SWAIN_EVAL_MODEL" \
   "${agent_kwargs[@]}" \
   --env docker \
+  --jobs-dir "$here/.cache/jobs/deep-swe" \
   --n-concurrent 1 \
   --yes \
   "$@"
