@@ -35,6 +35,14 @@ const finalAssistantText = (session: SessionState): string => {
   return ""
 }
 
+/**
+ * Tool-iteration backstop for autonomous exec runs. Much higher than the
+ * interactive default (20): long-horizon tasks (e.g. SWE-bench) must not be
+ * force-concluded mid-work. The real wall-clock bound is the caller's agent
+ * timeout; this only prevents an unbounded runaway loop.
+ */
+const EXEC_MAX_ITERATIONS = 200
+
 /** Forces routing off in the in-memory config; never persisted. */
 const withRoutingDisabled = (config: TuiConfig): TuiConfig => ({
   ...config,
@@ -132,6 +140,7 @@ export const runHeadless = async (
       sessionStorageRoot: storageRoot,
       tools: execTools,
       nonInteractive: true,
+      maxIterations: EXEC_MAX_ITERATIONS,
       ...(recorder !== undefined && { onChildTrace: recorder.recordChild }),
       ...(testDeps.llmLayer !== undefined && { llmLayer: testDeps.llmLayer }),
     })

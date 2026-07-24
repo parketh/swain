@@ -171,6 +171,12 @@ export interface ControllerDeps {
    */
   readonly nonInteractive?: boolean
   /**
+   * Upper bound on tool-call iterations per turn. Omitted → runTurn's default
+   * (20). Headless exec sets this high so autonomous long-horizon tasks are not
+   * force-concluded before the model finishes writing/committing work.
+   */
+  readonly maxIterations?: number
+  /**
    * Overrides the base directory for task and tool-result storage. Config/auth
    * still come from `configPath`; only ephemeral session artifacts are routed
    * here (headless exec points this at a temporary directory it later removes).
@@ -788,6 +794,7 @@ export const makeController = (deps: ControllerDeps): Controller => {
         router: { targets: routerPromptTargets(config) },
       }),
       ...(deps.nonInteractive === true && { nonInteractive: true }),
+      ...(deps.maxIterations !== undefined && { maxIterations: deps.maxIterations }),
     }).pipe(
       Effect.provide(ctxLayer),
       Effect.provide(toolResultStoreLayer(pathJoin(sessionDirFor(session), "tool-results"))),

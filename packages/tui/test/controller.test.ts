@@ -89,6 +89,7 @@ describe("controller", () => {
     llm: ReturnType<typeof scripted>,
     permissionMode: PermissionMode = "auto",
     persist = false,
+    maxIterations?: number,
   ): Controller => {
     const session = createSessionState({
       workingDirectory: dir,
@@ -103,6 +104,7 @@ describe("controller", () => {
       configPath: join(dir, "config.json"),
       llmLayer: llm.layer,
       persist,
+      ...(maxIterations !== undefined && { maxIterations }),
     })
     return controller
   }
@@ -165,6 +167,20 @@ describe("controller", () => {
     await c.submitPrompt("hello")
     const messages = c.getState().session.messages
     expect(messages[0]).toMatchObject({ role: "user", content: [{ type: "text", text: "hello" }] })
+  })
+
+  test("forwards maxIterations to runTurn so a turn can exceed the default 20-iteration cap", async () => {
+    // 25 tool-call turns then a final text turn. At the default cap (20) the
+    // loop would fail with a max-iterations AgentError before reaching the text;
+    // with maxIterations=200 it runs to the final "done".
+    const turns = [
+      ...Array.from({ length: 25 }, () => toolCallTurn("Read", { path: "does-not-exist" })),
+      textTurn("done"),
+    ]
+    const c = build(scripted(turns), "auto", false, 200)
+    await c.submitPrompt("go")
+    const last = c.getState().session.messages.at(-1)
+    expect(last).toMatchObject({ role: "assistant", content: [{ type: "text", text: "done" }] })
   })
 
   test("forwards both text deltas to the event subscriber in order", async () => {
