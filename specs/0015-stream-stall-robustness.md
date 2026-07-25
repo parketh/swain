@@ -187,4 +187,11 @@ No `evals/` changes.
 
 ## Post-Implementation Changes
 
-_(to be filled in after implementation + eval re-run)_
+Implemented exactly as specified: `STREAM_IDLE_TIMEOUT` 60s→120s (`llm.ts`); `MAX_STREAM_RETRIES` 2→4 with `Schedule.exponential(1s)` intersected with `recurs(4)`, retryable-gated (`agent.ts`); give-up test updated (budget 5, 20s timeout). 385 core+llms tests pass; typecheck/format clean. Released as throwaway pre-release `v0.2.1-eval.4`.
+
+**Measured effect (glm-5.2, 10-task TB2, partial run — externally killed at 7/10):**
+- **Partial improvement, no regression.** The 3 passing tasks (break-filter-js-from-html, build-pov-ray, distribution-search) still pass. Pass count unchanged from the 3/10 baseline on the completed subset.
+- **The stall fix demonstrably helped but undershot.** `make-mips-interpreter` progressed **86 → 142 events** (survived earlier stalls, ~56 more events of real work) before stalling again — now reporting `Provider stream stalled: no data for 120s.` (confirming the eval.4 binary is in use and the raised timeout took effect). The stall recurs across all retries.
+- **Root cause refined.** The stall is a **deterministic long silence** (glm-5.2 producing no first token for >120s), not a transient blip. It occurs at time-to-first-token after a tool result is sent, deepens as the context grows, and is compounded by (a) **auto-compaction being disabled for glm-5.2** — the model carries no `contextWindow` limit, so `shouldAutoCompact` (`context/accounting.ts:98`, `AUTO_COMPACT_FRACTION = 0.9`) never fires and context grows unbounded — and possibly (b) `high` reasoning effort's silent think time and/or (c) `n-concurrent=4` provider-side queueing.
+
+**Decision: KEEP.** Strictly better than eval.3 (more progress, no regression, and 120s is a more correct idle window for a reasoning model). It does not by itself flip a pass; the residual glm long-silence is addressed by the next iteration (bounding context growth / re-enabling compaction for glm), tracked separately.
