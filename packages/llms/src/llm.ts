@@ -37,13 +37,16 @@ const request = (input: LLMRequestInput): LLMRequest => {
 }
 
 /**
- * Fail a turn whose provider stream goes silent for this long instead of hanging
- * the whole loop indefinitely. Idle-based (resets on every event), so it catches
- * a stream that stalls mid-response, not just one that never starts. Healthy
- * streams emit within ~1s and never gap more than ~10s, so 60s is ample headroom
- * while still failing fast enough for the agent's bounded retry to recover.
+ * Fail a turn whose provider stream goes fully silent for this long instead of
+ * hanging the loop indefinitely. Idle-based: the timer resets on every emitted
+ * event (text, reasoning, or tool deltas), so it catches only a stream that
+ * produces nothing at all — not one that is streaming slowly. A reasoning model
+ * on a large context can legitimately emit nothing for over a minute while it
+ * processes the prompt or reasons before the first token, so the window is set
+ * well above a healthy stream's cadence while still failing a dead stream fast
+ * enough for the agent's bounded retry to recover.
  */
-const STREAM_IDLE_TIMEOUT = Duration.seconds(60)
+const STREAM_IDLE_TIMEOUT = Duration.seconds(120)
 
 const streamTurn = (
   request: LLMRequest,
