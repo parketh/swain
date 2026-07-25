@@ -50,9 +50,11 @@ const DEFAULT_MAX_ITERATIONS = 20
 
 // Bounded retry for a single LLM request that fails with a retryable error
 // (network stall, rate-limit, overload, 5xx). Intermittent provider drops
-// usually succeed on the next attempt, so a few quick retries keep a turn alive.
-const MAX_STREAM_RETRIES = 2
-const STREAM_RETRY_DELAY = Duration.seconds(1)
+// usually succeed on a later attempt, so a few retries with exponential backoff
+// keep a turn alive; a non-retryable or persistently-dead stream still fails in
+// bounded time.
+const MAX_STREAM_RETRIES = 4
+const STREAM_RETRY_BASE_DELAY = Duration.seconds(1)
 
 export const submitPrompt = (session: SessionState, prompt: string, isMeta = false): void => {
   session.messages.push(userMessage(prompt, { isMeta }))
@@ -519,9 +521,9 @@ const loop = (
     // once the final event is collected; summary decoding is excluded.
     const [responseElapsed, collected] = yield* streamOnce.pipe(
       Effect.retry(
-        Schedule.recurs(MAX_STREAM_RETRIES).pipe(
+        Schedule.exponential(STREAM_RETRY_BASE_DELAY).pipe(
+          Schedule.intersect(Schedule.recurs(MAX_STREAM_RETRIES)),
           Schedule.whileInput((error: LLMError) => error.retryable),
-          Schedule.addDelay(() => STREAM_RETRY_DELAY),
         ),
       ),
       Effect.catchAll((error) =>

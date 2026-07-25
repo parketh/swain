@@ -516,17 +516,19 @@ describe("runTurn", () => {
     expect(state.messages.at(-1)?.responseDurationMs).toBeGreaterThan(900)
   })
 
+  // The 20s timeout arg covers the exponential backoff (1+2+4+8s) exhausted on
+  // the real clock, above Bun's 5s default per-test timeout.
   test("gives up after the retry budget and fails the turn", async () => {
-    const flaky = flakyLLM(5, true, textTurn("never"))
+    const flaky = flakyLLM(10, true, textTurn("never"))
     const state = session()
     submitPrompt(state, "hi")
     const exit = await Effect.runPromiseExit(runFlaky(flaky, state))
     expect(exit._tag).toBe("Failure")
-    expect(flaky.calls()).toBe(3) // initial + 2 retries (MAX_STREAM_RETRIES)
+    expect(flaky.calls()).toBe(5) // initial + 4 retries (MAX_STREAM_RETRIES)
     // A failed turn commits no response and fabricates no turn duration.
     expect(state.messages.every((m) => m.turnDurationMs === undefined)).toBe(true)
     expect(state.messages.every((m) => m.responseDurationMs === undefined)).toBe(true)
-  })
+  }, 20000)
 
   test("does not retry a non-retryable error", async () => {
     const flaky = flakyLLM(1, false, textTurn("x"))
