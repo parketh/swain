@@ -14,7 +14,7 @@ import {
   ProviderId,
   ToolCallId,
 } from "@swain/llms"
-import { Effect, Layer, Schema, Stream } from "effect"
+import { Duration, Effect, Layer, Schema, Stream } from "effect"
 import { type AgentEvent, runTurn, submitPrompt } from "../src/agent"
 import { AgentError, ToolError } from "../src/errors"
 import type { Permissions } from "../src/permission"
@@ -538,6 +538,53 @@ describe("runTurn", () => {
     expect(exit._tag).toBe("Failure")
     expect(flaky.calls()).toBe(1) // failed once, no retry
   })
+
+  // LLM whose stream hangs (emits nothing and never completes) for the first
+  // `hangs` attempts, then replays `success`. Exercises the turn wall-clock cap.
+  const hangingLLM = (hangs: number, success: ReadonlyArray<LLMEvent>) => {
+    let calls = 0
+    return {
+      calls: () => calls,
+      layer: Layer.succeed(LLMClient.Service, {
+        request: LLMClient.request,
+        streamTurn: () => {
+          calls += 1
+          return calls <= hangs ? Stream.never : Stream.fromIterable(success)
+        },
+        generateTurn: () => Effect.succeed({ events: [] }),
+      }),
+    }
+  }
+
+  const runHanging = (flaky: ReturnType<typeof hangingLLM>, state: SessionState) =>
+    runTurn(state, { maxTurnDuration: Duration.millis(50) }).pipe(
+      Effect.provide(flaky.layer),
+      Effect.provide(toolContextLayer(state)),
+      Effect.provide(toolRegistryLayer([])),
+    )
+
+  test("aborts a runaway turn on the wall-clock cap and retries", async () => {
+    const flaky = hangingLLM(1, textTurn("recovered"))
+    const state = session()
+    submitPrompt(state, "hi")
+    await Effect.runPromise(runHanging(flaky, state))
+    expect(flaky.calls()).toBe(2) // one runaway (timed out) + one success
+    expect(state.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: [{ type: "text", text: "recovered" }],
+    })
+  })
+
+  // 20s timeout covers 5 aborts at 50ms + exponential backoff (1+2+4+8s) on the real clock.
+  test("gives up when the wall-clock cap trips every attempt", async () => {
+    const flaky = hangingLLM(10, textTurn("never"))
+    const state = session()
+    submitPrompt(state, "hi")
+    const exit = await Effect.runPromiseExit(runHanging(flaky, state))
+    expect(exit._tag).toBe("Failure")
+    expect(flaky.calls()).toBe(5) // initial + 4 retries (MAX_STREAM_RETRIES)
+    expect(state.messages.every((m) => m.responseDurationMs === undefined)).toBe(true)
+  }, 20000)
 
   test("forwards llm events, step boundaries, and tool lifecycle to onEvent", async () => {
     const contentId = ContentId.make("c-1")
