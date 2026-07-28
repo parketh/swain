@@ -121,6 +121,20 @@ describe("runHeadless", () => {
     expect(out).toBe("final only\n")
   })
 
+  test("exec allows more than 20 tool iterations before concluding", async () => {
+    seedAuth()
+    // 25 tool-call turns then a final text. Interactive default (20) would fail
+    // with max-iterations (exit 1) before reaching the text; exec's higher
+    // budget runs to the final "finished".
+    const turns = [
+      ...Array.from({ length: 25 }, () => toolCallTurn("Read", { path: "does-not-exist" })),
+      textTurn("finished"),
+    ]
+    const code = await runHeadless(options("go"), { llmLayer: scripted(turns).layer })
+    expect(code).toBe(0)
+    expect(out).toContain("finished")
+  })
+
   test("Ask is absent from the tool set and the non-interactive instruction reaches the model", async () => {
     seedAuth()
     const llm = scripted([textTurn("ok")])

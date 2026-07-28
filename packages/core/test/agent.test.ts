@@ -14,7 +14,7 @@ import {
   ProviderId,
   ToolCallId,
 } from "@swain/llms"
-import { Effect, Layer, Schema, Stream } from "effect"
+import { Duration, Effect, Layer, Schedule, Schema, Stream } from "effect"
 import { type AgentEvent, runTurn, submitPrompt } from "../src/agent"
 import { AgentError, ToolError } from "../src/errors"
 import type { Permissions } from "../src/permission"
@@ -94,6 +94,20 @@ describe("assembleSystemPrompt", () => {
 
   test("is stable for identical input", () => {
     expect(assembleSystemPrompt(baseInput)).toBe(assembleSystemPrompt(baseInput))
+  })
+
+  test("includes the general working-approach guidance", () => {
+    const prompt = assembleSystemPrompt(baseInput)
+    expect(prompt).toContain("Understand before you change")
+    expect(prompt).toContain("reuse its existing types, helpers, and patterns")
+    expect(prompt).toContain("Make the smallest correct change")
+    expect(prompt).toContain("Verify your work before concluding")
+    expect(prompt).toContain("Fix root causes")
+    // General guidance — no evaluation/benchmark framing. "eval" subsumes
+    // "evaluation"/"evaluated", the other forbidden framings.
+    expect(prompt.toLowerCase()).not.toContain("graded")
+    expect(prompt.toLowerCase()).not.toContain("benchmark")
+    expect(prompt.toLowerCase()).not.toContain("eval")
   })
 
   test("includes the non-interactive instruction only when requested", () => {
@@ -504,17 +518,19 @@ describe("runTurn", () => {
     expect(state.messages.at(-1)?.responseDurationMs).toBeGreaterThan(900)
   })
 
+  // The 20s timeout arg covers the exponential backoff (1+2+4+8s) exhausted on
+  // the real clock, above Bun's 5s default per-test timeout.
   test("gives up after the retry budget and fails the turn", async () => {
-    const flaky = flakyLLM(5, true, textTurn("never"))
+    const flaky = flakyLLM(10, true, textTurn("never"))
     const state = session()
     submitPrompt(state, "hi")
     const exit = await Effect.runPromiseExit(runFlaky(flaky, state))
     expect(exit._tag).toBe("Failure")
-    expect(flaky.calls()).toBe(3) // initial + 2 retries (MAX_STREAM_RETRIES)
+    expect(flaky.calls()).toBe(5) // initial + 4 retries (MAX_STREAM_RETRIES)
     // A failed turn commits no response and fabricates no turn duration.
     expect(state.messages.every((m) => m.turnDurationMs === undefined)).toBe(true)
     expect(state.messages.every((m) => m.responseDurationMs === undefined)).toBe(true)
-  })
+  }, 20000)
 
   test("does not retry a non-retryable error", async () => {
     const flaky = flakyLLM(1, false, textTurn("x"))
@@ -523,6 +539,93 @@ describe("runTurn", () => {
     const exit = await Effect.runPromiseExit(runFlaky(flaky, state))
     expect(exit._tag).toBe("Failure")
     expect(flaky.calls()).toBe(1) // failed once, no retry
+  })
+
+  // LLM whose stream hangs (emits nothing and never completes) for the first
+  // `hangs` attempts, then replays `success`. Exercises the turn wall-clock cap.
+  const hangingLLM = (hangs: number, success: ReadonlyArray<LLMEvent>) => {
+    let calls = 0
+    return {
+      calls: () => calls,
+      layer: Layer.succeed(LLMClient.Service, {
+        request: LLMClient.request,
+        streamTurn: () => {
+          calls += 1
+          return calls <= hangs ? Stream.never : Stream.fromIterable(success)
+        },
+        generateTurn: () => Effect.succeed({ events: [] }),
+      }),
+    }
+  }
+
+  const runHanging = (flaky: ReturnType<typeof hangingLLM>, state: SessionState) =>
+    runTurn(state, { maxTurnDuration: Duration.millis(50) }).pipe(
+      Effect.provide(flaky.layer),
+      Effect.provide(toolContextLayer(state)),
+      Effect.provide(toolRegistryLayer([])),
+    )
+
+  test("aborts a runaway turn on the wall-clock cap and retries", async () => {
+    const flaky = hangingLLM(1, textTurn("recovered"))
+    const state = session()
+    submitPrompt(state, "hi")
+    await Effect.runPromise(runHanging(flaky, state))
+    expect(flaky.calls()).toBe(2) // one runaway (timed out) + one success
+    expect(state.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: [{ type: "text", text: "recovered" }],
+    })
+  })
+
+  // 20s timeout covers 5 aborts at 50ms + exponential backoff (1+2+4+8s) on the real clock.
+  test("gives up when the wall-clock cap trips every attempt", async () => {
+    const flaky = hangingLLM(10, textTurn("never"))
+    const state = session()
+    submitPrompt(state, "hi")
+    const exit = await Effect.runPromiseExit(runHanging(flaky, state))
+    expect(exit._tag).toBe("Failure")
+    expect(flaky.calls()).toBe(5) // initial + 4 retries (MAX_STREAM_RETRIES)
+    expect(state.messages.every((m) => m.responseDurationMs === undefined)).toBe(true)
+  }, 20000)
+
+  // LLM whose stream emits continuously (an event every 5ms, never idle) but
+  // never completes for the first `runs` attempts, then replays `success`.
+  // Unlike hangingLLM (silent), this is the continuous-output runaway the wall
+  // cap exists for — the idle watchdog would never fire on it.
+  const runawayLLM = (runs: number, success: ReadonlyArray<LLMEvent>) => {
+    let calls = 0
+    const runaway = Stream.fromSchedule(Schedule.spaced(Duration.millis(5))).pipe(
+      Stream.map(
+        (n): LLMEvent => ({
+          type: "text-delta",
+          contentId: ContentId.make("runaway"),
+          text: `${n}`,
+        }),
+      ),
+    )
+    return {
+      calls: () => calls,
+      layer: Layer.succeed(LLMClient.Service, {
+        request: LLMClient.request,
+        streamTurn: () => {
+          calls += 1
+          return calls <= runs ? runaway : Stream.fromIterable(success)
+        },
+        generateTurn: () => Effect.succeed({ events: [] }),
+      }),
+    }
+  }
+
+  test("aborts a continuously emitting runaway stream on the wall-clock cap and retries", async () => {
+    const flaky = runawayLLM(1, textTurn("recovered"))
+    const state = session()
+    submitPrompt(state, "hi")
+    await Effect.runPromise(runHanging(flaky, state))
+    expect(flaky.calls()).toBe(2) // continuous-output attempt aborts at the cap, retry succeeds
+    expect(state.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: [{ type: "text", text: "recovered" }],
+    })
   })
 
   test("forwards llm events, step boundaries, and tool lifecycle to onEvent", async () => {
