@@ -42,7 +42,7 @@ import type { AnyTool, AskHandler, AskInput, AskResult } from "@swain/core/tools
 import type { GenerationOptions, ProviderOptions } from "@swain/llms"
 import { LLMClient } from "@swain/llms/client"
 import { OPENAI_CODEX_PROVIDER_ID } from "@swain/llms/providers"
-import { Effect, Fiber, Layer, Queue } from "effect"
+import { Duration, Effect, Fiber, Layer, Queue } from "effect"
 import { authPath, saveAuth } from "./auth"
 import { loadStoredCodexCredentials } from "./codex-auth"
 import { loginCodex } from "./codex-oauth"
@@ -176,6 +176,13 @@ export interface ControllerDeps {
    * force-concluded before the model finishes writing/committing work.
    */
   readonly maxIterations?: number
+  /**
+   * Hard cap on a single provider-stream attempt, forwarded to runTurn. Omitted
+   * → uncapped: interactive turns rely on the idle stream watchdog alone.
+   * Headless exec sets it so a runaway generation cannot burn the run's
+   * wall-clock budget.
+   */
+  readonly maxTurnDuration?: Duration.Duration
   /**
    * Overrides the base directory for task and tool-result storage. Config/auth
    * still come from `configPath`; only ephemeral session artifacts are routed
@@ -795,6 +802,7 @@ export const makeController = (deps: ControllerDeps): Controller => {
       }),
       ...(deps.nonInteractive === true && { nonInteractive: true }),
       ...(deps.maxIterations !== undefined && { maxIterations: deps.maxIterations }),
+      ...(deps.maxTurnDuration !== undefined && { maxTurnDuration: deps.maxTurnDuration }),
     }).pipe(
       Effect.provide(ctxLayer),
       Effect.provide(toolResultStoreLayer(pathJoin(sessionDirFor(session), "tool-results"))),

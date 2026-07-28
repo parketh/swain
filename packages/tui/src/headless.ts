@@ -4,7 +4,7 @@ import { join as pathJoin } from "node:path"
 import { BunContext } from "@effect/platform-bun"
 import { createSessionState, type SessionState, type TraceOutcome } from "@swain/core"
 import { builtinTools } from "@swain/core/tools"
-import { Effect, type Layer } from "effect"
+import { Duration, Effect, type Layer } from "effect"
 import type { HeadlessOptions } from "./cli"
 import { type TuiConfig } from "./config"
 import { makeController } from "./controller"
@@ -42,6 +42,16 @@ const finalAssistantText = (session: SessionState): string => {
  * timeout; this only prevents an unbounded runaway loop.
  */
 const EXEC_MAX_ITERATIONS = 200
+
+/**
+ * Per-attempt provider-stream wall cap for autonomous exec runs. A reasoning
+ * model can stochastically "run away" — streaming output continuously for many
+ * minutes without ever going idle — which the idle watchdog cannot catch and
+ * which burns the run's wall-clock budget. Aborting such an attempt (retryable)
+ * lets the bounded retry re-issue it, usually landing a fast turn. Interactive
+ * turns stay uncapped so a genuinely long reasoning stream is not cut off.
+ */
+const EXEC_MAX_TURN_DURATION = Duration.seconds(180)
 
 /** Forces routing off in the in-memory config; never persisted. */
 const withRoutingDisabled = (config: TuiConfig): TuiConfig => ({
@@ -141,6 +151,7 @@ export const runHeadless = async (
       tools: execTools,
       nonInteractive: true,
       maxIterations: EXEC_MAX_ITERATIONS,
+      maxTurnDuration: EXEC_MAX_TURN_DURATION,
       ...(recorder !== undefined && { onChildTrace: recorder.recordChild }),
       ...(testDeps.llmLayer !== undefined && { llmLayer: testDeps.llmLayer }),
     })

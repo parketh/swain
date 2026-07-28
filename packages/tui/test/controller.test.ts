@@ -16,7 +16,7 @@ import type { LLMEvent, LLMRequest, Model } from "@swain/llms"
 import { ContentId, LLMError, Message, ModelId, ProviderId, ToolCallId } from "@swain/llms"
 import { LLMClient } from "@swain/llms/client"
 import { OpenAIChat } from "@swain/llms/protocols"
-import { Effect, Layer, Stream } from "effect"
+import { Duration, Effect, Layer, Stream } from "effect"
 import { buildItems, emptyDraft } from "../src/components/Transcript"
 import { sessionsDir, type TuiConfig } from "../src/config"
 import { type Controller, makeController } from "../src/controller"
@@ -86,10 +86,11 @@ describe("controller", () => {
   })
 
   const build = (
-    llm: ReturnType<typeof scripted>,
+    llm: { layer: ReturnType<typeof scripted>["layer"] },
     permissionMode: PermissionMode = "auto",
     persist = false,
     maxIterations?: number,
+    maxTurnDuration?: Duration.Duration,
   ): Controller => {
     const session = createSessionState({
       workingDirectory: dir,
@@ -105,6 +106,7 @@ describe("controller", () => {
       llmLayer: llm.layer,
       persist,
       ...(maxIterations !== undefined && { maxIterations }),
+      ...(maxTurnDuration !== undefined && { maxTurnDuration }),
     })
     return controller
   }
@@ -181,6 +183,37 @@ describe("controller", () => {
     await c.submitPrompt("go")
     const last = c.getState().session.messages.at(-1)
     expect(last).toMatchObject({ role: "assistant", content: [{ type: "text", text: "done" }] })
+  })
+
+  // An LLM whose first stream hangs (never completes), then recovers. Proves
+  // the deps → runTurn wiring: without a forwarded maxTurnDuration the first
+  // attempt would hang forever; with a tiny cap it aborts (retryable) and the
+  // retry lands the recovered turn.
+  const hangingThenText = (text: string) => {
+    let calls = 0
+    return {
+      calls: () => calls,
+      layer: Layer.succeed(LLMClient.Service, {
+        request: LLMClient.request,
+        streamTurn: () => {
+          calls += 1
+          return calls === 1 ? Stream.never : Stream.fromIterable(textTurn(text))
+        },
+        generateTurn: () => Effect.succeed({ events: [] }),
+      }),
+    }
+  }
+
+  test("forwards maxTurnDuration to runTurn so a runaway stream is capped and retried", async () => {
+    const llm = hangingThenText("recovered")
+    const c = build(llm, "auto", false, undefined, Duration.millis(50))
+    await c.submitPrompt("go")
+    expect(llm.calls()).toBe(2) // first attempt hangs past the cap, retry succeeds
+    const last = c.getState().session.messages.at(-1)
+    expect(last).toMatchObject({
+      role: "assistant",
+      content: [{ type: "text", text: "recovered" }],
+    })
   })
 
   test("forwards both text deltas to the event subscriber in order", async () => {

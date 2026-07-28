@@ -55,12 +55,6 @@ const DEFAULT_MAX_ITERATIONS = 20
 const MAX_STREAM_RETRIES = 4
 const STREAM_RETRY_BASE_DELAY = Duration.seconds(1)
 
-// Hard cap on a single turn's total streaming time. A turn that streams
-// continuously past this (a runaway generation) is aborted with a retryable
-// error so the bounded retry re-issues it; complements the idle-based
-// STREAM_IDLE_TIMEOUT, which only catches a stream that goes silent.
-const DEFAULT_MAX_TURN_DURATION = Duration.seconds(180)
-
 export const submitPrompt = (session: SessionState, prompt: string, isMeta = false): void => {
   session.messages.push(userMessage(prompt, { isMeta }))
 }
@@ -167,10 +161,13 @@ export type AgentEvent =
 export interface RunTurnOptions {
   readonly maxIterations?: number
   /**
-   * Hard cap on a single turn's total streaming time. A turn that streams
-   * continuously past this (a runaway generation) is aborted with a retryable
-   * error so the bounded retry re-issues it. Defaults to
-   * DEFAULT_MAX_TURN_DURATION; overridable mainly for tests.
+   * Hard cap on a single provider-stream attempt. A stream that keeps producing
+   * output past this (a runaway generation the idle watchdog cannot catch) is
+   * aborted with a retryable error, so the bounded retry re-issues it; the cap
+   * re-arms per attempt. Omitted → no wall-clock cap: interactive turns rely on
+   * the idle STREAM_IDLE_TIMEOUT alone, so a legitimately long reasoning stream
+   * is never aborted mid-flight. Headless exec sets it to keep a runaway turn
+   * from burning the run's whole wall-clock budget.
    */
   readonly maxTurnDuration?: Duration.Duration
   /**
@@ -193,7 +190,7 @@ interface LoopContext {
   readonly buildSystem: () => string
   readonly llmTools: ReadonlyArray<LLMTool>
   readonly maxIterations: number
-  readonly maxTurnDuration: Duration.Duration
+  readonly maxTurnDuration: Duration.Duration | undefined
   readonly resolver: Option.Option<ModelResolver>
   readonly emit: (event: AgentEvent) => Effect.Effect<void>
   /** Tool names whose `callTool` latency is persisted as `durationMs`. */
@@ -406,7 +403,7 @@ export const runTurn = (
       buildSystem,
       llmTools,
       maxIterations: options.maxIterations ?? DEFAULT_MAX_ITERATIONS,
-      maxTurnDuration: options.maxTurnDuration ?? DEFAULT_MAX_TURN_DURATION,
+      maxTurnDuration: options.maxTurnDuration,
       resolver,
       emit,
       timedTools,
@@ -533,21 +530,30 @@ const loop = (
     // Time the whole provider-response cycle: stream collection plus any
     // retryable failed attempts and their backoff. The monotonic clock stops
     // once the final event is collected; summary decoding is excluded.
-    // Two complementary per-attempt watchdogs: STREAM_IDLE_TIMEOUT (in the llms
-    // layer) fails a stream that goes silent; this total-duration cap fails a
-    // stream that runs away producing output continuously. Both surface as
-    // retryable errors inside the retry below, so a bounded number of re-issues
-    // can recover a transient stall or a stochastic runaway.
-    const [responseElapsed, collected] = yield* streamOnce.pipe(
-      Effect.timeoutFail({
-        duration: ctx.maxTurnDuration,
-        onTimeout: () =>
-          new LLMError({
-            reason: "network-error",
-            message: `Turn exceeded max duration of ${Duration.toSeconds(ctx.maxTurnDuration)}s.`,
-            retryable: true,
-          }),
-      }),
+    // Two complementary watchdogs guard each attempt: STREAM_IDLE_TIMEOUT (in
+    // the llms layer) fails a stream that goes silent, while the optional
+    // per-attempt wall cap below fails one that runs away producing output
+    // continuously. Both surface as retryable errors inside the retry, so a
+    // bounded number of re-issues can recover a transient stall or a stochastic
+    // runaway. The wall cap is opt-in (headless exec sets it); interactive turns
+    // run uncapped and rely on the idle watchdog alone, so a legitimately long
+    // reasoning stream is never aborted mid-flight.
+    const wallCap = ctx.maxTurnDuration
+    const cappedStream =
+      wallCap === undefined
+        ? streamOnce
+        : streamOnce.pipe(
+            Effect.timeoutFail({
+              duration: wallCap,
+              onTimeout: () =>
+                new LLMError({
+                  reason: "network-error",
+                  message: `Provider stream exceeded max duration of ${Duration.toSeconds(wallCap)}s.`,
+                  retryable: true,
+                }),
+            }),
+          )
+    const [responseElapsed, collected] = yield* cappedStream.pipe(
       Effect.retry(
         Schedule.exponential(STREAM_RETRY_BASE_DELAY).pipe(
           Schedule.intersect(Schedule.recurs(MAX_STREAM_RETRIES)),
