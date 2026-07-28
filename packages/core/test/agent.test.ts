@@ -103,9 +103,11 @@ describe("assembleSystemPrompt", () => {
     expect(prompt).toContain("Make the smallest correct change")
     expect(prompt).toContain("Verify your work before concluding")
     expect(prompt).toContain("Fix root causes")
-    // General guidance — no evaluation/benchmark framing.
+    // General guidance — no evaluation/benchmark framing. "eval" subsumes
+    // "evaluation"/"evaluated", the other forbidden framings.
     expect(prompt.toLowerCase()).not.toContain("graded")
     expect(prompt.toLowerCase()).not.toContain("benchmark")
+    expect(prompt.toLowerCase()).not.toContain("eval")
   })
 
   test("includes the non-interactive instruction only when requested", () => {

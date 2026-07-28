@@ -52,16 +52,19 @@ Rationale is deliberately general and would apply to any coding task; nothing he
 **Step 1: Write failing test**
 
 ```typescript
-test("includes the general working-approach guidance in every mode", () => {
+// The section is pushed unconditionally, so the always-present `baseInput`
+// prompt is representative of every mode — no need to enumerate each mode.
+test("includes the general working-approach guidance", () => {
   const prompt = assembleSystemPrompt(baseInput)
   expect(prompt).toContain("Understand before you change")
   expect(prompt).toContain("reuse its existing types, helpers, and patterns")
   expect(prompt).toContain("Make the smallest correct change")
   expect(prompt).toContain("Verify your work before concluding")
   expect(prompt).toContain("Fix root causes")
-  // General — no evaluation/benchmark framing:
+  // General — no evaluation/benchmark framing ("eval" subsumes "evaluation"):
   expect(prompt.toLowerCase()).not.toContain("graded")
   expect(prompt.toLowerCase()).not.toContain("benchmark")
+  expect(prompt.toLowerCase()).not.toContain("eval")
 })
 ```
 
