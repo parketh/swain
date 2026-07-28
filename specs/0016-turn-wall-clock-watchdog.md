@@ -233,4 +233,11 @@ No `evals/` changes.
 
 ## Post-Implementation Changes
 
-_(to be filled in after implementation + eval re-run)_
+Implemented as specified: `DEFAULT_MAX_TURN_DURATION = 180s` constant, threaded as `RunTurnOptions.maxTurnDuration` → `LoopContext`; `Effect.timeoutFail` per-attempt inside the existing retry; `LLMError` moved to a value import. Two tests (recover, exhaustion). 387 core+llms tests pass; typecheck/format clean. Released as `v0.2.1-eval.5`.
+
+**Measured effect (glm-5.2, TB2, partial — background runs repeatedly killed externally; single-task and partial-batch data):**
+- **The wall-cap works.** circuit-fibsqrt's trace shows `Turn exceeded max duration of 180s.` — the watchdog fires and bounds a runaway. It converts what was an eval.3 **crash** (circuit-fibsqrt `ConversionError`: NDJSON had no terminal result event) into a **graceful, scorable failure** (reward 0.0). Robustness win, no regression: the 3 consistently-passing tasks (break-filter-js-from-html, build-pov-ray, distribution-search) still pass.
+- **But it does not flip a pass, and revealed the runaway is often *deterministic*.** circuit-fibsqrt ran away on *all 5 attempts* (initial + 4 retries) and exhausted the budget — glm-5.2 is genuinely stuck on that hard task, so the retry (which assumes stochastic recovery) cannot help; the cap only bounds the wasted ~900s.
+- **The remaining failures are model-/provider-bound, not harness bugs.** Across runs the hard tasks fail from *different* transient causes: deterministic runaway (circuit-fibsqrt), idle stall (make-mips, `no data for 120s`), and a zai transport outage (path-tracing, `RequestError` — already retryable, but zai was unreachable across the whole retry window). The local replay probe proved context/TTFT handling is fine; it is glm capability + zai API reliability.
+
+**Decision: KEEP.** A general robustness improvement — bounds runaway per-turn generation, prevents single-turn wall-clock exhaustion (the eval.3 path-tracing 1800s timeout mode), and turns crashes into graceful scorable failures — with no regression. It does not raise the pass count because the residual failures are glm-5.2 capability limits on hard tasks plus zai API reliability, which are outside `packages/`. A possible future refinement (out of scope): a smaller retry budget for the wall-cap error class, since a deterministic runaway wastes retries.
