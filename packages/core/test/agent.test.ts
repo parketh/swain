@@ -14,7 +14,7 @@ import {
   ProviderId,
   ToolCallId,
 } from "@swain/llms"
-import { Duration, Effect, Layer, Schema, Stream } from "effect"
+import { Duration, Effect, Layer, Schedule, Schema, Stream } from "effect"
 import { type AgentEvent, runTurn, submitPrompt } from "../src/agent"
 import { AgentError, ToolError } from "../src/errors"
 import type { Permissions } from "../src/permission"
@@ -585,6 +585,46 @@ describe("runTurn", () => {
     expect(flaky.calls()).toBe(5) // initial + 4 retries (MAX_STREAM_RETRIES)
     expect(state.messages.every((m) => m.responseDurationMs === undefined)).toBe(true)
   }, 20000)
+
+  // LLM whose stream emits continuously (an event every 5ms, never idle) but
+  // never completes for the first `runs` attempts, then replays `success`.
+  // Unlike hangingLLM (silent), this is the continuous-output runaway the wall
+  // cap exists for — the idle watchdog would never fire on it.
+  const runawayLLM = (runs: number, success: ReadonlyArray<LLMEvent>) => {
+    let calls = 0
+    const runaway = Stream.fromSchedule(Schedule.spaced(Duration.millis(5))).pipe(
+      Stream.map(
+        (n): LLMEvent => ({
+          type: "text-delta",
+          contentId: ContentId.make("runaway"),
+          text: `${n}`,
+        }),
+      ),
+    )
+    return {
+      calls: () => calls,
+      layer: Layer.succeed(LLMClient.Service, {
+        request: LLMClient.request,
+        streamTurn: () => {
+          calls += 1
+          return calls <= runs ? runaway : Stream.fromIterable(success)
+        },
+        generateTurn: () => Effect.succeed({ events: [] }),
+      }),
+    }
+  }
+
+  test("aborts a continuously emitting runaway stream on the wall-clock cap and retries", async () => {
+    const flaky = runawayLLM(1, textTurn("recovered"))
+    const state = session()
+    submitPrompt(state, "hi")
+    await Effect.runPromise(runHanging(flaky, state))
+    expect(flaky.calls()).toBe(2) // continuous-output attempt aborts at the cap, retry succeeds
+    expect(state.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: [{ type: "text", text: "recovered" }],
+    })
+  })
 
   test("forwards llm events, step boundaries, and tool lifecycle to onEvent", async () => {
     const contentId = ContentId.make("c-1")
