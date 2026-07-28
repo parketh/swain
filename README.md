@@ -4,7 +4,7 @@
 >
 > _...or perhaps, a_ "<ins>**s**</ins>oft<ins>**w**</ins>are <ins>**ai**</ins> e<ins>**n**</ins>gineer".
 
-**Swain is a meta-agent harness for coding.** Like a regular harness, it excels at a variety of long-form coding tasks such as "implement this feature", "add a test suite", or "refactor this code". 
+**Swain is an experimental agent harness for coding.** Like a regular harness, it excels at a variety of long-form coding tasks such as "implement this feature", "add a test suite", or "refactor this code". 
 
 Unlike provider-vendored harnesses, Swain:
 - is **model-agnostic**, allowing users to move seamlessly between LLMs and model providers
