@@ -207,7 +207,7 @@ Expected: PASS — 5 attempts, all time out (retryable), budget exhausted, turn 
 **Steps:**
 1. `bun run typecheck` — clean.
 2. `bun run format:check` — clean (run `bun run format` if needed).
-3. `bun test packages/core/test packages/llms/test --path-ignore-patterns='**/live/**'` — all pass (existing retry tests unaffected: their streams complete or fail fast, well under the default 300s cap and the tiny test cap is only injected in the new test).
+3. `bun test packages/core/test packages/llms/test --path-ignore-patterns='**/live/**'` — all pass (existing retry tests unaffected: their streams complete or fail fast, well under the 180s cap and the tiny test cap is only injected in the new test).
 
 ## Files likely to change
 
@@ -224,7 +224,7 @@ No `evals/` changes.
 
 ## Risks, tradeoffs, and open questions
 
-- **Aborting a legitimately long turn.** A turn genuinely needing >300s of continuous streaming would be aborted. Mitigated by the generous cap (normal turns are seconds); a >300s continuous stream is pathological. If a real workload needs longer, the cap is overridable via `RunTurnOptions`.
+- **Aborting a legitimately long turn.** A turn genuinely needing >180s of continuous streaming would be aborted. Mitigated by the generous cap (normal turns are seconds) and by scoping it to headless exec only (see Post-Implementation Changes): interactive turns are uncapped, so a long reasoning stream in the TUI is never cut off. If a real exec workload needs longer, the cap is overridable via `RunTurnOptions`.
 - **Retry may re-run away.** If the runaway were deterministic for a request, retries would repeatedly time out and exhaust the budget (~180s × up to 5 attempts ≈ 915s with backoff). The probe showed it is stochastic (3/4 identical requests were fast), so a retry usually recovers; worst-case remains bounded by the retry budget and is sized (via the 180s cap) to stay under half the run wall. A future refinement, if a persistent runaway is ever observed, is a *smaller* retry budget for this error class specifically (out of scope now — the shared budget keeps the change minimal).
 - **Interrupt-based connection release.** The wall-cap interrupts `Stream.runForEach` from *outside* the stream (the idle timeout fails from *inside* it), relying on stream finalizers running on interruption to close the provider HTTP connection. This is the runtime's standard interruption machinery, but during implementation do a one-line sanity check that the aborted attempt does not leak a connection.
 - **Partial emitted events on abort.** Interrupting mid-stream orphans already-`emit`ted partial events in the event stream (not in `session.messages`). Pre-existing behavior shared with the idle-stall abort (see 0015); de-dup belongs at the event consumer and is out of scope.
@@ -241,3 +241,10 @@ Implemented as specified: `DEFAULT_MAX_TURN_DURATION = 180s` constant, threaded 
 - **The remaining failures are model-/provider-bound, not harness bugs.** Across runs the hard tasks fail from *different* transient causes: deterministic runaway (circuit-fibsqrt), idle stall (make-mips, `no data for 120s`), and a zai transport outage (path-tracing, `RequestError` — already retryable, but zai was unreachable across the whole retry window). The local replay probe proved context/TTFT handling is fine; it is glm capability + zai API reliability.
 
 **Decision: KEEP.** A general robustness improvement — bounds runaway per-turn generation, prevents single-turn wall-clock exhaustion (the eval.3 path-tracing 1800s timeout mode), and turns crashes into graceful scorable failures — with no regression. It does not raise the pass count because the residual failures are glm-5.2 capability limits on hard tasks plus zai API reliability, which are outside `packages/`. A possible future refinement (out of scope): a smaller retry budget for the wall-cap error class, since a deterministic runaway wastes retries.
+
+### Post-review revision (PR #39)
+
+Review flagged two things about the original implementation, both addressed:
+
+- **The cap is per *attempt*, not per turn.** Because `Effect.timeoutFail` sits *inside* `Effect.retry`, it re-arms on every attempt: it bounds a single provider-stream attempt at 180s, and a persistently-runaway turn can consume up to `5 × 180s + backoff ≈ 915s` across the retry budget. The constant, option doc, and error message ("Provider stream exceeded max duration…") now describe per-attempt semantics; earlier "single turn's total streaming time" wording was imprecise.
+- **Scoped to headless exec only.** The cap was originally a core default (`DEFAULT_MAX_TURN_DURATION`) applied to every turn, so it also reached the interactive TUI. Since opencode's experience shows a hard wall-clock cap harms legitimately long interactive reasoning (they reverted a 60s cap for that reason) and the runaway only burns a hard budget on the eval/exec path, the constant moved to `headless.ts` as `EXEC_MAX_TURN_DURATION` and is threaded through `ControllerDeps` — mirroring `maxIterations`. `RunTurnOptions.maxTurnDuration` is now truly optional (omitted → no cap); interactive relies on the idle `STREAM_IDLE_TIMEOUT` alone. Related: the orphaned-partial-events risk above is tracked as issue #40.
