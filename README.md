@@ -25,10 +25,21 @@ packages/
   core/             # core agent loop: session state, tools, memory, routing, etc.
   tui/              # interactive CLI over the core agent loop
 specs/              # numbered build journals and design records
+evals/              # eval harness for benchmarking Swain against TB2, DeepSWE, etc.
 ARCHITECTURE.md     # technical architecture
 AGENTS.md           # minimal agent-facing instructions
 CLAUDE.md           # redirect to AGENTS.md 
 ```
+
+## Auto-improvement loop
+
+After hand-building an initial feature set, Swain was handed off to agents to automatically propose, implement and evaluate candidate improvements using self-guided loops. Loop broadly iterate over the following steps:
+
+1. Review: the agent runs benchmarks, reviews past execution traces and inspects build journals to propose candidate improvements to the harness code
+2. Plan: the agent writes a numbered [build spec](#spec-driven-development) breaking down the proposed code changes into small, self-contained and independently verifiable tasks
+3. Implement: agents implement the change according to the build spec, and hands this off for adverserial review
+4. Test: eval benchmarks (e.g. Terminal-Bench 2.0, DeepSWE) are rerun to generate new scores and execution traces
+5. Gate: the proposed change is either kept or rolled back depending on benchmark results, with full logs and traces preserved to guide future iteration
 
 ## Spec-driven development
 
