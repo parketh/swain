@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "effect": "3.22.0",
-    "@effect/platform": "0.97.0",
+    "@effect/platform": "0.97.2",
     "@effect/platform-bun": "0.91.0",
     "@swain/llms": "workspace:*",
     "diff": "9.0.0"
